@@ -1,0 +1,2986 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-09T11:20:16.817Z",
+  "model": "ollama:gpt-oss-20b-compactfill",
+  "repeats": 5,
+  "preflight": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "name": "задача: файлы фикстуры",
+        "ok": true,
+        "env": true,
+        "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+        "durationMs": 0
+      },
+      {
+        "name": "задача: банк ответов человека",
+        "ok": true,
+        "env": true,
+        "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+        "durationMs": 0
+      },
+      {
+        "name": "конфиг: контрольный маршрут",
+        "ok": true,
+        "env": true,
+        "detail": "маршрут «контроль на подписке Claude» собирается",
+        "durationMs": 6
+      },
+      {
+        "name": "фикстура: сборка",
+        "ok": true,
+        "env": true,
+        "detail": "build-check.mjs зелёный",
+        "durationMs": 143
+      },
+      {
+        "name": "фикстура: тесты",
+        "ok": true,
+        "env": true,
+        "detail": "нетронутая фикстура зелёная (2 файлов)",
+        "durationMs": 243
+      },
+      {
+        "name": "стенд: лимит ходов",
+        "ok": true,
+        "env": true,
+        "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: промпт plan против окна",
+        "ok": true,
+        "env": true,
+        "detail": "системная часть plan ≈6218 токенов при окне 16384",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: окно контекста",
+        "ok": true,
+        "env": true,
+        "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: прогрев движка",
+        "ok": true,
+        "env": true,
+        "detail": "движок ответил — веса подняты до замеряемых проб",
+        "durationMs": 21200
+      },
+      {
+        "name": "модель: раскладка после прогрева",
+        "ok": true,
+        "env": false,
+        "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+        "durationMs": 4
+      },
+      {
+        "name": "модель: вызов Write",
+        "ok": true,
+        "env": false,
+        "detail": "Write(notes/hello.md)",
+        "durationMs": 1244
+      },
+      {
+        "name": "модель: заполнение поля через Edit",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с плейсхолдером в old_string",
+        "durationMs": 3165
+      },
+      {
+        "name": "модель: чтение → запись",
+        "ok": true,
+        "env": false,
+        "detail": "Read, затем Edit",
+        "durationMs": 4726
+      },
+      {
+        "name": "модель: точный Edit многострочного блока",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с точным многострочным old_string",
+        "durationMs": 5965
+      },
+      {
+        "name": "модель: честность путей",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строго по объявленному файлу src/a.ts",
+        "durationMs": 1696
+      },
+      {
+        "name": "модель: длинная запись без усечения",
+        "ok": true,
+        "env": false,
+        "detail": "Write с маркером 60-й строки — ответ не усечён",
+        "durationMs": 8724
+      },
+      {
+        "name": "модель: правка поля без перезаписи файла",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строки карты, поле решения человека не тронуто",
+        "durationMs": 4658
+      }
+    ]
+  },
+  "fingerprint": {
+    "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+    "sourceHash": "e98ea04d65f97c8c4a4069a502635afbba08d2b18a54ab29dfd171b714b30c3c",
+    "configHash": "943c7c8eab76d50eea02d5a63230a4a4402ebc8b404745538c8cc547514ef64f",
+    "modelConfigHash": "1f08c680dcd6fed44e50aa24465544a1d5259f19b6cc1e4758e39fdecad92b7d"
+  },
+  "cases": [
+    {
+      "id": "I01",
+      "task": "oversize",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        5,
+        7,
+        14
+      ],
+      "evaluation": "intent rubric: preserve scope, constraints, measurable acceptance criteria",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i01-1791537113774-1",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 83066,
+          "tokens": 35181,
+          "toolCalls": 3,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "ebfffe67ffee51be87eb291327da1b3f8c46e1e1140fa10a57dd3831a8700e0e",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i01-1791537113774-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i01-1791537198684-2",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 108459,
+          "tokens": 37076,
+          "toolCalls": 3,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "bb9da513f60387f700b21cd97fc9a3dcada0a52c7ca36109cc554fcb9228c64f",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i01-1791537198684-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i01-1791537309132-3",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 65909,
+          "tokens": 29944,
+          "toolCalls": 2,
+          "friction": 3,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f0f144d8e1109a2fda70ecd10c24df6b2a9adcebd1e3580ee7d76f11104e09cd",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i01-1791537309132-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i01-1791537377081-4",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 116337,
+          "tokens": 39418,
+          "toolCalls": 3,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "691cb9c5ee664475d74b66a8fd9dfea755bfd4f092bdabb51031a69d9e869082",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i01-1791537377081-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i01-1791537495407-5",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 100567,
+          "tokens": 37915,
+          "toolCalls": 2,
+          "friction": 4,
+          "reason": "в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: 1 — задача не готова. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "17253d5c293d44977b6b53a90cedfcf57be1f1cd01a9c0f80c2a13f735d13589",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i01-1791537495407-5.json"
+        }
+      ]
+    },
+    {
+      "id": "I02",
+      "task": "contradiction",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        7
+      ],
+      "evaluation": "contradiction rubric: detect conflict and ask before committing to either answer",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i02-1791537597730-1",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 72646,
+          "tokens": 30959,
+          "toolCalls": 3,
+          "friction": 3,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b463221703c3a8fc6c111d87ac2a52777681f625c2ed488dd4a58aca0206ca15",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i02-1791537597730-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i02-1791537672349-2",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 110143,
+          "tokens": 29279,
+          "toolCalls": 1,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "25641dadf562b596e07f04603bbc85375db6b86cde90f88e6ffec0996d456023",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i02-1791537672349-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i02-1791537789238-3",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 105433,
+          "tokens": 27641,
+          "toolCalls": 1,
+          "friction": 2,
+          "reason": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (7 пунктов, 3 [edge]); процедуры проверки ✅; инварианты ❌; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "ca63d217cf41b524e3dab63626eb1871b5e506ced642d51c08bf6ca5cb4abb55",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i02-1791537789238-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i02-1791537898333-4",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 84327,
+          "tokens": 33780,
+          "toolCalls": 1,
+          "friction": 3,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "3652acdc99c6a5f986f1c83d902b2735eba90cfe81f0b025417a072a7a017e86",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i02-1791537898333-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-i02-1791537984600-5",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "UNFILLED"
+          ],
+          "durationMs": 88380,
+          "tokens": 31076,
+          "toolCalls": 1,
+          "friction": 2,
+          "reason": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (5 пунктов, 5 [edge]); процедуры проверки ✅; инварианты ❌; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "e56b2450b1609f39e1390278f22a9566faf99c8e9e89f84876021a44c1a41d31",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-i02-1791537984600-5.json"
+        }
+      ]
+    },
+    {
+      "id": "E01",
+      "task": "rename-field",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4,
+        10
+      ],
+      "evaluation": "required files, symbols, dependency chain, and exploration completeness",
+      "inputStatus": "available",
+      "inputReason": "rename-field-intent-reference",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e01-1791538074898-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120626,
+          "tokens": 7779,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e01-1791538074898-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e01-1791538196868-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120588,
+          "tokens": 31567,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e01-1791538196868-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e01-1791538318720-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120596,
+          "tokens": 49564,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e01-1791538318720-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e01-1791538440610-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120613,
+          "tokens": 9874,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e01-1791538440610-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e01-1791538562853-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120607,
+          "tokens": 42972,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e01-1791538562853-5.json"
+        }
+      ]
+    },
+    {
+      "id": "E02",
+      "task": "multi-file-cascade",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4
+      ],
+      "evaluation": "dependency graph and all affected modules",
+      "inputStatus": "available",
+      "inputReason": "diagnostic-multi-file-cascade-intent-v1",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e02-1791538684703-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120636,
+          "tokens": 56761,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e02-1791538684703-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e02-1791538806758-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120606,
+          "tokens": 60073,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e02-1791538806758-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e02-1791538928694-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120625,
+          "tokens": 55911,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e02-1791538928694-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e02-1791539050576-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120583,
+          "tokens": 54569,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e02-1791539050576-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-e02-1791539172432-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120603,
+          "tokens": 38136,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-e02-1791539172432-5.json"
+        }
+      ]
+    },
+    {
+      "id": "A01",
+      "task": "two-right-answers",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "snapshot": "two-right-answers-explore-reviewed-v1",
+      "expectedSkipped": true,
+      "problemIds": [
+        9
+      ],
+      "evaluation": "conditional skip control: copying is established by src/hold.ts and test/hold.test.ts; the model must record the choice and code evidence in plan before implementation",
+      "inputStatus": "available",
+      "inputReason": "two-right-answers-explore-reviewed-v1: expected conditional skip",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a01-1791539294355-1",
+          "exitCode": 2,
+          "outcome": "safely-skipped",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 630,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9f66d3689d015ac7ce2571f7b01b6708fa40097e5e1d8ba0977fbeca85679999",
+            "snapshotName": "two-right-answers-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a01-1791539294355-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a01-1791539296279-2",
+          "exitCode": 2,
+          "outcome": "safely-skipped",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 663,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9f66d3689d015ac7ce2571f7b01b6708fa40097e5e1d8ba0977fbeca85679999",
+            "snapshotName": "two-right-answers-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a01-1791539296279-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a01-1791539298279-3",
+          "exitCode": 2,
+          "outcome": "safely-skipped",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 663,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9f66d3689d015ac7ce2571f7b01b6708fa40097e5e1d8ba0977fbeca85679999",
+            "snapshotName": "two-right-answers-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a01-1791539298279-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a01-1791539300468-4",
+          "exitCode": 2,
+          "outcome": "safely-skipped",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 668,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9f66d3689d015ac7ce2571f7b01b6708fa40097e5e1d8ba0977fbeca85679999",
+            "snapshotName": "two-right-answers-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a01-1791539300468-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a01-1791539302537-5",
+          "exitCode": 2,
+          "outcome": "safely-skipped",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 614,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9f66d3689d015ac7ce2571f7b01b6708fa40097e5e1d8ba0977fbeca85679999",
+            "snapshotName": "two-right-answers-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a01-1791539302537-5.json"
+        }
+      ]
+    },
+    {
+      "id": "A02",
+      "task": "impossible-without-data",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "snapshot": "impossible-without-data-explore-reviewed-v1",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask for coefficient and order of application; record the human answer rather than inventing a value",
+      "inputStatus": "available",
+      "inputReason": "impossible-without-data-explore-reviewed-v1",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a02-1791539304482-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120644,
+          "tokens": 34184,
+          "toolCalls": 1,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f205d854b48bcf9a19abf8d440b1e516b67468bc45e02fc9acc643b52fbac796",
+            "snapshotName": "impossible-without-data-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a02-1791539304482-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a02-1791539426499-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120644,
+          "tokens": 71039,
+          "toolCalls": 5,
+          "friction": 1,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f205d854b48bcf9a19abf8d440b1e516b67468bc45e02fc9acc643b52fbac796",
+            "snapshotName": "impossible-without-data-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a02-1791539426499-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a02-1791539548415-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120738,
+          "tokens": 52608,
+          "toolCalls": 2,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f205d854b48bcf9a19abf8d440b1e516b67468bc45e02fc9acc643b52fbac796",
+            "snapshotName": "impossible-without-data-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a02-1791539548415-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a02-1791539670397-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120608,
+          "tokens": 49427,
+          "toolCalls": 3,
+          "friction": 2,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f205d854b48bcf9a19abf8d440b1e516b67468bc45e02fc9acc643b52fbac796",
+            "snapshotName": "impossible-without-data-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a02-1791539670397-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-a02-1791539792311-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120628,
+          "tokens": 92653,
+          "toolCalls": 7,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "f205d854b48bcf9a19abf8d440b1e516b67468bc45e02fc9acc643b52fbac796",
+            "snapshotName": "impossible-without-data-explore-reviewed-v1",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-a02-1791539792311-5.json"
+        }
+      ]
+    },
+    {
+      "id": "P01",
+      "task": "config-default",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "snapshot": "config-default-plan-reference-v4",
+      "problemIds": [
+        6,
+        15
+      ],
+      "evaluation": "config default behavior, compatibility, and tests",
+      "inputStatus": "available",
+      "inputReason": "config-default-plan-reference-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p01-1791539914311-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120694,
+          "tokens": 84253,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p01-1791539914311-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p01-1791540036375-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120687,
+          "tokens": 79368,
+          "toolCalls": 1,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p01-1791540036375-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p01-1791540158398-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120769,
+          "tokens": 89622,
+          "toolCalls": 1,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p01-1791540158398-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p01-1791540280797-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120659,
+          "tokens": 79510,
+          "toolCalls": 1,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p01-1791540280797-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p01-1791540402735-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120642,
+          "tokens": 78978,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p01-1791540402735-5.json"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "task": "migration-compat",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "snapshot": "migration-compat-plan-reference-v4",
+      "problemIds": [
+        6
+      ],
+      "evaluation": "migration sequencing, compatibility window, rollback",
+      "inputStatus": "available",
+      "inputReason": "migration-compat-plan-reference-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p02-1791540524705-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120691,
+          "tokens": 89602,
+          "toolCalls": 1,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p02-1791540524705-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p02-1791540646837-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120642,
+          "tokens": 95785,
+          "toolCalls": 1,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p02-1791540646837-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p02-1791540768801-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120650,
+          "tokens": 89661,
+          "toolCalls": 1,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p02-1791540768801-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p02-1791540890695-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120629,
+          "tokens": 89937,
+          "toolCalls": 1,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p02-1791540890695-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-p02-1791541012581-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120686,
+          "tokens": 89431,
+          "toolCalls": 1,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-p02-1791541012581-5.json"
+        }
+      ]
+    },
+    {
+      "id": "C01",
+      "task": "vat-rounding",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "vat-rounding-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        11,
+        12,
+        13,
+        26
+      ],
+      "evaluation": "correct rounding semantics, affected files, tests",
+      "inputStatus": "available",
+      "inputReason": "vat-rounding-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c01-1791541134622-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "HIDDEN_TEST_FAILED"
+          ],
+          "durationMs": 120882,
+          "tokens": 29065,
+          "toolCalls": 3,
+          "friction": 1,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c01-1791541134622-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c01-1791541257126-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120688,
+          "tokens": 23147,
+          "toolCalls": 4,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c01-1791541257126-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c01-1791541379373-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120697,
+          "tokens": 24231,
+          "toolCalls": 4,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c01-1791541379373-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c01-1791541501657-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120734,
+          "tokens": 23760,
+          "toolCalls": 4,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c01-1791541501657-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c01-1791541624035-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120655,
+          "tokens": 25248,
+          "toolCalls": 4,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c01-1791541624035-5.json"
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "task": "rename-field",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "rename-field-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        8,
+        11,
+        12,
+        13
+      ],
+      "evaluation": "complete rename, migration compatibility, tests",
+      "inputStatus": "available",
+      "inputReason": "rename-field-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791541746225-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120643,
+          "tokens": 28800,
+          "toolCalls": 5,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c02-1791541746225-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791541868419-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "HIDDEN_TEST_FAILED"
+          ],
+          "durationMs": 120700,
+          "tokens": 29874,
+          "toolCalls": 2,
+          "friction": 1,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c02-1791541868419-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791541990695-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 120692,
+          "tokens": 34759,
+          "toolCalls": 5,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c02-1791541990695-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791542112867-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "HIDDEN_TEST_FAILED"
+          ],
+          "durationMs": 120645,
+          "tokens": 18198,
+          "toolCalls": 2,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c02-1791542112867-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791542234965-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "HIDDEN_TEST_FAILED"
+          ],
+          "durationMs": 120628,
+          "tokens": 36182,
+          "toolCalls": 2,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-c02-1791542234965-5.json"
+        }
+      ]
+    },
+    {
+      "id": "V00",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "none",
+      "evaluation": "clean control: no unsupported findings, accurate gate report",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v00-1791542357096-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120837,
+          "tokens": 130121,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v00-1791542357096-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v00-1791542479275-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120693,
+          "tokens": 154631,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v00-1791542479275-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v00-1791542601279-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120692,
+          "tokens": 141519,
+          "toolCalls": 1,
+          "friction": 2,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v00-1791542601279-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v00-1791542723286-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120833,
+          "tokens": 142117,
+          "toolCalls": 1,
+          "friction": 2,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v00-1791542723286-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v00-1791542845613-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120760,
+          "tokens": 141439,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v00-1791542845613-5.json"
+        }
+      ]
+    },
+    {
+      "id": "V01",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-config-blind",
+      "evaluation": "name the seeded configuration defect with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v01-1791542967746-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120661,
+          "tokens": 143652,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v01-1791542967746-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v01-1791543090197-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120715,
+          "tokens": 300870,
+          "toolCalls": 2,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v01-1791543090197-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v01-1791543212689-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120694,
+          "tokens": 212641,
+          "toolCalls": 2,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v01-1791543212689-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v01-1791543335137-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120695,
+          "tokens": 200010,
+          "toolCalls": 2,
+          "friction": 6,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v01-1791543335137-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v01-1791543457584-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120691,
+          "tokens": 143192,
+          "toolCalls": 1,
+          "friction": 2,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v01-1791543457584-5.json"
+        }
+      ]
+    },
+    {
+      "id": "V02",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-secret-in-log",
+      "evaluation": "name the seeded secret exposure with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v02-1791543580162-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120713,
+          "tokens": 156242,
+          "toolCalls": 1,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v02-1791543580162-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v02-1791543702703-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120654,
+          "tokens": 156179,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v02-1791543702703-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v02-1791543825168-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120727,
+          "tokens": 172991,
+          "toolCalls": 2,
+          "friction": 6,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v02-1791543825168-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v02-1791543947692-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120823,
+          "tokens": 156261,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v02-1791543947692-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-v02-1791544070621-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "SEED_MISSED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 120669,
+          "tokens": 156045,
+          "toolCalls": 1,
+          "friction": 3,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-v02-1791544070621-5.json"
+        }
+      ]
+    },
+    {
+      "id": "H01",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "matrix-h01-gemma-v2-clean",
+      "problemIds": [],
+      "evaluation": "successful verify input: complete and accurate handoff",
+      "inputStatus": "available",
+      "inputReason": "matrix-h01-gemma-v2-clean",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h01-1791544193080-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120793,
+          "tokens": 263101,
+          "toolCalls": 2,
+          "friction": 5,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h01-1791544193080-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h01-1791544315302-2",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120747,
+          "tokens": 289246,
+          "toolCalls": 2,
+          "friction": 8,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h01-1791544315302-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h01-1791544437410-3",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120808,
+          "tokens": 334823,
+          "toolCalls": 2,
+          "friction": 9,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h01-1791544437410-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h01-1791544559760-4",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120808,
+          "tokens": 245593,
+          "toolCalls": 2,
+          "friction": 4,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h01-1791544559760-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h01-1791544682038-5",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED"
+          ],
+          "durationMs": 120779,
+          "tokens": 289335,
+          "toolCalls": 2,
+          "friction": 8,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h01-1791544682038-5.json"
+        }
+      ]
+    },
+    {
+      "id": "H02",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "matrix-h01-gemma-v2-clean-missing-verdict",
+      "expectedBlocked": true,
+      "problemIds": [],
+      "evaluation": "runtime safety control (not model ability): missing runtime verdict must block handoff before any model or commit",
+      "inputStatus": "available",
+      "inputReason": "matrix-h01-gemma-v2-clean-missing-verdict: expected missing runtime verdict",
+      "samples": [
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h02-1791544804209-1",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 950,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-tci9w9\\.sdlc\\diag-ollama-gpt-oss-20b-compactfill-h02-1791544804209-1\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h02-1791544804209-1.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h02-1791544807698-2",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 719,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-o1jn1x\\.sdlc\\diag-ollama-gpt-oss-20b-compactfill-h02-1791544807698-2\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h02-1791544807698-2.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h02-1791544810169-3",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 681,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-fBWGOX\\.sdlc\\diag-ollama-gpt-oss-20b-compactfill-h02-1791544810169-3\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h02-1791544810169-3.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h02-1791544812358-4",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 663,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ddjf5G\\.sdlc\\diag-ollama-gpt-oss-20b-compactfill-h02-1791544812358-4\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h02-1791544812358-4.json"
+        },
+        {
+          "slug": "diag-ollama-gpt-oss-20b-compactfill-h02-1791544814602-5",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 724,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-JfTMZu\\.sdlc\\diag-ollama-gpt-oss-20b-compactfill-h02-1791544814602-5\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+            "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+            "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+            "localEndpoints": {},
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 120000,
+            "runTimeoutMs": 120000
+          },
+          "resultFile": "bench/results/diag-ollama-gpt-oss-20b-compactfill-h02-1791544814602-5.json"
+        }
+      ]
+    }
+  ],
+  "problemCoverage": [
+    {
+      "problemId": 1,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 2,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 3,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 4,
+      "cases": [
+        "E01",
+        "E02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 5,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 6,
+      "cases": [
+        "P01",
+        "P02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 7,
+      "cases": [
+        "I01",
+        "I02",
+        "C01"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 8,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 9,
+      "cases": [
+        "A01",
+        "A02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 10,
+      "cases": [
+        "E01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 11,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 12,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 13,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 14,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 15,
+      "cases": [
+        "P01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 16,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 17,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 18,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 19,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 20,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 21,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 22,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 23,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 24,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 25,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 26,
+      "cases": [
+        "C01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import { loadConfig } from '../src/config/load.ts';
 import { groupFields, modelGroupFields } from '../src/exec/FormFillExecutor.ts';
 import {
   RUNTIME_AUTOFILLED_TEMPLATES,
+  acceptanceChecksFromIntent,
   autofillClarification,
   autofillHandoff,
   autofillPlan,
@@ -41,36 +42,97 @@ const PLAN = [
 ].join('\n');
 
 describe('autofillPlan', () => {
-  const facts = { title: 'demo', explorationDone: true, clarificationDone: false, base: 'abc123' };
+  const facts = { title: 'demo', explorationDone: true, clarificationDone: false, base: 'abc123', requirementsHash: 'a'.repeat(64) };
 
   it('закрывает название, вход и базу; решение человека, подход и таблицу осей не трогает', () => {
     const { text, filled } = autofillPlan(PLAN, facts);
-    strictEqual(filled, 5);
+    strictEqual(filled, 6);
     ok(text.includes('# План: demo'), text);
     ok(text.includes('отчёт разведки да · отчёт по вопросам шага не было'), text);
     ok(text.includes('- **База:** abc123'), text);
     ok(text.includes('- **Одобрение:** ‹имя› · ‹дата›'), 'решение человека обязано остаться нетронутым');
     ok(text.includes('‹подход›'));
     ok(text.includes('| ‹имя оси› | ‹да/нет› |'), '«да/нет» в таблице осей — выбор модели, не факт рантайма');
+    ok(text.includes(`**Требования (SHA-256):** ${facts.requirementsHash}`));
   });
 
   it('идемпотентно', () => {
     const once = autofillPlan(PLAN, facts).text;
     deepStrictEqual(autofillPlan(once, facts), { text: once, filled: 0 });
   });
+
+  it('copies the exact intent claims into the plan acceptance table instead of asking the model to restate them', () => {
+    const plan = [
+      '## Подход', 'text',
+      '## Проверки приёмки',
+      '| ID | Наблюдаемое поведение | Процедура | Ожидаемый результат |',
+      '|---|---|---|---|',
+      '| claim-1 | ‹поведение› | ‹проверка› | ‹результат› |',
+      '',
+      '## Последствия шагов', 'later',
+    ].join('\n');
+    const checks = [{ id: 'claim-1', behavior: 'Keep id | expiry', procedure: 'Call moveHold', expected: 'Fields stay equal' }];
+    const first = autofillPlan(plan, { ...facts, acceptanceChecks: checks });
+    ok(first.text.includes('| claim-1 | Keep id \\| expiry | Call moveHold | Fields stay equal |'), first.text);
+    ok(first.text.includes('## Последствия шагов\nlater'), first.text);
+    deepStrictEqual(autofillPlan(first.text, { ...facts, acceptanceChecks: checks }), { text: first.text, filled: 0 });
+  });
+
+  it('reads the canonical JSON claims instead of trying to split the rendered combined procedure cell', () => {
+    const intent = '<!-- sdlc-json:acceptance:start -->\n[{"id":"claim-1","behavior":"Keeps id","procedure":"Call moveHold","expected":"Same id"}]\n<!-- sdlc-json:acceptance:end -->';
+    deepStrictEqual(acceptanceChecksFromIntent(intent), [{ id: 'claim-1', behavior: 'Keeps id', procedure: 'Call moveHold', expected: 'Same id' }]);
+    const rendered = [
+      '## Приёмочный лист',
+      '| ID | Пункт | Как проверить (процедура + критерий) |',
+      '|---|---|---|',
+      '| claim-1 | Keeps id | Процедура: Call moveHold. Ожидаемо: Same id. |',
+    ].join('\n');
+    deepStrictEqual(acceptanceChecksFromIntent(rendered), [{ id: 'claim-1', behavior: 'Keeps id', procedure: 'Call moveHold', expected: 'Same id.' }]);
+    deepStrictEqual(acceptanceChecksFromIntent('no marker'), []);
+  });
 });
 
 describe('autofillReadiness', () => {
+  it('нормализует старую таблицу, сохраняет записанный ответ и пересчитывает итог после исправления', () => {
+    const legacy = [
+      '# Готовность задачи: ‹название витка›', '',
+      '## Прогон 1 — перед разведкой', '', '- **Дата:** ‹дата›', '',
+      '| # | Проверка | Статус | Где видно / что чинить |', '|---|---|---|---|',
+      '| 1 | Набор гейтов | ‹✅/❌› | ‹путь› |', '',
+      '- **Ответ человека (необходимое):** нужен налог 20%',
+      '- **Ответ человека (однозначное):** ‹ответ›',
+      '**Вердикт прогона 1:** ‹готова / не готова›', '',
+      '## Прогон 2 — перед планом', '', '- **Дата:** ‹дата›', '',
+      '| # | Проверка | Статус | Где видно / что чинить |', '|---|---|---|---|',
+      '| 1 | Блокирующие вопросы | ‹✅/❌› | ‹путь› |', '',
+      '**Вердикт прогона 2:** ‹готова / не готова›', '',
+    ].join('\n');
+    const seeded = autofillReadiness(legacy, { title: 'demo', date: '2026-09-30', run: 1 }).text;
+    ok(!seeded.includes('‹'), seeded);
+    ok(seeded.includes('нужен налог 20%'), seeded);
+    ok(seeded.includes('Ожидает этапа плана'), seeded);
+    const failed = autofillReadiness(seeded, { title: 'demo', date: '2026-09-30', run: 1,
+      checks: 'приёмка ❌', verdict: 'not' }).text;
+    const repaired = autofillReadiness(failed, { title: 'demo', date: '2026-09-30', run: 1,
+      checks: 'приёмка ✅', verdict: 'ready' }).text;
+    ok(repaired.includes('**Вердикт прогона 1:** готова'), repaired);
+    ok(repaired.includes('**Проверки:** приёмка ✅'), repaired);
+    ok(!repaired.includes('приёмка ❌'), repaired);
+  });
   const READINESS = [
     '# Готовность задачи: ‹название витка›',
     '',
     '## Прогон 1 — перед разведкой',
     '',
     '- **Дата:** ‹дата›',
+    '- **Проверки:** ‹проверки прогона 1›',
+    '- **Вердикт прогона 1:** ‹готова / не готова›',
     '',
     '## Прогон 2 — перед планом',
     '',
     '- **Дата:** ‹дата›',
+    '- **Проверки:** ‹проверки прогона 2›',
+    '- **Вердикт прогона 2:** ‹готова / не готова›',
     '',
   ].join('\n');
 
@@ -79,14 +141,31 @@ describe('autofillReadiness', () => {
     ok(text.startsWith('# Готовность задачи: demo'), text);
     const [run1, run2] = text.split('## Прогон 2');
     ok(run1!.includes('**Дата:** 2026-09-14'), text);
-    ok(run2!.includes('**Дата:** ‹дата›'), text);
+    ok(run2!.includes('**Дата:** Ожидает прогона 2'), text);
+  });
+
+  it('первичный seed закрывает поля обоих прогонов, а finish заменяет pending для прогона 1', () => {
+    const seeded = autofillReadiness(READINESS, { title: 'demo', date: '2026-09-14', run: 1 });
+    ok(!seeded.text.includes('‹'), seeded.text);
+    ok(seeded.text.includes('Ожидает проверки этапа intent'), seeded.text);
+    const finished = autofillReadiness(seeded.text, {
+      title: 'demo', date: '2026-09-14', run: 1, checks: 'Все проверки пройдены', verdict: 'ready',
+    });
+    ok(finished.text.includes('**Проверки:** Все проверки пройдены'), finished.text);
+    ok(finished.text.includes('**Вердикт прогона 1:** готова'), finished.text);
+    ok(!finished.text.includes('Ожидает проверки'), finished.text);
   });
 
   it('этап plan ставит дату прогона 2', () => {
     const afterIntent = autofillReadiness(READINESS, { title: 'demo', date: '2026-09-14', run: 1 }).text;
-    const { text, filled } = autofillReadiness(afterIntent, { title: 'demo', date: '2026-09-15', run: 2 });
-    strictEqual(filled, 1);
-    ok(text.split('## Прогон 2')[1]!.includes('**Дата:** 2026-09-15'), text);
+    const { text, filled } = autofillReadiness(afterIntent, {
+      title: 'demo', date: '2026-09-15', run: 2, checks: 'Проверки пройдены', verdict: 'ready',
+    });
+    strictEqual(filled, 3);
+    const run2 = text.split('## Прогон 2')[1]!;
+    ok(run2.includes('**Дата:** 2026-09-15'), text);
+    ok(run2.includes('**Проверки:** Проверки пройдены'), text);
+    ok(run2.includes('**Вердикт прогона 2:** готова'), text);
   });
 });
 
@@ -175,6 +254,8 @@ describe('autofillHandoff', () => {
     verdict: 'passed' as const,
     published: 'нет' as const,
     publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+    loop: 1,
+    date: '2026-09-18',
   };
 
   it('закрывает название, «Состояние» целиком и строку «Статус»; решение человека не трогает', () => {
@@ -274,12 +355,14 @@ const noTemplates = existsSync(templatesDir) ? false : 'эталон метод�
 
 describe('скрепа: поля рантайма реальных шаблонов закрываются автозаполнением', { skip: noTemplates }, () => {
   const fill: Record<string, (t: string) => string> = {
-    'plan.template.md': (t) => autofillPlan(t, { title: 'demo', explorationDone: true, clarificationDone: true, base: 'abc' }).text,
+    'plan.template.md': (t) => autofillPlan(t, { title: 'demo', explorationDone: true, clarificationDone: true, base: 'abc', requirementsHash: 'a'.repeat(64) }).text,
     'readiness.template.md': (t) =>
-      autofillReadiness(autofillReadiness(t, { title: 'demo', date: '2026-09-14', run: 1 }).text, {
+      autofillReadiness(autofillReadiness(t, { title: 'demo', date: '2026-09-14', run: 1, checks: 'runtime checks', verdict: 'ready' }).text, {
         title: 'demo',
         date: '2026-09-14',
         run: 2,
+        checks: 'runtime checks',
+        verdict: 'ready',
       }).text,
     'clarification-report.template.md': (t) => autofillClarification(t, { title: 'demo', explorationDone: true }).text,
     'exploration-report.template.md': (t) => autofillTitle(t, 'demo').text,
@@ -297,6 +380,8 @@ describe('скрепа: поля рантайма реальных шаблон�
         verdict: 'passed',
         published: 'нет',
         publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+    loop: 1,
+    date: '2026-09-18',
       }).text,
   };
 

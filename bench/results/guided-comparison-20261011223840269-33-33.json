@@ -1,0 +1,372 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:qwen3.8-27b-iq4-ctx32k-gpumax",
+    "budgetMs": 3600000,
+    "activeMs": 218590,
+    "remainingMs": 3381410,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T02:06:22.940Z",
+        "inputRevision": "9e13da28c11c67da23177b589e661ace8b036af845b7105a6bcd7cab59b9132c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "# Валидация покупателя\n\nСчета выставляются на данные из формы заказа как есть: опечатка в email или телефоне\nузнаётся о себе неделю спустя, когда счёт так и не оплачен. Нужна валидация на выставлении.\n\n## Что должно получиться\n\n1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет.\n2. Правила email: ровно одна `@`; локальная часть непустая; домен содержит точку и не\n   начинается и не заканчивается на неё; пробелов нигде нет.\n3. Правила телефона: либо `+7` и ровно 10 цифр после, либо `8` и ровно 10 цифр после.\n   Никаких других символов (пробелов, скобок, дефисов) не допускаем — форма их не ставит.\n4. `validateCustomer` реэкспортируется из `src/index.ts`. На модуль есть тест рядом с\n   существующими (`test/`), набор прогнан по-настоящему командой проекта; в журнал этапа\n   идёт то, что напечатала команда.\n5. Существующие модули и тесты не трогаем: валидация — отдельная функция, сборка счёта её\n   пока не вызывает (это осознанно: встроить её в `buildInvoice` — отдельное решение, не\n   этого витка).\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/add-validator`. Виток полный — мелким контуром не закрывать.\n- Спецификация выше исчерпывающая: всё, что нужно для реализации, записано в этом документе\n  и в коде.\n"
+          },
+          {
+            "source": "stage-input",
+            "quote": "    \"runtimeContext\": [\n      {\n        \"section\": \"Факт прогона: ветка рабочего дерева\",\n        \"values\": [\n          \"Рабочее дерево стоит на ветке sdlc/add-validator.\",\n          \"Поле «Ветка витка» в intent.md обязано совпасть с этой строкой дословно. Не выводи\",\n          \"имя из путей .sdlc/… и не придумывай по конвенции: Runner сверяет поле с фактическим\",\n          \"состоянием дерева и блокирует этап 4 при расхождении.\"\n        ]\n      }\n    ]"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Спецификация и требования к ветке предоставлены в полне; оснований для этапа intent достаточно",
+        "status": "ready",
+        "changed": false
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T02:09:23.099Z",
+        "inputRevision": "4c0327018808406731a4396a9197b33df9ccc9c9cadc34fb58a80c7b8394f6a1",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет."
+          }
+        ],
+        "uncertainties": [
+          "Нужно уточнить структуру объекта customer (свойства email/phone) как основу для validateCustomer"
+        ],
+        "action": "read",
+        "reason": "Нужно уточнить структуру объекта customer (свойства email/phone) как основу для validateCustomer",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Покупатель, которому выставляется счёт.\n3\t *\n4\t * Данные приходят из формы заказа как есть — валидирует их тот, кто выставляет счёт,\n5\t * а не форма (форма не знает правил биллинга, и дублировать их там — лишняя связность).\n6\t */\n7\t\n8\texport interface Customer {\n9\t  name: string;\n10\t  email: string;\n11\t  phone: string;\n12\t}\n13\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T02:09:46.211Z",
+        "inputRevision": "4c0327018808406731a4396a9197b33df9ccc9c9cadc34fb58a80c7b8394f6a1",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "lookup-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/customer.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Покупатель, которому выставляется счёт.\n3\t *\n4\t * Данные приходят из формы заказа как есть — валидирует их тот, кто выставляет счёт,\n5\t * а не форма (форма не знает правил биллинга, и дублировать их там — лишняя связность).\n6\t */\n7\t\n8\texport interface Customer {\n9\t  name: string;\n10\t  email: string;\n11\t  phone: string;\n12\t}"
+          }
+        ],
+        "uncertainties": [
+          "Структура Customer после строки 13 в src/customer.ts не видна",
+          "Не проверено, как src/index.ts ретранслирует экспорты (может требовать особого формата)",
+          "Не проверен формат существующих тестов (для единообразия нового теста validate.test.ts)"
+        ],
+        "action": "read",
+        "reason": "Повторный запрос не даёт нового входа",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261011223840269-33-33",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T02:06:06.939Z",
+    "finishedAt": "2026-10-12T02:09:46.237Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Повторный запрос не даёт нового входа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 29677,
+          "outputTokens": 2387,
+          "cacheReadTokens": 395,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 219732
+        },
+        "durationMs": 181406,
+        "requestDurationsMs": [
+          15176,
+          5748,
+          13457,
+          20558,
+          5687,
+          13881,
+          59144,
+          4314,
+          75870,
+          5910
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 13578,
+          "outputTokens": 320,
+          "cacheReadTokens": 482,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 37204
+        },
+        "durationMs": 37303,
+        "requestDurationsMs": [
+          14115,
+          23089
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:21c547d6-94d8-441a-9f27-043b358a1e25",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261011223840269-33-33\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4874,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 7198,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 14871,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "5e2054143275c1ed1440c8d91f6641979fa7fd8e2794193b50ca30e41902a187",
+      "configHash": "928ac82479bb24c9945fb2e1a5147f32ab323f7be01456ba3e3f887e72952fc5",
+      "localEndpoints": {},
+      "inputHash": "0bd9ff97cd7099dd44f39a15b5649013e7acec428b2b62488dd3acc2409e2acd",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "ef73e8897e5a4f5bfca6a9b5d6871bad2eb6da36488bf63a8a135b73c05a214a",
+    "state": "finished",
+    "capturedAt": "2026-10-12T02:09:46.262Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-12T02:09:46.214Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "6fc5ac0cec6fd56a61f2f86c11169f23282e0567b8250962eeb172b3ca8def2c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "348f9fd35b2b3d401e2845ddf2c0d8ca227726fe5ff0979360956687db79b9b0",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "dd8f181e9a52ed4e3e5f0b43783a47dd95fd6de466a45afd38ff6e5660cabe72",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "c67217dd3a9a3840a93ce5c770c79023e22d80b8b63d38a39ec6c25b0c1f7672",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

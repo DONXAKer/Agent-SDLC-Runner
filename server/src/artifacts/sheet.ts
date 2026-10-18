@@ -167,6 +167,26 @@ function normKey(s: string): string {
 }
 
 /**
+ * Целое слово в тексте без `\b`: граница по Unicode-букве/цифре/`_`. Кириллица
+ * для `\b` — не слово, и «выбрать полный» иначе не узнаётся как ключ `полный`.
+ */
+function containsWholeWord(haystack: string, needle: string): boolean {
+  if (needle === '') return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(haystack);
+}
+
+/** Вырезает первое целое вхождение ключа — остаток уходит в слот комментария. */
+function stripWholeWord(text: string, key: string): string {
+  const escaped = normKey(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (escaped === '') return text.trim();
+  return text
+    .replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu'), ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Индекс в СЫРОМ тексте сразу после того места, где нормализованный префикс достигает
  * `prefixLen` символов, плюс любые markdown-символы сразу за ним (например, закрывающие
  * `**` у `**да**`). Совпадение находится по нормализованной строке (markdown снят,
@@ -215,9 +235,11 @@ function stripKeyPrefix(text: string, key: string): string {
 
 /**
  * Вариант меню, которому отвечает модель. Порядок узнавания: глиф → словарный ключ
- * (началом ответа) → синоним через словарь `claimStatusOf`/`gateStatusOf` (модель пишет
- * `passed`/`failed` вместо значка — тот же приём, что у `RecordClaim`) → свободный вариант,
- * если фиксированный не подошёл и свободный есть. `null` — ничего не подошло.
+ * (началом ответа; при двух и более ключах-словах в ответе — отказ) → ровно один ключ
+ * как целое слово внутри ответа → синоним через словарь `claimStatusOf`/`gateStatusOf`
+ * (модель пишет `passed`/`failed` вместо значка — тот же приём, что у `RecordClaim`) →
+ * свободный вариант, если фиксированный не подошёл и свободный есть. `null` — ничего
+ * не подошло.
  */
 export function matchChoice(options: readonly ChoiceOption[], raw: string): { key: string; comment: string } | null {
   const text = cleanAnswer(raw);
@@ -241,12 +263,24 @@ export function matchChoice(options: readonly ChoiceOption[], raw: string): { ke
   }
 
   const norm = normKey(text);
+  // Сначала считаем, сколько ключей меню встречаются как целые слова: «полный или
+  // мелкий» иначе ловилось бы префиксом первого ключа. Несколько — не угадываем.
+  const wordHits = options.filter((o) => !o.free && containsWholeWord(norm, normKey(o.key)));
+  if (wordHits.length > 1) return null;
+
   for (const o of options) {
     if (o.free) continue;
     const nk = normKey(o.key);
     if (norm === nk || norm.startsWith(`${nk} `) || norm.startsWith(`${nk}—`) || norm.startsWith(`${nk}-`)) {
       return { key: o.key, comment: stripKeyPrefix(text, o.key) };
     }
+  }
+
+  // Ровно один ключ внутри ответа («выбрать полный»). Голое имя поля («контур»)
+  // в опции не входит и сюда не попадает.
+  if (wordHits.length === 1) {
+    const hit = wordHits[0]!;
+    return { key: hit.key, comment: stripWholeWord(text, hit.key) };
   }
 
   const claim = claimStatusOf(norm);
@@ -397,10 +431,37 @@ export function parseRecordRows(
       }
       if (Object.keys(row).length > 0) return row;
     }
+    // A common local-model answer names only continuation columns:
+    // «- [edge] behaviour» followed by «  как проверить: command — expected».
+    // Keep that as one record; do not split the command's own dashes into cells.
+    const first = modelCols[0];
+    const firstLabel = FIELD_LINE_RE.exec(itemLines[0] ?? '');
+    const namedContinuation = itemLines.slice(1).map((line) => FIELD_LINE_RE.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null);
+    if (first !== undefined && namedContinuation.length > 0 &&
+        (firstLabel === null || columnByKey(modelCols, firstLabel[1] ?? '') === null)) {
+      const row: Record<string, string> = { [first.id]: unwrapScalar(itemLines[0] ?? '') };
+      for (const match of namedContinuation) {
+        const key = columnByKey(modelCols, match[1] ?? '');
+        if (key !== null && key !== first.id) row[key] = unwrapScalar(match[2] ?? '');
+      }
+      if (Object.keys(row).length > 1) return row;
+    }
     // Форма 2: позиционно по «—»/«-» на первой (единственной значимой) строке. Ведущий id
     // (`**claim-1** — …`), который нумерует рантайм, снимается — он не значение колонки.
     const joinedRaw = itemLines.join(' ').trim();
     const joined = hasMechanical ? joinedRaw.replace(/^[`*]*claim-\d+[`*]*\s*(?:[—–:|-]\s*)?/i, '') : joinedRaw;
+    // Inline pipe rows from local models often put procedure and its test criterion in
+    // separate cells even when the template has one verification column. Preserve every
+    // trailing cell inside that last column instead of dropping it or rejecting the record.
+    const pipeParts = joined.split(/\s+\|\s+/);
+    if (pipeParts.length > 1 && modelCols.length > 1) {
+      const row: Record<string, string> = {};
+      modelCols.forEach((column, index) => {
+        row[column.id] = unwrapScalar(pipeParts.slice(index, index === modelCols.length - 1 ? undefined : index + 1).join(' | '));
+      });
+      return row;
+    }
     const parts = joined.split(/\s+[—–]\s+/);
     const row: Record<string, string> = {};
     modelCols.forEach((c, i) => {

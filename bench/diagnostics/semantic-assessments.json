@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "assessments": [
+    {
+      "caseId": "input:P01",
+      "resultFile": "bench/results/matrix-p01-v3.json",
+      "resultHash": "34dab625493e091307bd2bcb15478c15578eeaad529396c47e2497e20079d508",
+      "outcome": "fail",
+      "rationale": "Механически завершены intent/explore/ask, но карта приписывает изменения README файлу src/invoice.ts, а таблица переиспользования содержит скопированные подсказки. Вход P01 не принят по содержанию.",
+      "evidence": [
+        {
+          "path": "bench/traces/matrix-p01-v3/artifacts/exploration-report.md",
+          "sha256": "f7d168b879ea4458c0c84748b773a35d69bd9a9110a3dd9896827f3de97781a6",
+          "quote": "| src/invoice.ts | README.md |"
+        },
+        {
+          "path": "bench/traces/matrix-p01-v3/artifacts/exploration-report.md",
+          "sha256": "f7d168b879ea4458c0c84748b773a35d69bd9a9110a3dd9896827f3de97781a6",
+          "quote": "| resolveConfig | src/config.ts:resolveConfig | что делает | как используем |"
+        }
+      ]
+    },
+    {
+      "caseId": "V00",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1.json",
+      "resultHash": "781488f9196418e108360f830beb8ce5a9f6f54ad981a4d2a209424c6e03db80",
+      "outcome": "fail",
+      "rationale": "Чистый контроль отклонён из-за логирования в scripts/build-check.mjs. Scope-гейт подтверждает, что файл существовал в базе chunk и не менялся в попытке. Эта находка не доказывает расхождение новой реализации с осью плана; V00 не пройден.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1/artifacts/verification-report-1-attempt-1.md",
+          "sha256": "4ead99906395667120bb2974edf67589b5434561cda5e3dabf31c85cfb0997a3",
+          "quote": "вне плана, из базы chunk'а (не работа этапа): scripts/build-check.mjs"
+        },
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1/artifacts/verification-report-1-attempt-1.md",
+          "sha256": "4ead99906395667120bb2974edf67589b5434561cda5e3dabf31c85cfb0997a3",
+          "quote": "«Наблюдаемость» — в плане объявлена не затронутой, а diff её трогает"
+        }
+      ]
+    },
+    {
+      "caseId": "input:P02",
+      "resultFile": "bench/results/matrix-p02-qwen-v2.json",
+      "resultHash": "240453d0204abd67ed2a425790958721756106876c951c496577784004b952d4",
+      "outcome": "fail",
+      "rationale": "Фикстура требует ответа человека со ставкой по умолчанию 20. Explore оставил заглушку вопроса «Текст вопроса?», вопрос условного этапа ask не был задан, clarification-report содержит незаполненные поля. Снимок для plan не принят.",
+      "evidence": [
+        {
+          "path": "bench/snapshots/matrix-p02-qwen-v2-after-ask-c1-a1/.sdlc/matrix-p02-qwen-v2/clarification-report.md",
+          "sha256": "ee916509170d5f93c4fa906ac387c2c9ccb06de35651fe1b8133e863332a5644",
+          "quote": "| 1 | Текст вопроса? | да | Ответа у меня нет"
+        },
+        {
+          "path": "bench/snapshots/matrix-p02-qwen-v2-after-ask-c1-a1/.sdlc/matrix-p02-qwen-v2/intent.md",
+          "sha256": "8e29d815174017b2de53a65186de33d64037fc1c4ad532a6bee0c6a661df0aaa",
+          "quote": "Добавляем поле `vatRate`"
+        }
+      ]
+    },
+    {
+      "caseId": "H01",
+      "resultFile": "bench/results/matrix-h01-v2.json",
+      "resultHash": "c743e255f21590f60194b38ad11a7838ac6f25cf5646e5dee08916451efab954",
+      "outcome": "fail",
+      "rationale": "Runtime verdict passed, но verification-report остался с семью placeholders. Снимок непригоден для следующего handoff и не принят как H01.",
+      "evidence": [
+        {
+          "path": "bench/traces/matrix-h01-v2/artifacts/verification-report-1-attempt-1.md",
+          "sha256": "c8829dded690f1113608a0692550cdd20976ba57d639d84bcd6fa4783334692f",
+          "quote": "- **passed:** true"
+        },
+        {
+          "path": "bench/traces/matrix-h01-v2/run-state.json",
+          "sha256": "997aab4506d52270e4e4a96d12a70b4c78dd11ac828fca988b9e47fc60dd01fe",
+          "quote": "\"note\": \"ход модели пропущен: reviewFill прошёл конвейер целиком"
+        }
+      ]
+    },
+    {
+      "caseId": "P01",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-p01-1790800343485-1.json",
+      "resultHash": "8f3532f7feaa60b5fcab42c984168aea19a8531084d2d4e8983ba9425107e3c1",
+      "outcome": "fail",
+      "rationale": "План механически завершён, но README.md перечислен среди шагов и отсутствует в files_to_touch; покрытие claim-3 заполнено словом id, а карта сигнатур не называет реальный адрес вызова. Эти ошибки делают план непригодным для исполнения.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-p01-1790800343485-1/artifacts/plan.md",
+          "sha256": "2fb624a7c65a3d48b881203201643fa1f54fadfe88dad288bcef577c3d457161",
+          "quote": "| 3 | id |"
+        },
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-p01-1790800343485-1/artifacts/plan.md",
+          "sha256": "2fb624a7c65a3d48b881203201643fa1f54fadfe88dad288bcef577c3d457161",
+          "quote": "5. Обновить документацию в README.md"
+        }
+      ]
+    },
+    {
+      "caseId": "H01",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-h01-1790800518309-1.json",
+      "resultHash": "2761705e877e4f6e6dadea85f83b930e3fe6c572077dd1c9ff3402b3e0a872b9",
+      "outcome": "fail",
+      "rationale": "Handoff сообщил о механическом завершении, но оставил 16 содержательных полей незаполненными. Этот результат не является полной передачей; проверка раннера исправлена после прогона.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-h01-1790800518309-1/artifacts/handoff.md",
+          "sha256": "3680a82015b42d106f79933dbe01da0573f94e69777112d597eaad30eb7529f8",
+          "quote": "- Отклонено: ‹что и почему›"
+        }
+      ]
+    },
+    {
+      "caseId": "H01",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-h01-1790801112935-1.json",
+      "resultHash": "319d31385847502922f9a0378737ae8b8959a1c690e2d601f8b0ef3ca51c73f9",
+      "outcome": "fail",
+      "rationale": "Все поля модели заполнены, но handoff перечисляет только один из девяти гейтов verify, содержит неверный путь теста и испорченную строку следующего шага. Полнота и точность передачи по рубрике H01 не достигнуты.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-h01-1790801112935-1/artifacts/handoff.md",
+          "sha256": "4f514554a466d902b519b1b82e8ac7303e1aa0a26cdeda965d526531374dcfc6",
+          "quote": "| Сборка | ✅ |"
+        },
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-h01-1790801112935-1/artifacts/handoff.md",
+          "sha256": "4f514554a466d902b519b1b82e8ac7303e1aa0a26cdeda965d526531374dcfc6",
+          "quote": "тест/oversize.test.ts"
+        }
+      ]
+    },
+    {
+      "caseId": "I01",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-i01-1790801512848-1.json",
+      "resultHash": "a6fc4ab552bf33ffbe3e4375a7442a73e0e974241d63e53754be4ff8d7434197",
+      "outcome": "fail",
+      "rationale": "Задача оставляет неизвестной повышенную ставку для суммы измерений больше 300 см. Intent применил 40% ко всем негабаритным отправлениям и не оставил вопроса о второй ставке, поэтому граница требований потеряна.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-i01-1790801512848-1/artifacts/intent.md",
+          "sha256": "32c94baa6c1ee3573dd86c69ff5f2ed2ddf88a4081f82f04350c7b524359332a",
+          "quote": "- Обеспечить вычисление суммы surcharge на основе ставки 40% от базовой цены зоны до применения скидки."
+        },
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-i01-1790801512848-1/artifacts/intent.md",
+          "sha256": "32c94baa6c1ee3573dd86c69ff5f2ed2ddf88a4081f82f04350c7b524359332a",
+          "quote": "- нет открытых вопросов"
+        }
+      ]
+    },
+    {
+      "caseId": "I02",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1.json",
+      "resultHash": "7cebbccf6c7b828917e45116ab20fb0528821f7d40f901a3e8cb3eac9d9aa051",
+      "outcome": "fail",
+      "rationale": "Условие склада запрещает резерв сверх остатка, а новая просьба допускает 120%; intent выбрал повышенный лимит и указал, что открытых вопросов нет. Противоречие требовало уточнения до плана.",
+      "evidence": [
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1/artifacts/intent.md",
+          "sha256": "d85af20c9468423f3dd5b1cd1897dae9a2c453dd8eb69025288133f212091f31",
+          "quote": "Реализовать приоритетный резерв (до 120% остатка)"
+        },
+        {
+          "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1/artifacts/intent.md",
+          "sha256": "d85af20c9468423f3dd5b1cd1897dae9a2c453dd8eb69025288133f212091f31",
+          "quote": "- нет открытых вопросов"
+        }
+      ]
+    },
+    {
+      "caseId": "C01",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-c01-1790802011898-1.json",
+      "resultHash": "e7c85f1ec86325c00ed268f89153674e17739aafc79033afeb277565fdb6759a",
+      "outcome": "fail",
+      "rationale": "Этап chunk завершён механически, но скрытые проверки обнаружили пять неверных сценариев НДС: стандартная ставка, округление половины вверх и льготные позиции. Реализация не соответствует условиям задачи.",
+      "evidence": [
+        {
+          "path": "bench/results/diag-ollama-gemma4-12b-compactfill-c01-1790802011898-1.json",
+          "sha256": "e7c85f1ec86325c00ed268f89153674e17739aafc79033afeb277565fdb6759a",
+          "quote": "not ok 6 - H1 [human]"
+        }
+      ]
+    },
+    {
+      "caseId": "A01",
+      "resultFile": "bench/results/matrix-a01-skip-v2.json",
+      "resultHash": "0eb0d70874ef3f764a1e36c2689e73333abf872af69e1b0112ab78f0bb78918e",
+      "outcome": "pass",
+      "rationale": "Контроль условного этапа: в исходниках выбор копирования однозначен; ask пропущен до обращения к модели. Это подтверждает поведение рантайма, но не способность модели записать решение в plan.",
+      "evidence": [{
+        "path": "bench/traces/matrix-a01-skip-v2/run-state.json",
+        "sha256": "4250a37be1a03f6d31984a1fff83ef9adf410f790bdf9318b9f23774a581f1e4",
+        "quote": "открытых вопросов нет — этап условный, артефакт не создаётся"
+      }]
+    },
+    {
+      "caseId": "A02",
+      "resultFile": "bench/results/matrix-a02-ask-v2.json",
+      "resultHash": "68cef15ccc8e069fb6fc405c39bc147cd2d70e999918a7c48217ce72b901a60d",
+      "outcome": "fail",
+      "rationale": "Ответ приёмки 1.2 и порядок применения записаны, но модель оставила новый незакрытый вопрос о том же порядке в clarification-report. Этап завершился механически, содержание требует исправления.",
+      "evidence": [{
+        "path": "bench/traces/matrix-a02-ask-v2/artifacts/clarification-report.md",
+        "sha256": "8146792432cf31a22219c8f751ae2476b1717d997a4c4380629ece0bba4abad4",
+        "quote": "- [ ] **[неблокирующий]** Какой порядок применения коэффициента упаковки и округления?"
+      }]
+    },
+    {
+      "caseId": "V00",
+      "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-v00-1790804025490-1.json",
+      "resultHash": "47124dd8ea5a630f76ddc1ab496536457b08bba3a149aff84ef0ddc511f6a801",
+      "outcome": "fail",
+      "rationale": "Чистый контроль Gemma на текущем коде оставил 7 незаполненных полей отчёта и заявил несоответствие по расширению Quote без доказанного нарушения задачи. Рантайм корректно записал отрицательный вердикт; V00 не пройден.",
+      "evidence": [{
+        "path": "bench/traces/diag-ollama-gemma4-12b-compactfill-v00-1790804025490-1/artifacts/verification-report-1-attempt-1.md",
+        "sha256": "cdb1f50b1643096439aa35a8c3ff2e614f577bed3383474d1fc8e3ca4f78fe24",
+        "quote": "| ‹гейт› | ‹причина› | ‹имя› |"
+      }]
+    },
+    {
+      "caseId": "A01",
+      "resultFile": "bench/results/matrix-a01-skip-v3.json",
+      "resultHash": "1c4516482046e6e32cd49e775cc4ec54fe2b91cae644e90261d659722c8043e3",
+      "outcome": "pass",
+      "rationale": "На окончательном входе A01 этап ask условно пропущен до вызова модели: выбор копирования подтверждён исходниками. Решение в плане остаётся отдельной проверкой полного цикла.",
+      "evidence": [{
+        "path": "bench/traces/matrix-a01-skip-v3/run-state.json",
+        "sha256": "3874bf7cd6affb48a949485627ed53d08c94e5a7e525193c904a4ced0b38b7cd",
+        "quote": "открытых вопросов нет — этап условный, артефакт не создаётся"
+      }]
+    },
+    {
+      "caseId": "A02",
+      "resultFile": "bench/results/matrix-a02-ask-v3.json",
+      "resultHash": "db161df1cbf14470de7a6edf4442a59f949f5c337e05da0749551ee5b515ff61",
+      "outcome": "pass",
+      "rationale": "На окончательном входе модель сохранила ответ приёмки: коэффициент 1.2 применяется после формулы (д×ш×в)/5 и до округления; блокирующий вопрос закрыт, повторного открытого вопроса нет.",
+      "evidence": [{
+        "path": "bench/traces/matrix-a02-ask-v3/artifacts/clarification-report.md",
+        "sha256": "df7ee6b2333d7523f34d3cfe0bdae8abb163dc1e67aeeb8517a1653c4f50aae0",
+        "quote": "Коэффициент упаковки — 1.2, применяется к объёмному весу ПОСЛЕ формулы"
+      }]
+    },
+    {
+      "caseId": "H02",
+      "resultFile": "bench/results/matrix-h02-control-v1.json",
+      "resultHash": "76b4f0d9b6f454d38e9557ce7c4f40dead3c96127db24f956a0369733b340d40",
+      "outcome": "pass",
+      "rationale": "Без сохранённого вердикта рантайма handoff заблокирован на предусловии; вызовов модели и инструментов не было. Это контроль защиты рантайма, не способность модели.",
+      "evidence": [{
+        "path": "bench/results/matrix-h02-control-v1.json",
+        "sha256": "76b4f0d9b6f454d38e9557ce7c4f40dead3c96127db24f956a0369733b340d40",
+        "quote": "вердикта рантайма по попытке 1 нет"
+      }]
+    },
+    {
+      "caseId": "V00",
+      "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790804897452-1.json",
+      "resultHash": "dfdbad10dab2480aab6842821f37f3558298832e78de5196ff8a73b5f6c168f9",
+      "outcome": "fail",
+      "rationale": "Qwen отклонил чистый контроль, утверждая, что надбавка не должна зависеть от base, хотя условия задачи задают процент от base. Отчёт также оставил 3 незаполненных поля. V00 не пройден.",
+      "evidence": [{
+        "path": "bench/traces/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790804897452-1/artifacts/verification-report-1-attempt-1.md",
+        "sha256": "89cce7f362088be5df93b71270b9f720cbcaa6158f888dae96c0e669ca83c11e",
+        "quote": "ожидается, что surcharge зависит от longestSide и dimensionSum, а не от base"
+      }]
+    }
+  ]
+}

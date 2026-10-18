@@ -1,0 +1,15 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+if (!process.argv[2]) throw new Error('Укажи каталог методологии Agent-SDLC');
+const root = resolve(process.argv[2]);
+const canon = join(root, 'SDLC.md');
+if (!existsSync(canon)) throw new Error('Нет SDLC.md');
+const source = readFileSync(new URL('../server/methodology/guided.md', import.meta.url), 'utf8');
+const destination = join(root, 'profiles', 'guided.md');
+if (existsSync(destination) && readFileSync(destination, 'utf8') !== source) throw new Error('Профиль отличается; требуется сверка: ' + destination);
+const text = readFileSync(canon, 'utf8');
+const marker = '<!-- guided-runner -->';
+mkdirSync(join(root, 'profiles'), { recursive: true });
+writeFileSync(destination, source, 'utf8');
+if (!text.includes(marker)) writeFileSync(canon, text.trimEnd() + '\n\n' + marker + '\n## Guided в Agent-SDLC Runner\n\nЭкспериментальный [профиль guided](profiles/guided.md) использует цикл PDSA Деминга\nи poka-yoke: одну локальную модель, проверяемые группы изменений, ограниченное\nвосстановление и фактические доказательства. Включается для новых задач явно;\nзаявление о надёжности требует сравнительных измерений.\n', 'utf8');
+console.log('Установлен профиль: ' + destination);

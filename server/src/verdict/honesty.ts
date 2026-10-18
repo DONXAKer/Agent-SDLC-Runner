@@ -86,10 +86,14 @@ export function checkJournalClaimsVsBash(
   }
 
   const okRequestIds = new Set(events.filter(isOkToolResult).map((e) => e.requestId));
-  const ranTests = events.some((e) => {
+  const ranBashTests = events.some((e) => {
     if (e.type !== 'tool_request' || e.call.kind !== 'bash') return false;
     return okRequestIds.has(e.requestId) && TEST_BASH_RE.test(e.call.command);
   });
+  const ranRuntimeTests = events.some(e => e.type === 'gate_result' &&
+    (e.stage === 'chunk' || e.stage === 'verify') && e.gate.status === '✅' &&
+    e.gate.exitCode === 0 && !e.gate.envBlocked && e.gate.command !== null && TEST_BASH_RE.test(e.gate.command));
+  const ranTests = ranBashTests || ranRuntimeTests;
 
   if (!ranTests && !observedFromStart) {
     return {
@@ -101,7 +105,8 @@ export function checkJournalClaimsVsBash(
   return {
     ok: ranTests,
     detail: ranTests
-      ? 'утверждение о прогоне тестов подтверждено успешным bash-вызовом в ленте'
-      : 'текст утверждает, что тесты пройдены, но успешного bash-вызова команды тестов в ленте нет',
+      ? ranBashTests ? 'утверждение о прогоне тестов подтверждено успешным bash-вызовом в ленте'
+        : 'утверждение о прогоне тестов подтверждено выполненной командой runtime-гейта с кодом 0'
+      : 'текст утверждает, что тесты пройдены, но успешного выполнения команды тестов в ленте нет',
   };
 }

@@ -1,5 +1,5 @@
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync, existsSync} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -18,7 +18,7 @@ function нетЭталона(dir: string): string | false {
 import { writeArtifact } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { loadConfig } from '../src/config/load.ts';
-import { buildPrompt, stripFrontmatter } from '../src/prompt/build.ts';
+import { MECHANICAL_KEYS, buildPrompt, stripFrontmatter, stripRunnerMarkers } from '../src/prompt/build.ts';
 import { stageById } from '../src/run/stages.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-prompt-')));
@@ -41,6 +41,31 @@ describe('stripFrontmatter', () => {
   it('не съедает тело, если шапка не закрыта', () => {
     const t = '---\nname: x\n# Тело';
     ok(stripFrontmatter(t).includes('# Тело'));
+  });
+});
+
+describe('stripRunnerMarkers — блоки скилла, которые под раннером не исполняются', () => {
+  const done = new Set(['branch-field']);
+
+  it('runner:skip вырезается всегда', () => {
+    const t = 'до\n<!-- runner:skip -->\nзапусти attempt-evidence.py\n<!-- /runner:skip -->\nпосле';
+    const out = stripRunnerMarkers(t, done);
+    ok(!out.includes('attempt-evidence'), out);
+    ok(out.includes('до') && out.includes('после'), out);
+  });
+
+  it('runner:mechanical с реализованным ключом вырезается, с нереализованным — остаётся', () => {
+    const t =
+      '<!-- runner:mechanical:branch-field -->\nвпиши ветку\n<!-- /runner:mechanical -->\n' +
+      '<!-- runner:mechanical:plan-callers -->\nнайди вызывающих\n<!-- /runner:mechanical -->';
+    const out = stripRunnerMarkers(t, done);
+    ok(!out.includes('впиши ветку'), out);
+    ok(out.includes('найди вызывающих'), out);
+  });
+
+  it('незакрытый маркер оставляет текст как есть', () => {
+    const t = 'до\n<!-- runner:skip -->\nхвост без закрытия';
+    strictEqual(stripRunnerMarkers(t, done), t);
   });
 });
 
@@ -83,6 +108,34 @@ describe('сборка промпта из эталона', { skip: нетЭта
     ok(p.system.includes('попытка: **3**'), 'не назван номер попытки');
     ok(p.system.includes(cfg.runner.operator), 'не назван оператор');
     ok(p.system.includes('2026-08-16'), 'не названа дата');
+  });
+
+  it('adapter не велит модели писать в поля решений человека — их пишет оператор', () => {
+    // gpt-oss-20b, 2026-09-24: строка «подставляй в поля решений» дала 7+5 отказов
+    // [humanDecision] за прогон — промпт велел то, что гейт запрещает.
+    const p = buildPrompt({ runner: cfg.runner, stage: stageById('chunk'), ctx, flow: 'loop', slug: 'demo', now });
+    ok(!p.system.includes('подставляй в поля решений'), 'старая инструкция на месте');
+    ok(p.system.includes('НЕ заполняй'), 'нет запрета на поля решений');
+    ok(p.system.includes('строку «Подтвердил» в журнале не редактируй'), 'нет строки про место правки на chunk');
+  });
+
+  it('при разложенных бланках абсолютный путь к templates в промпт не идёт', () => {
+    const base = { runner: cfg.runner, stage: stageById('plan'), ctx, flow: 'loop' as const, slug: 'demo', now };
+    const templates = join(cfg.runner.methodologyDir, 'templates').replace(/\\/g, '/');
+    ok(buildPrompt(base).system.includes(templates), 'без разложенных бланков путь к формам нужен');
+    const seeded = buildPrompt({ ...base, seededArtifacts: ['plan.md'] }).system;
+    ok(!seeded.includes(templates), 'модель брала этот путь за корень витка (FinalizeArtifact)');
+    ok(seeded.includes('Формы уже разложены'), seeded.slice(0, 400));
+  });
+
+  it('каждый runner:mechanical в реальных скиллах несёт известный ключ', () => {
+    for (const skill of readdirSync(cfg.runner.skillsDir)) {
+      const file = join(cfg.runner.skillsDir, skill, 'SKILL.md');
+      if (!existsSync(file)) continue;
+      for (const m of readFileSync(file, 'utf8').matchAll(/<!--\s*runner:mechanical:([\w-]+)\s*-->/g)) {
+        ok(MECHANICAL_KEYS.has(m[1]!), `${skill}: неизвестный ключ маркера «${m[1]}»`);
+      }
+    }
   });
 
   it('флоу loop не притворяется, что показывает всё — у sdk есть скрытый пресет', () => {
@@ -177,6 +230,32 @@ describe('сборка промпта из эталона', { skip: нетЭта
     ok(p.system.includes('УЖЕ ВЫПОЛНЕНА рантаймом'), 'вычитающий блок обязан быть в adapter');
     ok(p.system.includes('flow-verdict.py'), 'скрипт вердикта назван как не требующий запуска');
     ok(p.system.includes('§1–§5'), 'работа модели названа явно');
+    ok(
+      p.system.includes('clarification-report.md'),
+      'adapter обязан упомянуть ответы человека как вход, который может уточнять claim-N (Р6, серия local6 2026-09-24)',
+    );
+  });
+
+  // Р6 (серия local6, 2026-09-24): рецензент трижды ронял вердикт тем, что claim-1 остался
+  // «20 % от subtotal» безусловно, хотя ответ человека уже уточнил ставку (10 % при условии),
+  // а рецензент об этом ответе не знал вовсе — вход не подавался.
+  it('этап 6 получает clarification-report.md, если он есть', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+    writeArtifact(paths.plan, '# План\n');
+    writeArtifact(paths.gates, '# Набор гейтов\n');
+    writeArtifact(paths.chunkDiff(2, 3), 'diff --git a/x b/x\n');
+    writeArtifact(paths.clarificationReport, '# Вопросы\nЛьготная ставка НДС — 10%.\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('verify'),
+      ctx,
+      flow: 'sdk',
+      slug: 'demo',
+      now,
+    });
+
+    ok(p.user.includes('Льготная ставка НДС'), 'ответ человека обязан дойти до рецензента');
   });
 
   // Правило карты кодовой базы жило ТОЛЬКО в коде проверки: модель узнавала о нём

@@ -1,0 +1,180 @@
+{
+  "run": {
+    "slug": "d4-granite-rename-field",
+    "model": "ollama:granite4.2-8b-ctx32k",
+    "task": "rename-field",
+    "fixtureDir": "fixtures/catalog",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k",
+      "explore": "ollama:granite4.2-8b-ctx32k",
+      "ask": "ollama:granite4.2-8b-ctx32k",
+      "plan": "ollama:granite4.2-8b-ctx32k",
+      "chunk": "ollama:granite4.2-8b-ctx32k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:granite4.2-8b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-26T02:09:45.182Z",
+    "finishedAt": "2026-09-26T03:09:45.277Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 20
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 132238,
+          "outputTokens": 90928,
+          "cacheReadTokens": 120573,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 6302120
+        },
+        "durationMs": 3600063
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 3
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 33
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:165a56a4-7851-4d72-b897-5fd7dfff644a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\d4-granite-rename-field\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10738,
+        "userChars": 4611,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

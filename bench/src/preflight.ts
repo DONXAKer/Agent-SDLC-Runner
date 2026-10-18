@@ -11,7 +11,11 @@
  * Модельные проверки — расширенная проба (`PREFLIGHT_CASES`): поверх трёх базовых
  * микро-кейсов tool-calling — точность многострочного Edit («некорректная запись»),
  * честность путей («выдумывание»), длинная запись без усечения («нехватка токенов
- * на ответ», `finish_reason: length`).
+ * на ответ», `finish_reason: length`). На `--stage verify` набор ДРУГОЙ —
+ * `REVIEWER_PROBE_CASES` (`server/src/probe.ts`): `reviewFill` не вызывает ни одного
+ * инструмента, и Write/Edit измеряют способности исполнителя chunk, не рецензента
+ * (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`) —
+ * `qwen3.6-27b-iq4` (2026-09-27) прошла старый набор и провалила настоящий `reviewFill`.
  *
  * Коды исхода — как у всего бенчмарка: 0 — пройдено, 1 — модель не прошла,
  * 2 — измерение не состоялось (среда/конфиг). Логика кодов живёт здесь одна
@@ -27,10 +31,16 @@ import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { estimateMessageTokens } from '../../server/src/exec/contextBudget.ts';
 import { readSkillBody } from '../../server/src/prompt/build.ts';
 import { stageById } from '../../server/src/run/stages.ts';
-import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import type { ProbeCase } from '../../server/src/probe.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+import type { ContextProblem } from '../../server/src/provider/contextCheck.ts';
+import { layoutProblemFor } from '../../server/src/provider/layoutCheck.ts';
+import type { LayoutProblem } from '../../server/src/provider/layoutCheck.ts';
+import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
+import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
 import { spawnNode, spawnNodeTest } from './nodeTest.ts';
 import type { NodeTestOutput } from './nodeTest.ts';
 import { readHumanScript } from './operator.ts';
@@ -85,7 +95,13 @@ export function formatPreflight(report: PreflightReport): string {
 /** Точка подмены для тестов: сеть, дочерние процессы и конфиг машины подменяются. */
 export interface PreflightDeps {
   probe: typeof probeModel;
+  /** Прогрев движка одним дешёвым запросом (`engine.ts`) — до замеряемых проб. */
+  warmup: typeof warmupEngine;
+  /** Перезагрузка модели при средовом сбое движка — только за `--engine-reload`. */
+  reloadEngine: typeof reloadEngine;
   contextProblem: typeof contextProblemFor;
+  /** Раскладка по видеопамяти ПОСЛЕ прогрева — критерий 1 квалификации рецензента, см. `layoutCheck.ts`. */
+  layoutProblem: typeof layoutProblemFor;
   spawnTest: typeof spawnNodeTest;
   spawnScript: (args: { script: string; cwd: string; timeoutMs: number }) => Promise<NodeTestOutput>;
   loadConfig: () => LoadedConfig;
@@ -97,7 +113,10 @@ export interface PreflightDeps {
 function defaultDeps(): PreflightDeps {
   return {
     probe: probeModel,
+    warmup: warmupEngine,
+    reloadEngine,
     contextProblem: contextProblemFor,
+    layoutProblem: layoutProblemFor,
     spawnTest: spawnNodeTest,
     // Общий спавн `nodeTest.ts`: своя копия здесь не сбрасывала NODE_TEST_CONTEXT, и
     // `build-check.mjs` фикстуры из-под тестового прогона вёл себя иначе, чем в бою.
@@ -371,26 +390,243 @@ function checkSnapshot(deps: PreflightDeps, opts: BenchOptions): PreflightCheck 
   );
 }
 
+/** Один маршрут с красным окном, чинимым перезагрузкой движка (`reloadEngine`). */
+interface ReloadableRoute {
+  provider: string;
+  model: string;
+  contextWindow?: number;
+  baseUrl?: string;
+}
+
+interface ContextWindowsResult {
+  checks: PreflightCheck[];
+  /** Маршруты с `ContextProblem.reloadable === true`, по одному на разный provider/model. */
+  reloadable: ReloadableRoute[];
+}
+
 /** Окно контекста измеряемых маршрутов (LM Studio — фактическое, Ollama — зашитое/4096). */
-async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): Promise<PreflightCheck[]> {
+async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): Promise<ContextWindowsResult> {
   const name = 'модель: окно контекста';
   const seen = new Set<string>();
   const out: PreflightCheck[] = [];
+  const reloadable: ReloadableRoute[] = [];
   for (const stage of ctx.built.measured) {
     const route = ctx.built.profile.routes[stage];
     const key = `${route.provider}/${route.model}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const started = Date.now();
-    const problem = await deps.contextProblem(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
+    const problem: ContextProblem | null = await deps.contextProblem(
+      route.provider,
+      route.model,
+      route.contextWindow,
+      route.providerDef.baseUrl,
+    );
     const ms = Date.now() - started;
-    if (problem !== null) out.push(bad(name, true, problem, ms));
+    if (problem !== null) {
+      out.push(bad(name, true, problem.message, ms));
+      if (problem.reloadable) {
+        reloadable.push({
+          provider: route.provider,
+          model: route.model,
+          ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+          ...(route.providerDef.baseUrl === undefined ? {} : { baseUrl: route.providerDef.baseUrl }),
+        });
+      }
+    }
   }
   if (out.length === 0) out.push(ok(name, true, 'окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)'));
-  return out;
+  return { checks: out, reloadable };
 }
 
-/** Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget). */
+/**
+ * `checkContextWindows` плюс автоперезагрузка (`--engine-reload`): дыра, пойманная
+ * серией local6 (2026-09-24) — `--engine-reload` чинил только сбой ДВИЖКА на прогреве
+ * (`checkWarmup`), а красное окно (модель не загружена, загружена не с тем окном или
+ * с `parallel>1`) красило преполёт РАНЬШЕ прогрева и до реакции на флаг не доходило:
+ * 12 из 18 прогонов серии сгорели именно так, при том что и диагноз, и команда фикса
+ * уже были в тексте ошибки.
+ *
+ * Красные проверки первого прохода ЗАМЕНЯЮТСЯ (не дополняются) результатом повтора —
+ * иначе устаревший красный `bad()` остался бы в списке даже после удачной перезагрузки,
+ * и `checks.every(c => c.ok)` ниже по `runPreflight` не увидел бы зелёного окна.
+ */
+async function checkContextWindowsWithReload(
+  deps: PreflightDeps,
+  ctx: PreflightContext,
+  opts: BenchOptions,
+): Promise<PreflightCheck[]> {
+  const first = await checkContextWindows(deps, ctx);
+  if (first.checks.every((c) => c.ok) || first.reloadable.length === 0) return first.checks;
+  if (opts.engineReload !== true) return first.checks;
+
+  const done = new Set<string>();
+  const outcomes: string[] = [];
+  let anyReloaded = false;
+  for (const r of first.reloadable) {
+    const key = `${r.provider}/${r.model}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const reload = await deps.reloadEngine({
+      provider: r.provider,
+      model: r.model,
+      ...(r.baseUrl === undefined ? {} : { baseUrl: r.baseUrl }),
+      ...(r.contextWindow === undefined ? {} : { contextWindow: r.contextWindow }),
+    });
+    outcomes.push(`${key}: ${reload.detail}`);
+    if (reload.kind === 'reloaded') anyReloaded = true;
+  }
+  if (!anyReloaded) {
+    return [...first.checks, bad('модель: окно контекста (перезагрузка)', true, outcomes.join('; '))];
+  }
+  const again = await checkContextWindows(deps, ctx);
+  return again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` }));
+}
+
+/**
+ * Прогрев движка одним дешёвым запросом — первый модельный шаг преполёта, ДО замеряемых
+ * проб (`engine.ts::warmupEngine`). Холодный движок (LM Studio / ollama) поднимает веса на
+ * первом вызове, и без прогрева этот холодный старт ложился в первую пробу и мерил движок,
+ * а не модель. Длительность попадает в отчёт как у любой проверки — по ней холодный старт
+ * и читается.
+ *
+ * Сбой ДВИЖКА на прогреве — средовый (⛔, код 2): на один токен не отвечает только
+ * лёгший/холодный движок, и гонять дальше семь кейсов по 120 с бессмысленно — проба не
+ * запускается. При таком сбое (та же классификация, что у провайдера — `isEngineEnvFailure`)
+ * и ЯВНОМ `--engine-reload` — ОДНА попытка перезагрузки и один повтор: GPU общий, поэтому
+ * без флага преполёт ограничивается диагнозом и подсказкой, а повтор после перезагрузки —
+ * ровно один, второй серии не будет.
+ *
+ * Прочий сбой прогрева (400 на `max_tokens: 1` у провайдера с порогом, кривой параметр)
+ * преполёт не красит: прогрев — не замер, и его ошибку классифицирует проба тем же
+ * запросом с настоящими параметрами. Прежде такой сбой красил «средой» (код 2) и не давал
+ * стартовать маршруту, на котором проба прошла бы (code-review-all 2026-09-23). Облачные
+ * провайдеры не прогреваются вовсе: холодных весов у них нет.
+ */
+async function checkWarmup(
+  deps: PreflightDeps,
+  config: LoadedConfig,
+  opts: BenchOptions,
+): Promise<{ check: PreflightCheck | null; reloaded: boolean }> {
+  const name = 'модель: прогрев движка';
+  const target = resolveProbeTarget(config.models, opts.model);
+  // Цель не разрешилась (sdk-флоу, битый конфиг) — диагноз назовёт проба ниже,
+  // дублировать его строкой прогрева незачем.
+  if ('error' in target) {
+    return { check: ok(name, true, 'цель пробы не разрешилась — прогрев пропущен, диагноз назовёт проба'), reloaded: false };
+  }
+  const { def, providerDef } = target;
+  if (!isLocalEngine(def.provider, providerDef)) return { check: null, reloaded: false };
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  const args = { provider, model: def.model, params: def.params ?? null };
+  const noReload = (check: PreflightCheck) => ({ check, reloaded: false });
+
+  const started = Date.now();
+  try {
+    await deps.warmup(args);
+    return noReload(ok(name, true, 'движок ответил — веса подняты до замеряемых проб', Date.now() - started));
+  } catch (e) {
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    const ms = Date.now() - started;
+    if (!isEngineEnvFailure(e)) {
+      return noReload(ok(name, false, `прогрев не удался не по движку: ${message} — классифицирует проба`, ms));
+    }
+    if (opts.engineReload !== true) {
+      return noReload(
+        bad(
+          name,
+          true,
+          `движок не ответил на прогрев: ${message}; перезагрузить движок и повторить прогрев может преполёт с явным --engine-reload`,
+          ms,
+        ),
+      );
+    }
+    const reload = await deps.reloadEngine({
+      provider: def.provider,
+      model: def.model,
+      ...(providerDef.baseUrl === undefined ? {} : { baseUrl: providerDef.baseUrl }),
+      ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
+    });
+    if (reload.kind !== 'reloaded') {
+      return noReload(bad(name, true, `движок не ответил на прогрев: ${message}; ${reload.detail}`, ms));
+    }
+    const retryStarted = Date.now();
+    try {
+      await deps.warmup(args);
+      return {
+        check: ok(name, true, `движок поднялся после перезагрузки (${reload.detail})`, ms + (Date.now() - retryStarted)),
+        reloaded: true,
+      };
+    } catch (e2) {
+      const message2 = (e2 instanceof Error ? e2.message : String(e2)).slice(0, 200);
+      return {
+        check: bad(
+          name,
+          true,
+          `перезагрузка выполнена (${reload.detail}), но движок не ответил и на повтор: ${message2}`,
+          ms + (Date.now() - retryStarted),
+        ),
+        reloaded: true,
+      };
+    }
+  }
+}
+
+/**
+ * Раскладка модели по видеопамяти — ТОЛЬКО после успешного прогрева: без него веса ещё не
+ * загружены, и раскладку смотреть не на чем. Критерий 1 квалификации рецензента
+ * (`docs/proposals/reviewer-qualification.md`): частичный CPU-офлоад проходит короткие
+ * изолированные кейсы `--probe` (40–110 с) и вскрывается только настоящей нагрузкой —
+ * `qwen3.6-27b-iq4` (2026-09-27) прошла пробу 3/3 и зависла на реальном `reviewFill`
+ * именно по этой причине (`ollama ps`: 26%/74% CPU/GPU). Реализовано только для Ollama —
+ * см. `layoutCheck.ts`; на прочих провайдерах молча пропускается (`check: null`), не красит.
+ */
+async function checkLayout(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck | null> {
+  const name = 'модель: раскладка после прогрева';
+  const target = resolveProbeTarget(config.models, opts.model);
+  if ('error' in target) return null;
+  const { def, providerDef } = target;
+  // Реализовано только для Ollama — на прочих провайдерах строка не показывается вовсе,
+  // а не «зелёная по умолчанию»: непроверенное не должно выглядеть проверенным.
+  if (def.provider !== 'ollama') return null;
+
+  const started = Date.now();
+  const problem: LayoutProblem | null = await deps.layoutProblem(
+    def.provider,
+    def.model,
+    providerDef.baseUrl,
+    config.runner.limits.chatTimeoutMs,
+  );
+  const ms = Date.now() - started;
+  return problem === null
+    ? ok(name, false, 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
+    : bad(name, true, problem.message, ms);
+}
+
+/**
+ * Локальный движок с холодными весами — прогрев и перезагрузка имеют смысл только у него.
+ * Известные локальные провайдеры по имени — и любой openai-совместимый провайдер на адресе
+ * этой машины: провайдер, заведённый под другим именем (`lmstudio2`), иначе молча терял
+ * прогрев (code-review-all 2026-09-23).
+ */
+const LOCAL_ENGINES: ReadonlySet<string> = new Set(['ollama', 'lmstudio', 'vllm']);
+
+function isLocalEngine(provider: string, def: { kind: string; baseUrl?: string }): boolean {
+  if (LOCAL_ENGINES.has(provider)) return true;
+  return def.kind === 'openai-compat' && def.baseUrl !== undefined && isLoopbackUrl(def.baseUrl);
+}
+
+/**
+ * Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget).
+ *
+ * Модельный провал кейса перезапускается ОДИН раз: ночные серии test24/test24c
+ * (docs/model-runs.md) показали, что одиночный ❌ шумной пробы («правка поля без
+ * перезаписи файла» у трёх моделей, проходивших её накануне) — слабый сигнал отсева,
+ * а красил весь преполёт и отменял долгий прогон. Вторая попытка зелёная — кейс
+ * засчитан, но с пометкой «со 2-й попытки», чтобы шумность не терялась из отчётов.
+ * Средовой сбой (⛔) НЕ перезапускается: там таймауты по 120 с, ретрай дорог и
+ * измерял бы среду, а не модель.
+ */
 async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck[]> {
   const target = resolveProbeTarget(config.models, opts.model);
   if ('error' in target) {
@@ -403,20 +639,70 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
   }
   const { def, providerDef } = target;
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
-  const report: ProbeReport = await deps.probe({
+  // Роль решает набор кейсов — см. докстринг `REVIEWER_PROBE_CASES` (`probe.ts`) и
+  // критерий 3 квалификации рецензента (`docs/proposals/reviewer-qualification.md`).
+  // `--all` verify не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
+  const forReviewer = opts.mode.kind === 'stage' && opts.mode.stage === 'verify';
+  const cases: readonly ProbeCase[] = forReviewer ? REVIEWER_PROBE_CASES : PREFLIGHT_CASES;
+  // `role` — часть общего `probeArgs`, а не отдельный параметр только первого вызова:
+  // retry одного кейса ниже (`deps.probe({ ...probeArgs, cases: [retryCase] })`) передаёт
+  // НОВЫЙ массив из одного элемента, и вывод роли по ссылочному равенству с
+  // `REVIEWER_PROBE_CASES` на этом retry молча откатывался к `'chunk'` (code-review-all,
+  // 2026-09-28) — `role` в `probeArgs` избавляет от второго места, где это можно забыть.
+  const probeArgs = {
     provider,
     model: def.model,
-    params: def.params ?? null,
-    caseTimeoutMs: PROBE_CASE_TIMEOUT_MS,
-    cases: PREFLIGHT_CASES,
-  });
-  return report.cases.map((c) => ({
+    params: def.provider === 'lmstudio'
+      ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+      : def.params ?? null,
+    caseTimeoutMs: opts.probeTimeoutMs ?? PROBE_CASE_TIMEOUT_MS,
+    role: (forReviewer ? 'verify' : 'chunk') as 'chunk' | 'verify',
+  };
+  const report: ProbeReport = await deps.probe({ ...probeArgs, cases });
+  const toCheck = (c: ProbeReport['cases'][number], detail = c.detail, durationMs = c.durationMs): PreflightCheck => ({
     name: `модель: ${c.name}`,
     ok: c.ok,
     env: c.env,
-    detail: c.detail,
-    durationMs: c.durationMs,
-  }));
+    detail,
+    durationMs,
+  });
+
+  const checks: PreflightCheck[] = [];
+  for (const c of report.cases) {
+    // Таймаут кейса (`timedOut`) — измерение о модели (красит кодом 1, не 2 — `env` уже
+    // `false`), но повтор бессмыслен: он удвоил бы тот же потолок без нового сигнала
+    // (найдено серией local6, 2026-09-24 — apriel-1.6-15b, 120–218 с на кейс).
+    if (c.ok || c.env || c.timedOut) {
+      checks.push(toCheck(c, c.timedOut ? `${c.detail} — попробуй больший --probe-timeout, если это разовая нагрузка` : c.detail));
+      continue;
+    }
+    const retryCase = cases.find((p) => p.name === c.name);
+    if (retryCase === undefined) {
+      checks.push(toCheck(c));
+      continue;
+    }
+    const second: ProbeReport = await deps.probe({ ...probeArgs, cases: [retryCase] });
+    const r = second.cases[0];
+    if (r === undefined) {
+      checks.push(toCheck(c));
+    } else if (r.ok) {
+      checks.push(toCheck({ ...c, ok: true }, `${r.detail} (со 2-й попытки)`, c.durationMs + r.durationMs));
+    } else if (r.env) {
+      // Повтор упал средой — модель по этому кейсу не измерена, а не провалена:
+      // красим как средовый сбой (код 2), иначе транзиентный транспорт снова
+      // вычеркнул бы модель одиночным шумным сигналом.
+      checks.push(
+        toCheck(
+          { ...c, env: true },
+          `1-я попытка — провал модели (${c.detail}); повтор не измерен: ${r.detail}`,
+          c.durationMs + r.durationMs,
+        ),
+      );
+    } else {
+      checks.push(toCheck(c, `${r.detail} (провал в 2/2 попыток)`, c.durationMs + r.durationMs));
+    }
+  }
+  return checks;
 }
 
 /**
@@ -438,8 +724,22 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     checks.push(checkTurnLimit(ctx.config, opts));
     const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
-    checks.push(...(await checkContextWindows(d, ctx)));
+    checks.push(...(await checkContextWindowsWithReload(d, ctx, opts)));
     if (checks.every((c) => c.ok)) {
+      const warm = await checkWarmup(d, ctx.config, opts);
+      if (warm.check !== null) checks.push(warm.check);
+      // Перезагрузка подняла модель заново — окно и слоты, проверенные ДО неё, уже не про
+      // эту загрузку: перепроверяются, иначе урезанное окно прошло бы преполёт зелёным.
+      if (warm.reloaded && checks.every((c) => c.ok)) {
+        const again = await checkContextWindows(d, ctx);
+        checks.push(...again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
+      }
+    }
+    if (checks.every((c) => c.ok)) {
+      const layout = await checkLayout(d, ctx.config, opts);
+      if (layout !== null) checks.push(layout);
+    }
+    if (checks.every((c) => c.ok) && opts.executionMode !== 'guided') {
       checks.push(...(await checkModel(d, ctx.config, opts)));
     }
   }

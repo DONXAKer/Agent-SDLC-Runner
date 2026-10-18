@@ -19,30 +19,26 @@ import { readFileSync, statSync } from 'node:fs';
 import { applyFill } from '../artifacts/applyFill.ts';
 import { decisionLabelsIn, decisionLineIndexes } from '../artifacts/artifact.ts';
 import { deriveSchema, findField } from '../artifacts/formSchema.ts';
+import { SDLC_CONSTANTS } from '../config/constants.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 import { templateNameFor } from '../run/seed.ts';
 import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 /**
- * Порог доли потерянного. 0.5 — не «половина важнее сорока процентов», а точка, ниже
- * которой перезапись перестаёт быть перезаписью по существу: файл, ужатый вдвое одним
- * вызовом, оператор обязан увидеть, а обычная правка столько не теряет.
- */
-const LOSS_RATIO = 0.5;
-
-/**
- * Ниже этого числа строк потеря не считается разрушительной.
+ * Порог доли потерянного — тот же, что у гейта «Перезапись файла» (`SDLC.md`: 50 % — число
+ * из измерения, не из вкуса). Одно число на гард записи и на гейт этапа 6: иначе гард
+ * пропускал бы то, что гейт потом красит красным, и наоборот.
  *
- * Без него каждая правка короткого файла (`.gitignore` в 6 строк, однострочный конфиг)
- * требовала бы отдельного решения человека, и правило стало бы шумом, который выключают.
+ * Нижней планки по числу строк у файла нет намеренно: методология считает потерю долей
+ * строк базы для любого файла, и `.gitignore` в 6 строк, ужатый до одной, — та же
+ * перезапись, требующая решения человека. Прежний порог в 40 строк расходился с гейтом.
  */
-const MIN_LINES = 40;
+const LOSS_RATIO = SDLC_CONSTANTS.overwrite_threshold_percent / 100;
 
 /**
- * Тот же порог для поля `FillField`, а не для файла целиком: поле по природе короче
- * документа, вокруг него всегда стоит остальное содержимое артефакта, которое в `MIN_LINES`
- * файла и не заметит потерю. Число взято из failure_scenario ревью — «десятки накопленных
- * строк» листа/списка, а не сотни.
+ * Нижняя планка для поля `FillField`, а не для файла целиком: поле по природе короче
+ * документа, вокруг него всегда стоит остальное содержимое артефакта. Число взято из
+ * failure_scenario ревью — «десятки накопленных строк» листа/списка, а не сотни.
  */
 const MIN_LINES_FIELD = 10;
 
@@ -109,7 +105,7 @@ function overwriteLoss(path: string, before: string, content: string): Destructi
     return { path, linesBefore, linesAfter, linesLost: linesBefore - linesAfter, decisionsLost };
   }
 
-  if (linesBefore < MIN_LINES) return null;
+  if (linesBefore === 0) return null;
 
   const linesLost = linesBefore - linesAfter;
   if (linesLost <= 0) return null;
@@ -219,16 +215,16 @@ export function destructiveOverwrite(
  * Потеря по строкам сама по себе разрушительна — вне зависимости от полей решений.
  * Тогда новая версия может оказаться мусором, и чинить её вставкой поля нельзя.
  *
- * Короткий файл здесь НЕ исключение, в отличие от `MIN_LINES` у ноты: файл в 35 строк,
- * переписанный в 3 со стёртым полем, — тоже мусор, и «починка» вставкой поля выдала бы его
- * за исправленную запись. Абсолютный порог для короткого файла — `MIN_LINES_FIELD`: он
- * отделяет потерю документа от правки пары строк рядом с полем.
+ * Короткий файл здесь не исключение: файл в 35 строк, переписанный в 3 со стёртым полем, —
+ * тоже мусор, и «починка» вставкой поля выдала бы его за исправленную запись. Абсолютный
+ * порог — `MIN_LINES_FIELD` потерянных строк: он отделяет потерю документа от правки пары
+ * строк рядом с полем.
  */
 export function isMassLoss(d: DestructiveOverwrite): boolean {
   if (d.linesBefore < 0) return true;
   if (d.linesLost <= 0 || d.linesBefore === 0) return false;
   if (d.linesLost / d.linesBefore < LOSS_RATIO) return false;
-  return d.linesBefore >= MIN_LINES || d.linesLost >= MIN_LINES_FIELD;
+  return d.linesLost >= MIN_LINES_FIELD;
 }
 
 const HEADING = /^#{1,6}\s/;

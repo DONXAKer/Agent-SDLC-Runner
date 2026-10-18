@@ -24,6 +24,8 @@ export interface PendingCall {
   destructive: string | null;
   /** Рантайм вернул стёртое поле решения человека — исполнитель получит исправленный вход. */
   repaired?: string;
+  /** Рантайм перенаправил запись своего артефакта этапа на канонический путь — вход исправлен. */
+  readdressed?: string;
   /** Метки полей решений, которые стирал исходный вызов до починки. */
   decisionsLost?: string[];
   /**
@@ -45,9 +47,14 @@ export interface PendingAsk {
  * Поля починки — одной функцией для обоих источников: поля копируются поимённо, и забытое в
  * одном из двух мест пропадало молча (так и было с `repaired` — карточка его не получала).
  */
-function repairFields(src: { repaired?: string; decisionsLost?: string[] }): Pick<PendingCall, 'repaired' | 'decisionsLost'> {
+function repairFields(src: {
+  repaired?: string;
+  readdressed?: string;
+  decisionsLost?: string[];
+}): Pick<PendingCall, 'repaired' | 'readdressed' | 'decisionsLost'> {
   return {
     ...(src.repaired === undefined ? {} : { repaired: src.repaired }),
+    ...(src.readdressed === undefined ? {} : { readdressed: src.readdressed }),
     ...(src.decisionsLost === undefined ? {} : { decisionsLost: src.decisionsLost }),
   };
 }

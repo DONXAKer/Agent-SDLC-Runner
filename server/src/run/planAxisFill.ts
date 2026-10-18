@@ -23,8 +23,10 @@
 import type { Usage } from '@sdlc-runner/shared';
 
 import { AFFIRMATIVE_HEAD, AXIS_HINTS, axisHint } from './reviewFill.ts';
+import { axisOutcomePromptOptions, matchAxisOutcome } from './axisOutcomes.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
-import type { AxisName } from '../artifacts/planAxes.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
+import { axisRowOf, axisRowProblems, type AxisContext, type AxisName } from '../artifacts/planAxes.ts';
 import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
 
 export interface PlanAxisFillInput {
@@ -63,18 +65,74 @@ function axisBlock(n: number, axis: AxisName): string {
   return `### ${n}. Ось «${axis}» — ${axisHint(axis)}`;
 }
 
-function planAxisQuestion(i: PlanAxisFillInput): string {
+/**
+ * Общий контекст вопроса о последствиях — шаги плана и опоры разведки. Один источник для
+ * обеих форм добора (комбинированной и `planAxisStepwise.ts`): две копии блока разъехались
+ * бы при первой правке, и формы ручки мерили бы разное.
+ */
+export function planAxisContextLines(i: PlanAxisFillInput): string[] {
   return [
-    `## Разбор последствий — заполни ${i.axes.length} осей, которые план ещё не разобрал`,
-    '',
-    'Ниже — шаги плана целиком и то, что уже известно о проекте по этим осям.',
-    '',
     '## Шаги плана',
     '',
     i.planText.trim(),
     ...(i.axisSupportText.trim() === ''
       ? []
       : ['', '## Что уже есть в проекте по этим осям (из разведки)', '', i.axisSupportText.trim()]),
+  ];
+}
+
+/** Обёртки ответа модели (`«да»`, `*нет*`, `` `н/п` ``) — снимаются по краям, ключи внутри не трогаются. */
+export function stripAnswerWrappers(s: string): string {
+  return s.replace(/^[*_`«»"'\s]+/, '').replace(/[*_`«»"'\s]+$/, '');
+}
+
+/** Адресаты исходов добора — те же факты, по которым `planAxisProblems` сверяет план. */
+export function planAxisContext(i: PlanAxisFillInput): AxisContext {
+  return {
+    claimIds: i.claimIds,
+    enabledGates: i.enabledGates,
+    hasOpenQuestion: i.hasOpenQuestion,
+    hasInvariants: i.hasInvariants,
+  };
+}
+
+/** Исход одного вопроса добора; `env` — сбой среды, добор прекращается целиком. */
+export type PlanAxisReply = { text: string; rawLogPath: string | null } | { env: string } | { failed: string };
+
+/**
+ * Один вопрос добора без истории: `system` этапа + вопрос. Общий для обеих форм добора —
+ * параметры запроса (температура, params, учёт usage) обязаны совпадать, иначе две формы
+ * одной ручки мерили бы разное.
+ */
+export async function askPlanAxes(i: PlanAxisFillInput, user: string): Promise<PlanAxisReply> {
+  let response: Awaited<ReturnType<ChatProvider['chat']>>;
+  try {
+    response = await i.provider.chat({
+      model: i.model,
+      messages: [
+        { role: 'system', content: i.system },
+        { role: 'user', content: user },
+      ],
+      tools: [],
+      signal: i.signal,
+      temperature: null,
+      params: i.params,
+    });
+  } catch (e) {
+    if (e instanceof ProviderEnvError) return { env: e.message };
+    return { failed: e instanceof Error ? e.message : String(e) };
+  }
+  i.onUsage?.(response.usage);
+  return { text: response.text, rawLogPath: response.rawLogPath ?? null };
+}
+
+function planAxisQuestion(i: PlanAxisFillInput): string {
+  return [
+    `## Разбор последствий — заполни ${i.axes.length} осей, которые план ещё не разобрал`,
+    '',
+    'Ниже — шаги плана целиком и то, что уже известно о проекте по этим осям.',
+    '',
+    ...planAxisContextLines(i),
     '',
     '## Доступные адресаты исхода',
     '',
@@ -92,19 +150,35 @@ function planAxisQuestion(i: PlanAxisFillInput): string {
     '',
     '`N. да/нет | что именно в шагах, файл:символ / почему ось не затронута | исход`',
     '',
-    'исход — РОВНО одно из закрытого словаря, ссылаясь ТОЛЬКО на реально существующие ' +
-      'адресаты из списка выше:',
-    '- `claim-N` — пункт УЖЕ в приёмочном листе (не выдумывай новый id);',
-    '- `инвариант` — только если в задаче назван хоть один;',
-    '- `гейт «имя дословно»` — только имя из списка включённых гейтов выше;',
-    '- `следующий виток` — только если в задаче есть открытый вопрос;',
-    '- `н/п — причина` — ось не затронута, причина обязательна;',
-    '- риск: ЧЕТЫРЕ части ПОСЛЕ обычных «да/нет | что именно в шагах» (итого ШЕСТЬ частей ' +
+    'Примеры правильных строк:',
+    '- `3. нет | — / новых точек входа нет | н/п — синхронная библиотека, внешний вход не обрабатывает`',
+    '- `2. нет | — / метрик не добавляли | н/п — не затронута`',
+    '- `2. да | шаг 4 вызывает `db:orders` внутри цикла | риск | N+1 | индекс по `status` уже есть | после первой нагрузки`',
+    // Пример без символов и id какой-либо реальной задачи: слабая модель копирует пример
+    // дословно, и `priceFor`/`claim-2` фикстуры bench проходили сверку адресата, завышая
+    // замер ручки (code-review-all 2026-09-23).
+    '- `5. да | шаг 1 меняет сигнатуру публичной функции | claim-N` (N — номер пункта из списка выше)',
+    '',
+    'Первое поле — ТОЛЬКО `да` или `нет`. Если ось не затронута, первое поле `нет`, а исход `н/п — почему`. ' +
+      'Не пиши `н/п` в первом поле.',
+    '',
+    'исход — РОВНО один ключ из закрытого словаря, без изменений и без пустоты:',
+    '',
+    axisOutcomePromptOptions(),
+    '',
+    'Если ось не затронута, исход НЕ может быть `—`, пустым, `нет` или сухим `н/п`: всегда пиши `н/п — причина` ' +
+      '(например, `н/п — не затронута`, `н/п — новых вызовов нет`).',
+    '',
+    'Ключ ссылается ТОЛЬКО на реально существующие адресаты из списка выше: `claim-N` — ' +
+      'не выдумывай новый id; `инвариант` — только если в задаче назван хоть один; ' +
+      '`гейт «имя»` — только имя из списка включённых гейтов выше; `следующий виток` — ' +
+      'только если в задаче есть открытый вопрос. Несуществующий адресат не считается ответом.',
+    '',
+    'риск: ЧЕТЫРЕ части ПОСЛЕ обычных «да/нет | что именно в шагах» (итого ШЕСТЬ частей ' +
       'строки, не три) — `риск | что может пойти не так | почему допустимо сейчас | когда ' +
       'вернуться`, все три поля после слова «риск» заполнены всегда.',
     '',
-    'Не ссылайся на claim/гейт/вопрос/инвариант, которых нет в списках выше — несуществующий ' +
-      'адресат не считается ответом. Ничего, кроме этих строк, не пиши.',
+    'Ничего, кроме этих строк, не пиши.',
   ].join('\n');
 }
 
@@ -117,29 +191,50 @@ function planAxisQuestion(i: PlanAxisFillInput): string {
  * `reviewFill.ts` отсутствие «да» само по себе значит «нет» — здесь формат другой,
  * `да`/`нет` идут явным первым полем), поэтому она заведена локально тем же приёмом.
  */
-const NEGATIVE = /^нет(?=\s|[—:,.!]|$)/i;
+export const NEGATIVE = /^нет(?=\s|[—:,.!]|$)/i;
 /**
- * Окончания риска перечислены явно той же группой, что и в `planAxes.ts`'s `OUTCOME_WORDS`
- * (риск/риски/риска/риском/…) — иначе ответ модели «риски: …» (множественное число) не
- * матчился бы здесь, но матчился бы при последующем ЧТЕНИИ той же строки, и `planAxisProblems`
- * рапортовал бы «исход «риск», но строки в таблице рисков нет» на строке, которую сам же
- * топ-ап и не смог правильно разобрать (ревью).
+ * Модель иногда кладёт в первое поле `н/п — причина` вместо `нет`, потому что исход
+ * «не применимо» тоже начинается с `н/п`. Разбор должен это выдерживать: признаём
+ * затронутость равной «нет» и оставляем исход третьим полем — там уже будет
+ * `н/п — почему` (живой замер test26b, gpt-oss-20b-rf, 2026-09-22).
  */
-const RISK_HEAD = /^риск(?:и|а|ом|у|е|ов|ам)?(?=\s|[—:,.!]|$)/i;
-
+export const NOT_APPLICABLE_HEAD = /^н\s*\/\s*п(?=\s|[—:,.!]|$)/i;
 /**
  * Разбор одной строки `N. да/нет | что именно | исход` (или шестичастной для «риска»:
  * да/нет | что именно | риск | риск словами | почему допустимо | когда вернуться).
+ * Поле «исход» обязано содержать ключ словаря (`matchAxisOutcome` — словоформы общие с
+ * читателем плана, см. `axisOutcomes.ts`): исход без ключа словаря — не ответ, ось
+ * остаётся незакрытой и её честно увидит `finishGuard`, вместо того чтобы в план уходил
+ * текст, который `planAxisProblems` потом сам же и отвергнет. Ключа мало: строка ещё
+ * проверяется ТЕМ ЖЕ читателем (`axisRowProblems`) — сухое `н/п`, `нет` с исходом-claim,
+ * `да` с `н/п`, гейт без имени в кавычках, `н/п — ‹почему›` из бланка и несуществующий
+ * адресат ключ словаря содержат, а читатель их отвергает (code-review-all 2026-09-23).
+ * Сам текст исхода пишется вербатим — нормализация ключа нужна только разбору.
  * `null` — строка не разобралась (номер вне диапазона, дубль, пустые поля).
  */
-function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null {
-  const parts = rest.split('|').map((p) => p.trim());
+function parseOneAxisAnswer(axis: AxisName, rest: string, ctx: AxisContext): AxisFillAnswer | null {
+  // Хвостовой `|` табличной строки (`| ось | да | … |`) — не пустое поле ответа.
+  const parts = rest.replace(/\|\s*$/, '').split('|').map((p) => p.trim());
   if (parts.length < 3) return null;
   const [affectedRaw = '', what = '', outcomeHead = ''] = parts;
-  const affected = AFFIRMATIVE_HEAD.test(affectedRaw) ? true : NEGATIVE.test(affectedRaw) ? false : null;
+  // Обёртки («да», *нет*, `н/п`) снимаются перед проверками — та же «вежливость» модели,
+  // что и у исхода; ключи внутри значения (н/п — причина) не трогаются.
+  const affectedClean = stripAnswerWrappers(affectedRaw);
+  let affected = AFFIRMATIVE_HEAD.test(affectedClean)
+    ? true
+    : NEGATIVE.test(affectedClean)
+      ? false
+      : NOT_APPLICABLE_HEAD.test(affectedClean)
+        ? false
+        : null;
   if (affected === null || what === '') return null;
 
-  if (RISK_HEAD.test(outcomeHead)) {
+  if (matchAxisOutcome(outcomeHead) === null) return null;
+  const affectedText = affected ? 'да' : 'нет';
+  const row = axisRowOf(axis, affectedText, outcomeHead);
+  if (axisRowProblems(row, ctx).length > 0) return null;
+
+  if (row.outcome === 'risk') {
     // Шесть частей, не пять: «риск» — своё поле (part[2]), «риск словами» для таблицы
     // принятых рисков — ОТДЕЛЬНОЕ part[3], не то же самое, что «что именно в шагах»
     // (part[1]) — прежде код по ошибке переиспользовал `what` для обеих колонок сразу
@@ -149,35 +244,151 @@ function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null
     if (riskWhat.trim() === '' || why.trim() === '' || revisit.trim() === '') return null;
     return {
       axis,
-      affectedText: affected ? 'да' : 'нет',
+      affectedText,
       what,
       outcome: 'риск',
       risk: { what: riskWhat.trim(), why: why.trim(), revisit: revisit.trim() },
     };
   }
 
-  if (outcomeHead === '') return null;
-  return { axis, affectedText: affected ? 'да' : 'нет', what, outcome: outcomeHead };
+  return { axis, affectedText, what, outcome: outcomeHead };
 }
 
-export function parsePlanAxesCombinedAnswer(
-  axes: readonly AxisName[],
-  answer: string,
-): { answeredIdx: Set<number>; answers: AxisFillAnswer[] } {
-  const answeredIdx = new Set<number>();
-  const answers: AxisFillAnswer[] = [];
-  const lines = answer
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l !== '' && !l.startsWith('```'));
+/** Нумерованная строка ответа: `idx` — номер оси по порядку вопроса, с 0. */
+interface NumberedLine {
+  idx: number;
+  rest: string;
+}
+
+/**
+ * Блоки ответа. Новый блок начинается, когда номер оси в блоке ПОВТОРИЛСЯ, — а не на
+ * любой ненумерованной строке и не на убывании номера (оси модель отвечает и вразнобой:
+ * дамп 00107 начинается с 1, 4, 3, 6, 2, 5). Разбиение нужно
+ * самокоррекции: модель, нашедшая у себя ошибку, пишет ПОВТОРНЫЙ блок ответа — без границ
+ * обе версии сливались бы в одну, и побеждала бы первая, то есть отозванная самой моделью
+ * (живой замер test24e, дамп `00107-plan-planAxisFill.json`, 2026-09-22). Граница по
+ * ненумерованной строке была неверна в обе стороны: заголовки `### N. Ось «…»` (их рисует
+ * сам вопрос) и проза между ответами дробили один ответ на блоки по строке, и выживала
+ * одна ось; а две версии, разделённые только оградой кода или пустой строкой, сливались
+ * (code-review-all 2026-09-23).
+ */
+function numberedBlocks(lines: readonly string[]): NumberedLine[][] {
+  const blocks: NumberedLine[][] = [];
+  let current: NumberedLine[] = [];
   for (const line of lines) {
     const m = /^(\d+)\.\s*(.*)$/.exec(line);
     if (m === null) continue;
     const idx = Number(m[1]) - 1;
+    if (current.some((l) => l.idx === idx)) {
+      blocks.push(current);
+      current = [];
+    }
+    current.push({ idx, rest: m[2] ?? '' });
+  }
+  if (current.length > 0) blocks.push(current);
+  return blocks;
+}
+
+/** Разбор одного блока: дубль номера внутри блока и номер вне диапазона — не ответ. */
+function parseNumberedBlock(
+  axes: readonly AxisName[],
+  block: readonly NumberedLine[],
+  ctx: AxisContext,
+): { answeredIdx: Set<number>; answers: AxisFillAnswer[] } {
+  const answeredIdx = new Set<number>();
+  const answers: AxisFillAnswer[] = [];
+  for (const { idx, rest } of block) {
     if (idx < 0 || idx >= axes.length || answeredIdx.has(idx)) continue;
-    const rest = m[2] ?? '';
     if (rest.trim() === '') continue;
-    const parsed = parseOneAxisAnswer(axes[idx]!, rest);
+    const parsed = parseOneAxisAnswer(axes[idx]!, rest, ctx);
+    if (parsed === null) continue;
+    answeredIdx.add(idx);
+    answers.push(parsed);
+  }
+  return { answeredIdx, answers };
+}
+
+/**
+ * Строка вида `<имя оси> | да/нет | …` — ответ по имени вместо номера. Markdown-обёртки
+ * имени (`**Ось**`, кавычки) снимаются; после имени обязан стоять разделитель (`|` или
+ * `:`), иначе строка — проза ПРО ось, а не ответ по ней. Имена проверяются от длинного к
+ * короткому: ось-префикс чужого имени не должна съедать начало чужой строки.
+ */
+function namePrefixedAxis(line: string, axes: readonly AxisName[]): { axis: AxisName; rest: string } | null {
+  // Снимаются маркер списка, ведущий `|` табличной строки, разметка и открывающие кавычки.
+  const bare = line.replace(/^[\s*_`|«"'„•-]+/, '');
+  const lower = bare.toLowerCase();
+  for (const axis of [...axes].sort((a, b) => b.length - a.length)) {
+    if (!lower.startsWith(axis.toLowerCase())) continue;
+    const rest = bare.slice(axis.length).replace(/^[\s*_`»"'“]+/, '');
+    if (!rest.startsWith('|') && !rest.startsWith(':') && !rest.startsWith('—')) return null;
+    return { axis, rest: rest.slice(1).trim() };
+  }
+  return null;
+}
+
+/**
+ * Разбор комбинированного ответа топ-апа.
+ *
+ * Две формы строки: `N. да/нет | …` (номер — порядок оси в вопросе, промпт нумерует с 1)
+ * и `<имя оси> | да/нет | …`. Проза вокруг не разбирается вовсе, строка, не севшая ни на
+ * одну форму, пропускается: недобор честно увидит `finishGuard`, а мусор в таблице осей
+ * пришлось бы вычищать человеку.
+ *
+ * Нумерованные строки разбираются ПОБЛОЧНО и побеждает ПОСЛЕДНИЙ ПОЛНЫЙ блок (закрывший
+ * все оси вопроса): самокоррекция модели отзывает первую версию, и взять её значило бы
+ * записать то, что модель сама объявила неверным. Частичный блок — поправка: его оси
+ * заменяют прежние ответы, остальные остаются (частичный ответ лучше молчания, тем же
+ * принципом, что недобор по части осей не роняет уже разобранные). Строки по имени оси
+ * добирают только то, что не закрыли нумерованные блоки, — не переписывая их.
+ */
+export function parsePlanAxesCombinedAnswer(
+  axes: readonly AxisName[],
+  answer: string,
+  /** Адресаты исходов; пустой — сверка адресатов выключена (как у `planAxisProblems`). */
+  ctx: AxisContext = {},
+): { answeredIdx: Set<number>; answers: AxisFillAnswer[] } {
+  const lines = answer
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('```'));
+
+  let best: { answeredIdx: Set<number>; answers: AxisFillAnswer[] } = {
+    answeredIdx: new Set<number>(),
+    answers: [],
+  };
+  for (const block of numberedBlocks(lines)) {
+    const parsed = parseNumberedBlock(axes, block, ctx);
+    // Что блок ПЕРЕСКАЗАЛ, считается по номерам, а не по разобранным строкам: строка
+    // новой версии, которую отверг читатель, всё равно отзывает прежний ответ по своей
+    // оси. Иначе исправленный блок с одной негодной строкой накладывался бы «поправкой»,
+    // и по этой оси в план уходил бы ответ из версии, отозванной самой моделью
+    // (code-review-all 2026-09-23).
+    const restated = new Set(block.map((l) => l.idx).filter((idx) => idx >= 0 && idx < axes.length));
+    if (restated.size === 0) continue;
+    if (restated.size === axes.length) {
+      best = parsed;
+      continue;
+    }
+    // Частичный повторный блок — поправка к уже сказанному: оси, которые он называет,
+    // заменяются им целиком, остальные остаются (модель переписывает только то, что
+    // исправляет).
+    const answers = [...best.answers.filter((a) => !restated.has(axes.indexOf(a.axis))), ...parsed.answers];
+    const answeredIdx = new Set([...best.answeredIdx].filter((idx) => !restated.has(idx)));
+    for (const idx of parsed.answeredIdx) answeredIdx.add(idx);
+    best = { answeredIdx, answers };
+  }
+
+  const answeredIdx = new Set(best.answeredIdx);
+  // Порядок вопроса, а не порядок наложения поправок: запись в план и сообщения идут по осям.
+  const answers = [...best.answers].sort((a, b) => axes.indexOf(a.axis) - axes.indexOf(b.axis));
+  for (const line of lines) {
+    if (/^(\d+)\./.test(line)) continue; // нумерованные уже разобраны поблочно
+    const named = namePrefixedAxis(line, axes);
+    if (named === null) continue;
+    const idx = axes.indexOf(named.axis);
+    if (idx < 0 || answeredIdx.has(idx)) continue;
+    const parsed = parseOneAxisAnswer(named.axis, named.rest, ctx);
     if (parsed === null) continue;
     answeredIdx.add(idx);
     answers.push(parsed);
@@ -189,27 +400,24 @@ export function parsePlanAxesCombinedAnswer(
 export async function fillPlanAxes(i: PlanAxisFillInput): Promise<PlanAxisFillResult> {
   if (i.axes.length === 0) return { answers: [], envFailure: null };
 
-  let response: Awaited<ReturnType<ChatProvider['chat']>>;
-  try {
-    response = await i.provider.chat({
-      model: i.model,
-      messages: [
-        { role: 'system', content: i.system },
-        { role: 'user', content: planAxisQuestion(i) },
-      ],
-      tools: [],
-      signal: i.signal,
-      temperature: null,
-      params: i.params,
-    });
-  } catch (e) {
-    const envFailure = e instanceof ProviderEnvError ? e.message : null;
-    const why = e instanceof Error ? e.message : String(e);
+  const reply = await askPlanAxes(i, planAxisQuestion(i));
+  if (!('text' in reply)) {
+    const why = 'env' in reply ? reply.env : reply.failed;
     i.onProgress?.(`оси плана не отвечены: ${why}`);
-    return { answers: [], envFailure };
+    return { answers: [], envFailure: 'env' in reply ? reply.env : null };
   }
-  i.onUsage?.(response.usage);
-  const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(i.axes, response.text);
+  const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(i.axes, reply.text, planAxisContext(i));
+  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
+  // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('plan',
+  // 'planAxisFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
+  // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
+  // формы «ровно N строк», что у `reviewFill`/`claimFill`.
+  annotateExchange(reply.rawLogPath, {
+    accepted: answeredIdx.size === i.axes.length,
+    oracle: 'plan-axis-parse',
+    target: 'plan-axis-fill',
+    reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
+  });
   if (answeredIdx.size < i.axes.length) {
     i.onProgress?.(`ответ по осям плана неполон: разобрано ${answeredIdx.size} из ${i.axes.length}`);
   }

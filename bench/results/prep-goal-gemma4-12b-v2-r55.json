@@ -1,0 +1,494 @@
+{
+  "run": {
+    "slug": "prep-goal-gemma4-12b-v2-r55",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T01:02:36.770Z",
+    "finishedAt": "2026-10-02T01:05:54.837Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 20
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в «Что делаем» названы файлы реализации, отсутствующие в files_to_touch: src/index.ts, test/hold.test.ts; добавь шаг на каждый такой файл",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 23
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 12390,
+          "outputTokens": 930,
+          "cacheReadTokens": 9678,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 69853
+        },
+        "durationMs": 37089,
+        "requestDurationsMs": [
+          2852,
+          6072,
+          9336,
+          9363,
+          14805,
+          18267,
+          9164
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 89378,
+          "outputTokens": 1095,
+          "cacheReadTokens": 67216,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 76784
+        },
+        "durationMs": 64581,
+        "requestDurationsMs": [
+          10557,
+          5006,
+          4613,
+          2984,
+          1728,
+          2265,
+          2291,
+          2116,
+          2108,
+          2090,
+          2852,
+          1963,
+          2292,
+          855,
+          3702,
+          7771,
+          10774,
+          844,
+          7049,
+          2938
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 176816,
+          "outputTokens": 2069,
+          "cacheReadTokens": 164618,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 175354
+        },
+        "durationMs": 95640,
+        "requestDurationsMs": [
+          6429,
+          8553,
+          15842,
+          3816,
+          9041,
+          12851,
+          3856,
+          7937,
+          9576,
+          3538,
+          5126,
+          10658,
+          5335,
+          8766,
+          13450,
+          3004,
+          7499,
+          10947,
+          5640,
+          10068,
+          1538,
+          6162,
+          5738
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 8
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 6
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 15
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:711de630-444a-427f-b781-87bee75aa2db",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:69517ac3-92fb-4543-93fb-caebb1b95dce",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:46632cdf-933f-4dd8-8660-578ce7a99132",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:929421fe-da42-457b-bb41-ace14ae94515",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:17450764-b139-4357-9430-f9e6c9f87454",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:e90fc67e-cb3c-4a01-96ba-d1c492cb11de",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-gemma4-12b-v2-r55\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6486,
+        "userChars": 4744,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6008,
+        "userChars": 12254,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7438,
+        "userChars": 22768,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "7a0e5e8ac9a98fa05976701bb54846e05302527f72c060c426a0b99e58d45f45",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "b3225cefa9c920958f0f82bdb888eeecdd3e4c2d618d36bba2b6939a8cab28ea",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "9962d965a85900f15d05a65b824c18161947db5a7bb50d8ae723d1a00e26f5a6",
+    "state": "finished",
+    "capturedAt": "2026-10-02T01:05:54.859Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-02T01:05:54.834Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "ced17ebdf929682abbc6b2a893bd5feff196140a122dbd37517dad9bf266ca01",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "e1c97dcfe15978797d1926deac5071ff1e51ce38a3f47c1488d0cd152330dba9",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "b14772cf465a34afb63b63780a4443d03817fc7be0a89802082deff9df62cd13",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "88f7c438429a7e099a3ed0a5719fb73f47492b12d9f8da5cf774542d685bc795",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "9151bc8d452570c33c1f58272b8d7fcaad076e09b8353e154716ae0439e35f36",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "2908eebe1278f5983e30cc208a00c516cddcf4fac4bdfbba41fe8ccffddbf599",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

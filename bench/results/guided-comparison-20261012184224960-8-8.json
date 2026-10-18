@@ -1,0 +1,349 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 3,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 304288,
+    "remainingMs": 3295712,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T19:38:43.378Z",
+        "inputRevision": "bb2450144182bc3e97a95082eef194846d695bc93f679aeaabf7ba60d1490aba",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      }
+    ],
+    "progress": {
+      "proposed": 5,
+      "observed": 0,
+      "stale": 0,
+      "reused": 0,
+      "units": [
+        {
+          "id": "intent:field:compact::задача: ‹название›||scalar|heading|‹название›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::коротко||multiline|paragraph|‹аудитория и ожидаемый результат›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::зачем||multiline|paragraph|‹какую проблему решаем›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::чего не делаем||multiline|paragraph|‹явно заданные границы; неизвестное помечай предположением›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::что делаем||multiline|paragraph|‹наблюдаемое изменение поведения›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        }
+      ],
+      "recoveries": {
+        "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›": {
+          "failures": 2,
+          "narrowed": false,
+          "stopped": false,
+          "kind": "field",
+          "reason": "Приёмка противоречит запросу или не проверена: claim-2: Нечёткое соответствие expected и procedure из-за неточности в порядке приоритета в `opts.dueDays > config.defaultDueDays > DEFAULT_14`. Третий вызов `bill(1, customer, lines, {defaultDueDays: 7}, {dueDays: undefined})` подразумевает отсутствие явного `dueDays` в вызове `opts` и должен возвращать значение из `config.defaultDueDays` (то есть 7). Однако текущий **expected** утверждает приоритет в обх; основание: Иерархия: явная опция вызова > конфиг площадки > дефолт; контрпример: Процедура #3 ожидает, что `Invoice.dueDays` при вызове с `opts` без ключа `dueDays` всё равно вернёт дефолт (14) вместо значения из конфига (7).\nmissing: Опущено требование: отсутствует проверка, что **все существующие вызовы** `bill` содержат проверку присутствия `dueDays` в объекте счёта (даже если поле существует в исходниках на данный момент). Тест должен содержать пример, где при **нетронутом `Invoice` (из существующих тестов)** вызов `bill` создаёт счёт с некорректным дефолтом вне зависимости от опций вызова.; основание: Требование о внедрении логики по умолчанию через `resolveConfig` и отказ от жесткой привязки к `DEFAULT_14` требует проверки на всех старых тестируемых сценариях.; контрпример: Текущие сценарии тестов не могут содержать логику проверки поля `dueDays` до внедрения этой ветки (могут быть не обновлены в существующих тестах). Тест может отсутствовать в `test/bill.test.ts`?\nclaim-5: Неопределённость в формулировке ожиданий (нечётко оговорен формат имени файла нового теста) и возможное отсутствие факта выполнения команды проекта с последующим проверочным тестированием. Если тест не находится в формате `*-default*.test.ts` в директории `test`, это может нарушать требования.; основание: Требуется чёткость наименования файла теста логики `defaultDueDays` в **всех тестах проекта**.; контрпример: Имя файла не совпадает с форматным ожиданием `*-default*.test.ts`, либо тест отсутствует в каком-либо из существующих тестовых конт",
+          "inputHash": "d63a29b8fff6d497522dc2c160f620052cc69fbd8531462046801fdeeb707eef"
+        },
+        "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›": {
+          "failures": 1,
+          "narrowed": false,
+          "stopped": false,
+          "kind": "field",
+          "reason": "Нужен JSON-массив объектов",
+          "inputHash": "1ef803128a8333aa421acb7b099ed6f1f4796265997f9cc971f0b5e6762a4bb9"
+        }
+      }
+    }
+  },
+  "run": {
+    "slug": "guided-comparison-20261012184224960-8-8",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 3,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T19:38:42.572Z",
+    "finishedAt": "2026-10-12T19:43:47.420Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "JSON-блок acceptance ещё не заполнен: нужен непустой JSON-массив объектов с полями: id, behavior, procedure, expected.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 17
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 36779,
+          "outputTokens": 7883,
+          "cacheReadTokens": 14227,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 341743
+        },
+        "durationMs": 304315,
+        "requestDurationsMs": [
+          4843,
+          7590,
+          14613,
+          5850,
+          15229,
+          45712,
+          41313,
+          2166,
+          4512,
+          44942,
+          50401,
+          2472,
+          32403,
+          19605,
+          1266,
+          23654,
+          25195
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 3,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 8
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:19e524dc-f5c8-44c3-b28c-b098e67f2afd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012184224960-8-8\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:1c0709ac-2440-47dc-8bcf-36a6926aee71",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012184224960-8-8\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "227e04db9836ae31d9131da2a9334f23c08603d647d15d31fb0d13d84f31b36d",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "6b9e5ca24d1fac7106da201c049536abb781b4f7a9061cb696bae642ba30ff3b",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "7c781d4c0bd4090a977910c200cc0d9cd7478399a36ff855405fdf4fc4def0b0",
+    "state": "finished",
+    "capturedAt": "2026-10-12T19:43:47.444Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T19:43:47.398Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "995a027eda9fd2466b4120ad85980b85f4d91f6d0dabcb3de0db748270fdc735",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "0143dda2a37f2243b68cd0032d61038fec24eb1b9d7eaf3e7cf5b2c6d6f191fa",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "3c5d42b3057a33140c4e31e64d037d2a889424458ff43f89b79cca622d61d3bc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

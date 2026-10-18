@@ -53,6 +53,39 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
  * инструментов, который этап объявил. Незнакомый инструмент отклоняется — по худшему
  * случаю мы обязаны считать его записью.
  */
+/**
+ * Ремонт вызова, не разобранного `normalize.ts`, — С ДЕЛЬТОЙ: строка называет ключи,
+ * которые модель РЕАЛЬНО прислала, а не только просит «сверить со схемой». Без этого один
+ * битый вызов терялся: отказ был терпимым текстом, но следующий ход модели либо повторял
+ * ту же ошибку (не видя, чем её аргументы отличались от ожидаемых), либо — живой класс
+ * из bench (gemma-4-e4b, explore, 2026-09-23) — модель решала, что инструмента вообще нет,
+ * и уходила в цикл `FinalizeArtifact` с недописанным бланком вместо повтора вызова.
+ * «Ты прислал ключи: …» — минимальная дельта, которую можно дать БЕЗ второй копии схемы
+ * инструмента здесь (`exec/toolSpecs.ts` — свой слой, политика её не импортирует): сама
+ * схема уже стоит перед моделью в объявлении инструмента, ей не хватало только зеркала
+ * того, что она прислала.
+ */
+function unknownCallSentFields(raw: unknown): string {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return `Аргументы вызова не объект (${raw === null ? 'null' : typeof raw}) — вызывай с именованными полями.`;
+  }
+  const keys = Object.keys(raw as Record<string, unknown>);
+  return keys.length === 0
+    ? 'Аргументы вызова пусты — ни одного поля не прислано.'
+    : `Ты прислал поля: ${keys.map((k) => `\`${k}\``).join(', ')}.`;
+}
+
+/**
+ * Имена, которыми модели школы harmony просят применить патч целиком (`apply_patch`).
+ * Формата patch у нас нет по построению — правка идёт точечным `Edit`. Без подсказки
+ * gpt-oss тратила ход на отказ и лишь ПОСЛЕ него повторяла ту же правку через `Edit`
+ * (bench, vat-rounding, 2026-09-24): подсказка сокращает это до одного хода.
+ */
+const PATCH_STYLE_NAME = /^(?:apply[_-]?)?patch$/i;
+
+const PATCH_HINT =
+  'Правка делается инструментом `Edit` (`file_path`, `old_string`, `new_string`) — формата patch здесь нет.';
+
 function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   if (call.kind === 'unknown') {
     // Две разные причины, и путать их дорого. Живой прогон 2026-09-04: модель позвала
@@ -61,18 +94,26 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
     // субагента нет, пошла делать его работу сама: написала на РАЗВЕДКЕ продуктовый код.
     // Про права здесь речи нет, и говорить о них нельзя.
     const declared = (ctx.allowedTools as readonly string[]).includes(call.toolName);
+    const fillField = /^(?:FillField|mcp__sdlc__fill_field)$/iu.test(call.toolName);
     return policyDeny(
       'stageTools',
       declared
-        ? `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
-          `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
-          `правах — сверь вызов со схемой инструмента и повтори.`
-        : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.`,
+        ? fillField
+          ? `вызов «${call.toolName}» не разобран. Для FillField передай строковые artifact, field и value; artifact — ключ из карточки бланка (например, journal), не имя файла вроде chunk-1-journal.md. Дело не в правах — сверь вызов со схемой и повтори. ${unknownCallSentFields(call.raw)}`
+          : `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
+            `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
+            `правах — сверь вызов со схемой инструмента и повтори. ${unknownCallSentFields(call.raw)}`
+        : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.` +
+          (PATCH_STYLE_NAME.test(call.toolName) ? ` ${PATCH_HINT}` : ''),
     );
   }
   if (call.kind === 'mcp') return checkMcp(call, ctx);
   const tool = KIND_TO_TOOL[call.kind];
-  if (tool === null) return POLICY_OK;
+  // Вид вызова без инструмента в карте — не «разрешено»: новый вид, забытый в
+  // `KIND_TO_TOOL`, иначе проходил бы молча. Худший случай — отказ (code-review-all 2026-09-23).
+  if (tool === null) {
+    return policyDeny('stageTools', `вид вызова «${call.kind}» не сопоставлен ни одному инструменту — вызов не разрешён`);
+  }
   if (!ctx.allowedTools.includes(tool)) {
     return policyDeny(
       'stageTools',

@@ -1,0 +1,448 @@
+{
+  "run": {
+    "slug": "prep-goal-ministral-v2-r7",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T13:09:08.628Z",
+    "finishedAt": "2026-10-01T13:22:29.965Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": true,
+    "maxIterationsByStage": {}
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 6,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 5
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "running"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 34152,
+          "outputTokens": 2450,
+          "cacheReadTokens": 21998,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 108603
+        },
+        "durationMs": 108980,
+        "requestDurationsMs": [
+          6000,
+          1003,
+          1204,
+          1377,
+          90787,
+          8234
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 56252,
+          "outputTokens": 4843,
+          "cacheReadTokens": 35413,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 220176
+        },
+        "durationMs": 220263,
+        "requestDurationsMs": [
+          11021,
+          70749,
+          54147,
+          52490,
+          31771
+        ]
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 79289,
+          "outputTokens": 5177,
+          "cacheReadTokens": 48223,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 352647
+        },
+        "durationMs": 0,
+        "requestDurationsMs": [
+          8167,
+          1653,
+          707,
+          122667,
+          86795,
+          97324,
+          35336
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 1
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 14,
+        "reminders": 1
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 8,
+        "reminders": 3
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 11
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 9
+      },
+      {
+        "stage": "ask",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 13
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 23
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:6ba5d4ee-0d38-4f50-8cb7-3fbf90ad0330",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-5F9WPf/.sdlc/prep-goal-ministral-v2-r7/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:a2c47629-cb07-4316-ae79-be87ad20a2b8",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f257e2d8-ca7f-4aa6-a36f-95e599da7daf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e31ee281-f4e0-4785-94ad-fd98829302b3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6444667a-ceaf-4c17-ab1d-829bfe5f6dcd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:84dabd8f-ea8a-49ef-a89e-919e53bafd6e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:204585b7-2868-4297-a863-6e349b41d332",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:876325c7-e431-4264-9248-905701a93b99",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-goal-ministral-v2-r7/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 5694,
+        "userChars": 4193,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6058,
+        "userChars": 10424,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 4839,
+        "userChars": 13659,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": [
+      {
+        "stage": "intent",
+        "requestId": "loop:6ba5d4ee-0d38-4f50-8cb7-3fbf90ad0330",
+        "kind": "address"
+      }
+    ]
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "3fdfb8366604d65047f351a281291094e1fc662daaa7b7b1f40f1395be6d00c6",
+      "configHash": "be92995d5c321b09f15cd57b198982c5fcc5eff8a9c2aea5127b8527a659ad2c",
+      "localEndpoints": {},
+      "inputHash": "d69cb344a9a3d96d195c5d4f1afc3bb99f51411e623b8105f94a737182bcce55",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 2700000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "34e2946fb1693f4febde9fd2b0c61121e7ad39a1399c655bef161e57e300b190",
+    "state": "running",
+    "capturedAt": "2026-10-01T13:22:29.973Z",
+    "lastEvent": {
+      "type": "warning",
+      "stage": "ask",
+      "at": "2026-10-01T13:20:31.267Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "851293bc0fdd7c5ea26378bf68cc91ff305f167d1916b32fee1a60508fa81f05",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "ae87a33fd302515db924db42fe99299f2adb23445410c1bb12fe49a28bef8755",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "62f9c2dbfa7fd2c41d326474a4151fa31b39588fa140a525ac967e59af32dc9f",
+        "placeholders": 23,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "9f461af662e570bb94a5277116cc44ef8fd1e2d103a8a0aaec0efd79609a91f1",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "a0bfe8b9baa19d0f64ac571c3c69c60c894c7a83289393abb613c8471da34bc8",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "range-union",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-0TMQ8s",
+    "baseCommit": "dc955ac4ba9256a536b711c660d620c7af40d5d6",
+    "contract": {
+      "task": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-api",
+          "description": "Required module export and the registered public API examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-api"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+          "source": "Human task",
+          "checks": []
+        }
+      ],
+      "requireAdditionalTestsUnder": [
+        "test/"
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-api",
+        "file": "bench/checks/evidence/range-union.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": null,
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T22:46:11.176Z"
+  },
+  "finishedAt": "2026-10-14T22:51:50.801Z",
+  "result": {
+    "version": 1,
+    "status": "failed",
+    "reason": "Repeated identical tool errors without a new strategy; simplify the approach",
+    "finalText": "I failed to recognize a file extension again. Let's **cleanly remove the redundant `mergeRanges` definition from `src/ranges.mjs`** directly by specifying the right edit parameters:",
+    "usage": {
+      "inputTokens": 135471,
+      "outputTokens": 6381,
+      "cacheReadTokens": 117180,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 337429
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": "✔ existing public API (1.0178ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 90.7799\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": false,
+        "output": "✔ existing public API (0.6804ms)\nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    [\n      1,\n+     2\n+   ],\n+   [\n+     2,\n      4\n    ],\n    [\n      7,\n      9\n\n    at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/test/mergeRanges.test.mjs:31:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:371:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:669:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: [ [ 1, 2 ], [ 2, 4 ], [ 7, 9 ] ],\n  expected: [ [ 1, 4 ], [ 7, 9 ] ],\n  operator: 'deepStrictEqual'\n}\n\nNode.js v24.5.0\n✖ test\\mergeRanges.test.mjs (62.0775ms)\nℹ tests 2\nℹ suites 0\nℹ pass 1\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 81.4235\n\n✖ failing tests:\n\ntest at test\\mergeRanges.test.mjs:1:1\n✖ test\\mergeRanges.test.mjs (62.0775ms)\n  'test failed'\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public API (2.7376ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 81.7141\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:4:1\n✖ V1 [visible] required export and public API (2.7376ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n      [\n        1,\n  +     3\n  +   ],\n  +   [\n  +     3,\n        5\n      ]\n    ]\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/range-union.visible.mjs:4:106)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ [ 1, 3 ], [ 3, 5 ] ],\n    expected: [ [ 1, 5 ] ],\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": false,
+        "output": "✔ existing public API (0.5377ms)\nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    [\n      1,\n+     2\n+   ],\n+   [\n+     2,\n      4\n    ],\n    [\n      7,\n      9\n\n    at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/test/mergeRanges.test.mjs:31:8\n    at ModuleJob.run (node:internal/modules/esm/module_job:371:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:669:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: [ [ 1, 2 ], [ 2, 4 ], [ 7, 9 ] ],\n  expected: [ [ 1, 4 ], [ 7, 9 ] ],\n  operator: 'deepStrictEqual'\n}\n\nNode.js v24.5.0\n✖ test\\mergeRanges.test.mjs (60.1889ms)\nℹ tests 2\nℹ suites 0\nℹ pass 1\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 79.4057\n\n✖ failing tests:\n\ntest at test\\mergeRanges.test.mjs:1:1\n✖ test\\mergeRanges.test.mjs (60.1889ms)\n  'test failed'\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "c71f5df30290450eeb5b5a60ae810f09ee8d1312698dbf8f682f02e245269760",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public API (2.1323ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 76.3827\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:4:1\n✖ V1 [visible] required export and public API (2.1323ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n      [\n        1,\n  +     3\n  +   ],\n  +   [\n  +     3,\n        5\n      ]\n    ]\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/range-union.visible.mjs:4:106)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ [ 1, 3 ], [ 3, 5 ] ],\n    expected: [ [ 1, 5 ] ],\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\r\nexport const mergeRanges = (ranges) => {\r\n             ^\r\n\r\nSyntaxError: Identifier 'mergeRanges' has already been declared\r\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\r\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\r\n    at #translate (node:internal/modules/esm/loader:550:12)\r\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\r\n    at async #link (node:internal/modules/esm/module_job:180:19)\r\n\r\nNode.js v24.5.0\r\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\existing.test.mjs (74.1573ms)\nfile:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\mergeRanges.test.mjs (66.06ms)\nℹ tests 2\nℹ suites 0\nℹ pass 0\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 86.9149\n\n✖ failing tests:\n\ntest at test\\existing.test.mjs:1:1\n✖ test\\existing.test.mjs (74.1573ms)\n  'test failed'\n\ntest at test\\mergeRanges.test.mjs:1:1\n✖ test\\mergeRanges.test.mjs (66.06ms)\n  'test failed'\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs (66.27ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 73.4315\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:1:1\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs (66.27ms)\n  'test failed'\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 24,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 1,
+      "repeatedErrors": 5,
+      "repeatedCheckFailures": 2,
+      "firstEditMs": 45601.5779,
+      "firstCheckMs": 90832.5542,
+      "humanWaitMs": 0,
+      "activeMs": 339062.5236,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ],
+        "status": "violated",
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "evidence": [
+          {
+            "name": "public-api",
+            "baseline": false,
+            "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+            "passed": false,
+            "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs (66.27ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 73.4315\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:1:1\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs (66.27ms)\n  'test failed'\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "violated",
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+            "passed": false,
+            "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\r\nexport const mergeRanges = (ranges) => {\r\n             ^\r\n\r\nSyntaxError: Identifier 'mergeRanges' has already been declared\r\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\r\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\r\n    at #translate (node:internal/modules/esm/loader:550:12)\r\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\r\n    at async #link (node:internal/modules/esm/module_job:180:19)\r\n\r\nNode.js v24.5.0\r\n"
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+            "passed": false,
+            "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\existing.test.mjs (74.1573ms)\nfile:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\nexport const mergeRanges = (ranges) => {\n             ^\n\nSyntaxError: Identifier 'mergeRanges' has already been declared\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\mergeRanges.test.mjs (66.06ms)\nℹ tests 2\nℹ suites 0\nℹ pass 0\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 86.9149\n\n✖ failing tests:\n\ntest at test\\existing.test.mjs:1:1\n✖ test\\existing.test.mjs (74.1573ms)\n  'test failed'\n\ntest at test\\mergeRanges.test.mjs:1:1\n✖ test\\mergeRanges.test.mjs (66.06ms)\n  'test failed'\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/ranges.mjs",
+    "test/mergeRanges.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": false,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 2,
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "No evidence of additional passing tests",
+    "baselineExitCode": 0,
+    "finalExitCode": 1
+  },
+  "hidden": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [],
+    "errorText": "скрытые тесты не дали ни одной разобранной строки TAP — # file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-0TMQ8s/src/ranges.mjs:41\n# export const mergeRanges = (ranges) => {\n#              ^\n# SyntaxError: Identifier 'mergeRanges' has already been declared\n#     at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n#     at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n#     at \\#translate (node:internal/modules/esm/loader:550:12)\n#     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n#     at async \\#link (node:internal/modules/esm/module_job:180:19)\n# Node.js v24.5.0\n# Subtest: D:\\\\Проекты\\\\Agent-SDLC-Runner\\\\bench\\\\checks\\\\evidence\\\\range-union.hidden.mjs"
+  },
+  "hiddenOutcome": "empty_tap",
+  "readyWithUnverifiedRequirements": false,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": false,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "59f44f165e5b37dd36f5e9308ece0ebe74ceda49f2e9d47b16a965c11a3a1ee6",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

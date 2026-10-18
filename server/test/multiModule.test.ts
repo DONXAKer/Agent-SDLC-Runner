@@ -31,9 +31,9 @@ function ctx(root: string, planFiles: string[], modules: ModuleProfile[]): GateC
   return { projectRoot: root, planFiles, baseline: null, timeoutMs: 10_000, modules };
 }
 
-// Встроенные команды оболочки: пол безопасности их пропускает, а исход предсказуем.
-const ok0 = 'true';
-const fail1 = 'false';
+// Простые команды для шелла платформы: безопасные и с предсказуемым кодом завершения.
+const ok0 = process.platform === 'win32' ? 'ver' : 'true';
+const fail1 = process.platform === 'win32' ? 'where.exe __sdlc_runner_missing__' : 'false';
 
 describe('поиск всех модулей плана', () => {
   const isModule = (d: string): boolean => d === 'api' || d === 'web';

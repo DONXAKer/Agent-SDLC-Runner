@@ -1,0 +1,805 @@
+{
+  "run": {
+    "slug": "prep-goal-qwen3-8b-v2-r64",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T03:26:31.311Z",
+    "finishedAt": "2026-10-02T03:29:39.430Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; ответ на поле отклонён: поле что делаем: Исходный запрос прямо откладывает выбор способа до Plan. Перепиши как пользовательское поведение: «Пользователь может [действие из задачи]; результат сохраняет [требуемые свойства]». Не называй функции, файлы, код, изменение/мутацию существующего объекта, создание нового объекта или совместимость метода; просто назови действие пользователя и ожидаемый результат.; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 25
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 30, осталось на диске 0 полей модели; ответ на поле отклонён: поле подход: Перепиши строго с метками «Выбранный:» и «Отвергнутый:». Для каждого варианта дай объяснение и адрес реального файла из разведки в формате путь:символ; нужны два разных существующих файла (источник и тест). Цитируй точно из этого списка: `src/hold.ts:makehold`, `src/hold.ts:isactive`, `src/slots.ts:overlaps`, `test/hold.test.ts:source`, `test/hold.test.ts:не-мутирует-аргументы-и-возвращает-новый-объект`, `src/hold.ts:source`, `src/hold.ts:hold`. Не используй символ moveHold как свидетельство (его ещё нет в коде). Не объединяй способы и не описывай одновременно изменение исходного объекта и возврат нового.; будет повторный запрос с причиной; поле проверка/ожидаемо не найдено в бланке: нет поля «проверка/ожидаемо» — доступные поля: подход, проверка, контракт, шаг 2/проверка, filestotouch, из задачи исключено, последствия шагов/безопасность/затронута шагами, последствия шагов/безопасность/что именно в шагах (и ещё 17)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 20
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-O5bAvJ\\.sdlc\\prep-goal-qwen3-8b-v2-r64\\chunk-1-journal.md. Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 12
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 16533,
+          "outputTokens": 530,
+          "cacheReadTokens": 15068,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 23672
+        },
+        "durationMs": 12776,
+        "requestDurationsMs": [
+          1063,
+          1247,
+          2396,
+          3099,
+          5814,
+          6952,
+          2262,
+          846
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 104416,
+          "outputTokens": 1033,
+          "cacheReadTokens": 90129,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 36762
+        },
+        "durationMs": 30381,
+        "requestDurationsMs": [
+          6448,
+          1055,
+          1092,
+          507,
+          1618,
+          471,
+          1662,
+          421,
+          1289,
+          470,
+          1778,
+          968,
+          321,
+          472,
+          1440,
+          473,
+          1126,
+          387,
+          425,
+          181,
+          2089,
+          4157,
+          6218,
+          256,
+          1453
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 168261,
+          "outputTokens": 2264,
+          "cacheReadTokens": 136765,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 103094
+        },
+        "durationMs": 70034,
+        "requestDurationsMs": [
+          3136,
+          4686,
+          5073,
+          1362,
+          1795,
+          3183,
+          580,
+          1002,
+          3316,
+          1340,
+          4316,
+          10217,
+          2542,
+          4820,
+          7322,
+          342,
+          3829,
+          6528,
+          3772,
+          5882,
+          11683,
+          12331,
+          4051
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 151894,
+          "outputTokens": 2242,
+          "cacheReadTokens": 132324,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 72151
+        },
+        "durationMs": 73962,
+        "requestDurationsMs": [
+          7199,
+          3243,
+          4722,
+          1557,
+          1425,
+          1140,
+          39322,
+          3689,
+          2063,
+          1084,
+          3426,
+          2172,
+          1111
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 9,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 7
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 8
+      },
+      {
+        "stage": "chunk",
+        "questions": 1,
+        "approvals": 8,
+        "waitMs": 19
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "❌",
+        "treeChanged": true,
+        "scopeViolation": true
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:20ad13f8-9089-43f1-b308-e976a336c29f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:c61209e8-d4c2-4677-8f15-a23c341db28b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:c1e1c384-4fe5-43a3-8276-b45143534a90",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:c841ab9a-556f-46f2-9eaf-9ccb349b0bc4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:27f0eb57-e676-43af-9098-95813063e31c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:28da2188-9bdc-467e-b24c-a8bb15dea28d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-goal-qwen3-8b-v2-r64\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3e8ea6a0-08bd-4aa5-be3b-1ffe54c205c7",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:27b8ecc5-0dae-4da4-94bd-f1d20574be58",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-O5bAvJ\\.sdlc\\prep-goal-qwen3-8b-v2-r64\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3e45e4ea-9d3f-49e5-8487-059ca30872da",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "salvage-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-O5bAvJ\\test\\moveHold.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:e567d5c4-a6fa-4263-b459-f8787a84bf45",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r64/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:882d1837-8009-4109-85ec-5df9e005f8bd",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:93af8a46-be1b-4977-8c4f-5a670056b002",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r64/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:b60e913c-16e6-4f03-b78b-99be82cc022c",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите место правки, выбрав соответствующий вариант:"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:9764d4fc-4176-4fb1-8923-f54643c0a58b",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6476,
+        "userChars": 4744,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6000,
+        "userChars": 9950,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7430,
+        "userChars": 20259,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 13333,
+        "userChars": 9917,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-2a779acc-9b6b-429a-aaab-6f31a22572c5-1",
+        "questionId": "q1",
+        "text": "Подтвердите место правки, выбрав соответствующий вариант:"
+      }
+    ],
+    "denials": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:9764d4fc-4176-4fb1-8923-f54643c0a58b",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран. Для FillField передай строковые artifact, field и value; artifact — ключ из карточки бланка (например, journal), не имя файла вроде chunk-1-journal.md. Дело не в правах — сверь вызов со схемой и повтори. Ты прислал поля: `value`, `artifact`, `field`, `op`."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 6,
+    "pass": 3,
+    "fail": 3,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: overlaps существует до витка и верен: соседние слоты сетки, касающиеся концами, не пересекаются."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: isActive вне границы верен до витка и после: за час до срока — действует, через час после — нет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R3",
+        "category": "regression",
+        "label": "ok 3 - R3 [regression]: Контракт, решающий задачу: makeHold не мутирует входной слот и хранит свой снимок (hold.slot !== slot, но равен ему по значению). Верен до витка и обязан остаться после."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "not ok 4 - Pr1 [precision] (claim-2): moveHold возвращает НОВЫЙ объект (!== исходному), исходная бронь целиком не изменилась (глубокое сравнение со снимком до вызова) — архитектура «мутация» здесь красная."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "not ok 5 - Pr2 [precision] (claim-1): Новый слот на месте (равен newSlot по значению), id и expiresIso — те же, что у исходной брони."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "not ok 6 - Pr3 [precision] (claim-1): Исходная бронь после переноса остаётся валидной: isActive для неё тот же, что до вызова (за час до срока — действует, через час после — нет); у перенесённой — такой же, срок не сброшен."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "3 из 6 скрытых тестов зелёные, но прогон успеха и не объявлял — это дефект кода (щуп «точность правки»), а не расхождение слов с фактом"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "164ecd35bba06a5cff2b687318e730eadb9a180bb7bfcded798527788ca1bfb9",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "993a550e77720d6e13c02cb334405c71e1d3c3dc5ee5bf3d2025229d04722696",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "1ef6be582baf134de7a2e78d8dea5a2cede0a9d4da8a1f2c2d554e5247e6c092",
+    "state": "finished",
+    "capturedAt": "2026-10-02T03:29:39.664Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "chunk",
+      "at": "2026-10-02T03:29:39.427Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "aba911dfbd6e392058d6b581a39b3118e31c57abf285a50dfa74dea8b3570316",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "aa5c9e5595015daa7fbc8ec541e260a8802e179f59fd77691cd0f0ce4be90317",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "552e52963bb058f9c820f13ec8d65de9025cf51da7919401be26015183f2b207",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "0c45e9e1aaab9f6d1384e26a4f404a2f98038641dd23deb67d30035434fea18c",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "0aa9d706bf6388299599fd3ade4fef683e3f557305d26b0bb1653c60453717a4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "9c73076e542a9fa119110ab68a42e88e57a92a08b85c189d133ee4a65b22e7c8",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "fe700974f9bcdf602465e604d9af95ba096f61ba241fab91f122e25e2c2045c8",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "837871374a4e672caedec26928c2863f98b45eba102d29101469f307cb39e446",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

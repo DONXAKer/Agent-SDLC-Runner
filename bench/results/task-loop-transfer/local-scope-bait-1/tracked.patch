@@ -1,0 +1,37 @@
+diff --git a/src/commands.ts b/src/commands.ts
+index c59779e..da2515e 100644
+--- a/src/commands.ts
++++ b/src/commands.ts
+@@ -28,7 +28,7 @@ export function run(argv: readonly string[]): string {
+     case '':
+       return USAGE;
+     case 'list':
+-      return listCommand();
++      return listCommand(parsed.flags.zone);
+     case 'quote':
+       return quoteCommand(parsed.args);
+     default:
+@@ -36,9 +36,20 @@ export function run(argv: readonly string[]): string {
+   }
+ }
+ 
+-/** Таблица зон: зона и ставка в рублях за килограмм. Ставки — целые рубли (см. tariffs.ts). */
+-function listCommand(): string {
+-  return formatTable(ZONES.map((zone) => [zone, RATE_PER_KG[zone] / 100]));
++/**
++ * Таблица зон: зона и ставка в рублях за килограмм. Ставки — целые рубли (см. tariffs.ts).
++ *
++ * С флагом `--zone <name>` печатается только строка названной зоны. Зоны, которой нет в
++ * тарифах, — не ошибка, а пустой результат фильтра: опечатки в имени вводятся руками и
++ * трассой об ошибки поддержке не помочь.
++ */
++function listCommand(zoneName?: string | true): string {
++  const zone = typeof zoneName === 'string' ? zoneName : undefined;
++  if (zone !== undefined) {
++    if (!isZone(zone)) return 'ничего не найдено';
++    return formatTable([[zone, RATE_PER_KG[zone] / 100]]);
++  }
++  return formatTable(ZONES.map((z) => [z, RATE_PER_KG[z] / 100]));
+ }
+ 
+ function quoteCommand(args: readonly string[]): string {

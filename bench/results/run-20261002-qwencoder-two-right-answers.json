@@ -1,0 +1,425 @@
+{
+  "run": {
+    "slug": "run-20261002-qwencoder-two-right-answers",
+    "model": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T10:29:17.275Z",
+    "finishedAt": "2026-10-02T10:34:11.739Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "карта не уточнена: неоднозначное отрицание: 2. нет | Clock | новый файл для теста moveHold.test.ts; неоднозначное отрицание: 3. нет | Slot | новый файл для теста moveHold.test.ts; неоднозначное отрицание: 4. нет | Warehouse | новый файл для теста moveHold.test.ts; нет ответа: src/clock.ts; нет ответа: src/slots.ts; нет ответа: src/warehouse.ts",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 28
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 19773,
+          "outputTokens": 1347,
+          "cacheReadTokens": 15775,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 102143
+        },
+        "durationMs": 57149,
+        "requestDurationsMs": [
+          4096,
+          6756,
+          7944,
+          6456,
+          10573,
+          17726,
+          6645,
+          10827,
+          27755,
+          3374
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 181448,
+          "outputTokens": 4316,
+          "cacheReadTokens": 156259,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 289816
+        },
+        "durationMs": 236746,
+        "requestDurationsMs": [
+          55670,
+          26560,
+          6490,
+          2047,
+          1962,
+          2722,
+          2720,
+          2639,
+          10225,
+          2194,
+          9732,
+          4557,
+          3627,
+          4191,
+          30016,
+          4292,
+          5729,
+          16919,
+          29245,
+          40572,
+          2418,
+          4113,
+          5179,
+          1184,
+          2246,
+          3335,
+          1392,
+          2623,
+          5243
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 21
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:0ecb4db9-b79e-4dd6-9d1e-f934fd54d7c4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:b6ce473a-b518-4080-a2fa-b8e584122565",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:6c000fdd-3e19-4fbd-a338-7f697a0aa45b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:15704172-d041-4e9b-ba09-1fabe1ed23f8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:278657b0-11b3-4bc1-9b85-0096a35f7423",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какой из двух способов переноса (изменение существующей брони или создание новой с тем же ID) более совместим с текущей архитектурой проекта, и на основании каких конкретных признаков из `src/hold.ts` и `test/hold.test.ts` это определяется?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11276,
+        "userChars": 4193,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9549,
+        "userChars": 16042,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-8764b912-993e-477f-8576-b33ba8d9c1a5-1",
+        "questionId": "intent-open-0",
+        "text": "Какой из двух способов переноса (изменение существующей брони или создание новой с тем же ID) более совместим с текущей архитектурой проекта, и на основании каких конкретных признаков из `src/hold.ts` и `test/hold.test.ts` это определяется?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e78a5c6373a68f86059524d61c1493b3d337d284db42edfea1594a64bb3464af",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "d34f99dc34fc3eb48906dfa6ea853264f5dde87e910de6f7883a06c49f39da16",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "d99390d1c50332823cabda6a1a5bc21f971aab65ea8aa9170fa64b5bb79a80ff",
+    "state": "finished",
+    "capturedAt": "2026-10-02T10:34:11.765Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-02T10:34:11.736Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "3749ae5244b6ddfcaab32edfdbd75c5f7c6e5f65ce249e18d58a9745e194dc56",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "79f2f45b75d369e2fbae48636507ecf875780271a683e87b5d478323a95f1bc2",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "2e8b196fec15263cb90a24041f22c5e69259e4df3d524aacd1b27896f58ca066",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "a9a6d25b48852e5f47bfc28666ae04d68175a0f77df0ab348184eb3f26a8c5dc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "3c95b41d290d9a6a3ffc00d1236414c426c9b243425da49c389bb356b3c58072",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

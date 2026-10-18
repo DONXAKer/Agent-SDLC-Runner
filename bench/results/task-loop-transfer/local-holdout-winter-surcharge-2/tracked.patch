@@ -1,0 +1,50 @@
+diff --git a/src/index.ts b/src/index.ts
+index 19acf15..e52ca94 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -7,4 +7,4 @@
+ 
+ export { FUEL_RATE_DL_PER_100KM, rateFor } from './rates.ts';
+ 
+-export { FUEL_STEP_ML, fuelMl } from './trip.ts';
++export { FUEL_STEP_ML, WINTER_SURCHARGE_CENTIPERCENT, fuelMl, winterFuelMl } from './trip.ts';
+diff --git a/src/trip.ts b/src/trip.ts
+index 083b9ac..b6c0d32 100644
+--- a/src/trip.ts
++++ b/src/trip.ts
+@@ -26,3 +26,35 @@ export function fuelMl(distanceKm: number, vehicleClass: string): number | null
+   const rawMl = distanceKm * rate;
+   return Math.ceil(rawMl / FUEL_STEP_ML) * FUEL_STEP_ML;
+ }
++
++/** Зимняя надбавка к расходу: часть сырого расхода в сотых (15% — как в зимней политике). */
++export const WINTER_SURCHARGE_CENTIPERCENT = 15;
++
++/**
++ * Общий принцип пакета: округление дробного числа миллилитров до целого —
++ * половина вверх (11.4 → 11, 11.5 → 12). Своё округление зимнее правило не
++ * вводит и использует именно этот принцип, а не Math.round (который .5
++ * округляет к нулю и наполовину нарушает правило).
++ */
++function roundHalfUpMl(ml: number): number {
++  return Math.floor(ml + 0.5);
++}
++
++/**
++ * Расход топлива на поездку в миллилитрах по зимней норме; `null` — класс
++ * неизвестен, как у `fuelMl`.
++ *
++ * Зимняя политика: берём СЫРОЙ расход — километры × норма класса — именно так,
++ * без округления акта «до 100 мл вверх» (`fuelMl` делает это для расчёта
++ * акта, зимняя норма — нет). К сырому расходу применяем надбавку в 15% и
++ * округляем её до целого миллилитра по общему принципу пакета
++ * (половина вверх). Итог = сырой расход + округлённая надбавка, целое число
++ * миллилитров; до 100 мл итог НЕ округляется.
++ */
++export function winterFuelMl(distanceKm: number, vehicleClass: string): number | null {
++  const rate = rateFor(vehicleClass);
++  if (rate === null) return null;
++  const rawMl = distanceKm * rate;
++  const surchargeMl = roundHalfUpMl((rawMl * WINTER_SURCHARGE_CENTIPERCENT) / 100);
++  return rawMl + surchargeMl;
++}

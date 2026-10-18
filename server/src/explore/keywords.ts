@@ -1,7 +1,7 @@
 /**
  * Ключевые слова задачи — то, по чему индекс ранжирует файлы-кандидаты.
  *
- * Источники: заголовок, «Коротко», «Что делаем», «Чего не делаем», «Что придётся тронуть»
+ * Источники: заголовок, «Коротко», «Что делаем», «Что придётся тронуть»
  * (если уже заполнена). Легенды шаблона и плейсхолдеры `‹…›` не читаются: слова бланка
  * совпали бы с чем угодно. Токен в бэктиках — самый сильный сигнал (автор задачи назвал
  * путь или символ буквально), он классифицируется первым; прочие слова идут через
@@ -26,7 +26,7 @@ export interface Keywords {
   words: string[];
 }
 
-const SECTION_RE = /коротко|зачем|что делаем|чего не делаем|что прид[её]тся тронуть/i;
+const SECTION_RE = /коротко|зачем|что делаем|что прид[её]тся тронуть/i;
 const PATH_RE = /^[\w./@-]*(?:\/[\w.@-]+|\.[a-z0-9]{1,8})$/i;
 const IDENT_RE = /^[A-Za-z_$][\w$]*$/;
 
@@ -75,7 +75,7 @@ function looksLikeSymbol(token: string): boolean {
   return /[a-z][A-Z]|_|^[A-Z][A-Z0-9_]+$/.test(token) || /^[A-Z][a-z]+[A-Z]/.test(token);
 }
 
-export function intentKeywords(intentText: string): Keywords {
+export function intentKeywords(intentText: string, originalRequest = ''): Keywords {
   const text = relevantText(intentText);
   const paths = new Set<string>();
   const symbols = new Set<string>();
@@ -112,6 +112,22 @@ export function intentKeywords(intentText: string): Keywords {
       continue;
     }
     if (looksLikeSymbol(token)) symbols.add(token);
+  }
+  // The author may name a required source in the original request that the first
+  // interpretation omitted. Keep those paths as evidence candidates so exploration can
+  // check the requirement against code before the plan is prepared.
+  const explicitlyOutOfScope = new Set<string>();
+  for (const line of originalRequest.split(/\r?\n/u)) {
+    for (const m of line.matchAll(/(?:\.\.?\/)?[\w@.-]+(?:\/[\w@.-]+)*\.[A-Za-z0-9]{1,8}/g)) {
+      const context = line.slice(Math.max(0, m.index! - 80), Math.min(line.length, m.index! + m[0]!.length + 80));
+      if (!/(?:не[\s\S]{0,80}(?:трога|меня|прав|измен|touch|edit)|(?:трога|меня|прав|измен)[\s\S]{0,80}не\s+(?:трог|мен|прав|измен|touch|edit))/iu.test(context)) continue;
+      explicitlyOutOfScope.add(m[0]!.replace(/^\.\//, '').replace(/[.,;:!?)\]}]+$/, '').toLocaleLowerCase('en-US'));
+    }
+  }
+  for (const m of originalRequest.matchAll(/(?:\.\.?\/)?[\w@.-]+(?:\/[\w@.-]+)*\.[A-Za-z0-9]{1,8}/g)) {
+    const path = m[0]!.replace(/^\.\//, '').replace(/[.,;:!?)\]}]+$/, '');
+    if (explicitlyOutOfScope.has(path.toLocaleLowerCase('en-US'))) continue;
+    if (PATH_RE.test(path) && path.includes('/')) paths.add(path);
   }
   for (const w of significantTokens(stripped)) {
     if (STOP.has(w)) continue;

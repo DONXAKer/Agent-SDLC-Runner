@@ -1,0 +1,538 @@
+{
+  "run": {
+    "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-30T11:59:23.006Z",
+    "finishedAt": "2026-09-30T12:01:43.774Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «verification-report-1-attempt-1.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1, chunk 1, попытка 1»: diff; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1, chunk 1, попытка 1»: 2; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1, chunk 1, попытка 1»: набор гейтов; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1, chunk 1, попытка 1»: долг набора; «гейты»: статус; и ещё 15 мест — правки идут, но не закрывают нужные места — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 19, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 6,
+        "modelRequests": 19
+      }
+    ],
+    "finalVerdict": {
+      "passed": true,
+      "action": "continue",
+      "reasons": [
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 552350,
+          "outputTokens": 2058,
+          "cacheReadTokens": 484040,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 192691
+        },
+        "durationMs": 139717,
+        "requestDurationsMs": [
+          52831,
+          21814,
+          2126,
+          4530,
+          2258,
+          4443,
+          5006,
+          16954,
+          17797,
+          18996,
+          944,
+          11561,
+          12736,
+          568,
+          1698,
+          2817,
+          966,
+          1811,
+          4179,
+          526,
+          1111,
+          1890,
+          970,
+          1894,
+          657,
+          1625
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 8,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 183
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 341
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 340
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 497
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 321
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 156
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 88
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 94
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 9,
+        "waitMs": 43
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 5
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": true,
+    "action": "continue",
+    "reasons": [
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:5c55835b-f71f-4ef8-889c-3373e29f84e4",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e5b0c433-53a6-4aa3-b308-1c90a9ade410",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-2Ti2wj/.sdlc/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b86526da-5c33-42ce-b8eb-51a9f69963f7",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:a2b1fa11-5674-4866-873b-4b3ed172ed82",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-2Ti2wj/.sdlc/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:84897362-9a05-4289-bbcf-133702a2bc21",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-2Ti2wj/.sdlc/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:4c9bb45a-3b87-4602-aab5-a8871c740c36",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-2Ti2wj\\.sdlc\\diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:f6468bae-9f54-46db-a7bc-c3e804344078",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:b6b1a4c1-9d24-4a0b-afc7-1cbe2074be51",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790769560698-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11992,
+        "userChars": 37672,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": [
+      {
+        "stage": "verify",
+        "requestId": "loop:e5b0c433-53a6-4aa3-b308-1c90a9ade410",
+        "kind": "address"
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:a2b1fa11-5674-4866-873b-4b3ed172ed82",
+        "kind": "address"
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:84897362-9a05-4289-bbcf-133702a2bc21",
+        "kind": "address"
+      }
+    ]
+  },
+  "seed": {
+    "seedId": "axis-config-blind",
+    "klass": "ось: настройки — значение из окружения без умолчания",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «axis-config-blind» НЕ назван: `basePrice` начинает читать зональную надбавку из переменной окружения `TARIFF_ZONE_EXTRA`: умолчания в коде нет, значение не проверяется, и при `TARIFF_ZONE_EXTRA=abc` цена становится NaN. Тесты фикстуры переменную не задают — при пустом окружении надбавка равна нулю, и прогон остаётся зелёным",
+    "measured": true
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+      "sourceHash": "887d2155bbc448711579081e674b55d62293d3b28e4c1e965b025ef0d34ed58f",
+      "configHash": "ceedd79d27b10867522d541d2e668466052beeb40eecdc049241810d3c6c60dd",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "f11f385dec66da3dbec150d0e6e4bdb690b4113facf76df58236c1fcbb994806",
+      "snapshotName": "oversize-axes3-diagnostic-v3",
+      "snapshotAuthor": "claude-sdk:sonnet",
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 360000
+    },
+    "workspaceHash": "1cc89d087942015ded57130668c94c00e4e49cb13215e0536aa0c7d82c2d22eb",
+    "state": "finished",
+    "capturedAt": "2026-09-30T12:01:43.808Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "verify",
+      "at": "2026-09-30T12:01:43.769Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "054bcbad45c7aa7fa3880e5b4d5fcf2ab8797fb3bd49f84f6ce2384565d83f17",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "e0bcf068df96b25648b250f88eee16fea84ce043457cdbc5e99fa82e194c7c7d",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-attempt-1-review.md",
+        "sha256": "86ea596288d7dd0389db2d65d169d09bd10ace4013d0bf21465d1f7d11a27ecf",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "73b7e386714f58abd7a004bbec49ea46297ccd7264b328fba2258c279ec5543a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c4ac8161a302b8095fbee180f657c45184b6a638ed9994f60a65e6741b12c1bc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "42addf5ddd88ac5252935e0bb1ecf605abbea007f01b497165aba73be8fa0274",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "6ba36be0e1e0e3af2987bb1260708943ab57efb90022cf7ab70430881bbe2ffb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "fbdd1855e8205d399e0c0224b0217936bb9010592d7446f45cae001867fb2528",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "self-review-1-attempt-1.md",
+        "sha256": "b7d5b0adc9602d58a5f70169db4408cd92a76a40d2dcf45a4bfba07e7fe5a483",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "6a0cb9286d09b1663cea95b6a76ee8e8d1de259fd909d3ee324ff0381e013e09",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

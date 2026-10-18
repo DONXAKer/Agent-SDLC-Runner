@@ -1,0 +1,264 @@
+{
+  "run": {
+    "slug": "diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T20:52:29.950Z",
+    "finishedAt": "2026-09-30T20:53:01.115Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 16898,
+          "outputTokens": 654,
+          "cacheReadTokens": 13247,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 59073
+        },
+        "durationMs": 30396,
+        "requestDurationsMs": [
+          3173,
+          4342,
+          6086,
+          3293,
+          6757,
+          9725,
+          5124,
+          6360,
+          13012,
+          1208
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 12
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:2c0217a8-f66f-4e51-88e7-4e096dc2e8e9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "не обнаружены"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11036,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-bec17436-8a91-414b-b637-e87e9962009e-1",
+        "questionId": "intent-open-0",
+        "text": "не обнаружены"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+      "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "20b3d2040e90c7ea1f207fa1b382929f8517f03f7616430da16bfe6832d4fd76",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 480000
+    },
+    "workspaceHash": "15aa5228fcb53673c5bb5c9a14f1c8bc4d2aba7d76dd4a0e8ff5f7c7fee97934",
+    "state": "finished",
+    "capturedAt": "2026-09-30T20:53:01.136Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T20:53:01.057Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "ba9c8b5a5fab8273d77d50d8cdc56ebb41a7730c9b8696c89fbc27223d695bd9",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "edf5e831884f2f693e1ad3fd47c451c882f4f1d9c67cb2612ae63ca30e64db44",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d85af20c9468423f3dd5b1cd1897dae9a2c453dd8eb69025288133f212091f31",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "c561b095b4a5a47ee8e39098e540b98c9b64e74911146675fd4bb83b6888ab1c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

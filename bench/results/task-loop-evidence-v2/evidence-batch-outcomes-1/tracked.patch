@@ -1,0 +1,19 @@
+diff --git a/src/batch.mjs b/src/batch.mjs
+index e8014d2..ee1c8c8 100644
+--- a/src/batch.mjs
++++ b/src/batch.mjs
+@@ -1 +1,14 @@
+ export const protocolVersion = 1;
++
++export async function settleSequentially(items, work) {
++  const results = [];
++  for (let index = 0; index < items.length; index++) {
++    try {
++      const value = await work(items[index], index);
++      results.push({ok: true, value});
++    } catch (error) {
++      results.push({ok: false, error});
++    }
++  }
++  return results;
++}

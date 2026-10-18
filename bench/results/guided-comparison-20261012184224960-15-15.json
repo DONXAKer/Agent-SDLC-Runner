@@ -1,0 +1,420 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:mellum2-12b-instruct-q6-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 43227,
+    "remainingMs": 3556773,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:22.318Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "У счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки."
+          },
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          }
+        ],
+        "uncertainties": [
+          "Проверить, как обрабатывается поле dueDays в Invoice, так как это ключевое требование."
+        ],
+        "action": "read",
+        "reason": "Проверить, как обрабатывается поле dueDays в Invoice, так как это ключевое требование.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:27.021Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {\n    \"requests\": [\n      \"# Срок оплаты по умолчанию\\n\\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\\nконфигом площадки.\\n\\n## Что должно получиться\\n\\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\\n   где `opts.dueDays?: number`.\\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\\n   разу.\\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\\n   правок существующих тестов нет.\\n\\n## Рамки\\n\\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\\n  меняются.\\n\""
+          },
+          {
+            "source": "request-1",
+            "quote": "  меняются.\n"
+          },
+          {
+            "source": "lookup-1",
+            "quote": "35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);"
+          }
+        ],
+        "uncertainties": [
+          "Наличие встроенного значения 14 по умолчанию при отсутствии конфигурации",
+          "Как реализована логика выбора dueDays при вызове bill()"
+        ],
+        "action": "read",
+        "reason": "Проверить существование опции defaultDueDays в BillingConfig",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:31.531Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "lookup-2",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":5,\"to\":84}}\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение"
+          },
+          {
+            "source": "lookup-1",
+            "quote": "18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;"
+          }
+        ],
+        "uncertainties": [
+          "Как именно будет передаваться dueDays в функцию bill — через opts или отдельный параметр",
+          "Точное место в README.md, где нужно добавить defaultDueDays"
+        ],
+        "action": "read",
+        "reason": "Понять, как будет реализовано поле dueDays в интерфейсе Invoice",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": ""
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:37.143Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          },
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n"
+          },
+          {
+            "source": "lookup-1",
+            "quote": "18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;"
+          },
+          {
+            "source": "lookup-2",
+            "quote": "8\t\n9\texport interface BillingConfig {"
+          },
+          {
+            "source": "lookup-3",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":35,\"to\":114}}\n"
+          }
+        ],
+        "uncertainties": [
+          "Формальное определение интерфейса BillingConfig с полем defaultDueDays отсутствует в предоставленных данных",
+          "Механизм передачи dueDays через opts в функцию bill не подробно описан"
+        ],
+        "action": "read",
+        "reason": "Проверить, как реализуется опция defaultDueDays в BillingConfig",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-4",
+          "ok": true,
+          "text": "14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:47.791Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          },
+          {
+            "source": "request-1",
+            "quote": "  меняются.\n"
+          }
+        ],
+        "uncertainties": [
+          "Реализация поля dueDays в Invoice",
+          "Порядок приоритета опций при вызове bill()"
+        ],
+        "action": "search",
+        "reason": "Требуется определить, где реализуется опция по умолчанию для срока оплаты",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-6",
+          "ok": true,
+          "text": ".sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:7: {\"type\":\"prompt_prepared\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"prompt\":{\"presetNote\":\"guided: вопрос и данные → JSON → проверка → документ. Фактические вызовы показаны в тр\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:9: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:1\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:14: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:2\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:19: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:3\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:24: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:4\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:29: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:5\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.events.ndjson:33: {\"type\":\"model_exchange\",\"runId\":\"c0ab2d4a-5e23-47e1-bef4-108a1b0bc990\",\"stage\":\"intent\",\"question\":\"{\\\"questionId\\\":\\\"intent:decision:6\\\",\\\"question\\\":\\\"Есть ли основания продолжать текущий этап, или\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:10: {\"id\":\"8d0967e8-2d64-44be-a86b-26a506d6cfd8\",\"at\":\"2026-10-12T20:12:18.302Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"prompt_prepared\",\"from\":\"Рантайм\",\"to\":\"Модель\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:11: {\"id\":\"abb950c6-5a02-4d60-a43a-778807787bd0\",\"at\":\"2026-10-12T20:12:18.308Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_request\",\"from\":\"Рантайм\",\"to\":\"Модель\",\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:12: {\"id\":\"0bf30c7c-bc52-4d75-a151-8644e003382b\",\"at\":\"2026-10-12T20:12:22.309Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_http\",\"from\":\"Модель\",\"to\":\"Рантайм\",\"pa\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:14: {\"id\":\"3c1d4606-6905-424e-b026-489685c5b801\",\"at\":\"2026-10-12T20:12:22.312Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_exchange\",\"from\":\"Рантайм\",\"to\":\"Модель\"\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:21: {\"id\":\"73318ad3-1749-471f-897e-1df8846f914a\",\"at\":\"2026-10-12T20:12:22.334Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_request\",\"from\":\"Рантайм\",\"to\":\"Модель\",\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:22: {\"id\":\"50720402-83fd-430b-9b61-83dc207e123a\",\"at\":\"2026-10-12T20:12:27.015Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_http\",\"from\":\"Модель\",\"to\":\"Рантайм\",\"pa\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:24: {\"id\":\"1086b336-7f4f-4134-8d5f-bf58a0ef38ac\",\"at\":\"2026-10-12T20:12:27.018Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_exchange\",\"from\":\"Рантайм\",\"to\":\"Модель\"\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:30: {\"id\":\"81968364-2c5a-4731-8786-a00409575349\",\"at\":\"2026-10-12T20:12:27.036Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"decision_check\",\"from\":\"Предварительное решени\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:31: {\"id\":\"92c0d58a-6a72-4cb2-a54c-cd28b4f98262\",\"at\":\"2026-10-12T20:12:27.039Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_request\",\"from\":\"Рантайм\",\"to\":\"Модель\",\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:32: {\"id\":\"74e1ea32-a6ae-49fa-b9cc-fcfe9a0584b7\",\"at\":\"2026-10-12T20:12:31.525Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_http\",\"from\":\"Модель\",\"to\":\"Рантайм\",\"pa\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:34: {\"id\":\"8abfaa89-76ce-4a55-a6c1-dcc011767d67\",\"at\":\"2026-10-12T20:12:31.528Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_exchange\",\"from\":\"Рантайм\",\"to\":\"Модель\"\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:40: {\"id\":\"4b362dd9-9266-4725-86a5-6d32be9620ba\",\"at\":\"2026-10-12T20:12:31.543Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"decision_check\",\"from\":\"Предварительное решени\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:41: {\"id\":\"aedcd402-2192-4132-854f-4470e388a95a\",\"at\":\"2026-10-12T20:12:31.545Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_request\",\"from\":\"Рантайм\",\"to\":\"Модель\",\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:42: {\"id\":\"5c72966a-ec03-4f33-a5d4-17af5d914928\",\"at\":\"2026-10-12T20:12:37.138Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_http\",\"from\":\"Модель\",\"to\":\"Рантайм\",\"pa\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:44: {\"id\":\"eb005a8f-a6dd-4a1e-a574-71764a842fa4\",\"at\":\"2026-10-12T20:12:37.140Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_exchange\",\"from\":\"Рантайм\",\"to\":\"Модель\"\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:50: {\"id\":\"ee4ea3b9-4dd5-4393-9c85-12aefce653eb\",\"at\":\"2026-10-12T20:12:37.156Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"decision_check\",\"from\":\"Предварительное решени\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:51: {\"id\":\"4e8c5772-b02d-45c9-8df6-6c89979fa8ca\",\"at\":\"2026-10-12T20:12:37.157Z\",\"invocation\":\"ad627c2b-1b59-48c0-9e1f-4aeb09d851f1\",\"stage\":\"intent\",\"kind\":\"model_request\",\"from\":\"Рантайм\",\"to\":\"Модель\",\n.sdlc/guided-comparison-20261012184224960-15-15/.runner/flow/c0ab2d4a-5e23-47e1-bef4-108a1b0bc990/trace.ndjson:52: {\"id\":\"a65d7d2b-ffe1-40d2-a927-5101d109c666\",\"at\":\"2026-10-12T20:12:43.340Z\",\"invocation\":\"ad627c\n…[рантайм обрезал: показано 8000 из 11314 байт]"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:12:53.978Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          }
+        ],
+        "uncertainties": [
+          "Необходимость добавления поля dueDays в Invoice подтверждается только после детального анализа src/invoice.ts",
+          "Наличие встроенного дефолта 14 дней подтверждается только после проверки src/config.ts"
+        ],
+        "action": "read",
+        "reason": "Чтение файла для проверки использования конфига и добавления поля dueDays",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-7",
+          "ok": true,
+          "text": "10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T20:13:01.311Z",
+        "inputRevision": "693c9000e70c3930316eb3a1f4bace0b7ec54d3b6b70bad5607878c7216f88f4",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: Неизвестный источник src/invoice.ts"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: Неизвестный источник src/invoice.ts",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012184224960-15-15",
+    "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "explore": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "ask": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "plan": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "chunk": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "verify": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "handoff": "ollama:mellum2-12b-instruct-q6-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T20:12:17.507Z",
+    "finishedAt": "2026-10-12T20:13:01.339Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: Неизвестный источник src/invoice.ts",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 63432,
+          "outputTokens": 1973,
+          "cacheReadTokens": 5285,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 42876
+        },
+        "durationMs": 43292,
+        "requestDurationsMs": [
+          4004,
+          4683,
+          4489,
+          5596,
+          6185,
+          4442,
+          6162,
+          7316
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "227e04db9836ae31d9131da2a9334f23c08603d647d15d31fb0d13d84f31b36d",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "9d26f315eff158012d65471d6c9c9475e80bce4859df0f43dedd31fba30aa39a",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "3a3219cf55f376d946cfd75bfd69dafa9a7b2d21fa9fc0879d3a5cd1f47cc89e",
+    "state": "finished",
+    "capturedAt": "2026-10-12T20:13:01.359Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T20:13:01.315Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "4699a58c25e378c2c3d67a1c57b7f6343734c2fe8b2f43b83d500a07f27b200d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "1ed671886c13dd61ea814f51df1ecb3cb8d410e7fc77cb2a7b3dea0047b0bd8d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -14,12 +14,26 @@
  */
 
 import { hasPlaceholder } from './artifact.ts';
-import { LEADING_PIPE_SEPARATOR_RE, h2SectionRanges, splitRow } from '../md/table.ts';
+import { LEADING_PIPE_SEPARATOR_RE, h2SectionRanges, parseTables, splitRow } from '../md/table.ts';
 
 const SECTION_RE = /^#{1,6}\s.*files_to_touch/im;
 const NEXT_HEADING_RE = /^#{1,6}\s/m;
 /** Строка, с которой начинается перечисление исключённых путей. */
 const EXCLUDED_RE = /^.*Из задачи исключено/im;
+
+/** Whole-file no-touch rules; an API/behavior constraint leaves implementation edits available. */
+export function forbiddenCodePaths(boundaries: string): string[] {
+  const forbidden = new Set<string>();
+  for (const line of boundaries.split(/\r?\n/u)) {
+    const constraintLine = line.replace(/^\s*[-*]\s*не\s+трогаем\s+(?=не\s+)/iu, '');
+    const negativeAction = /не\s+(?:измен\p{L}*|меня\p{L}*|модифицир\p{L}*|трога\p{L}*|перепис\p{L}*)/iu.exec(constraintLine);
+    if (negativeAction === null) continue;
+    const actionTail = constraintLine.slice(negativeAction.index + negativeAction[0].length);
+    if (/^\s+(?:(?:публичн\p{L}*\s+)?(?:интерфейс\p{L}*|сигнатур\p{L}*|контракт\p{L}*|схем\p{L}*|структур\p{L}*|логик\p{L}*|поведен\p{L}*|формат\p{L}*|тип\p{L}*)(?=$|[\s:,(])|\p{L}+(?:\s+\p{L}+){0,2}\s+в\s+файл\s+(?=$|[«"'`\w]))/iu.test(actionTail)) continue;
+    for (const match of constraintLine.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)) forbidden.add(match[0]);
+  }
+  return [...forbidden];
+}
 
 /**
  * Артефакты витка, названные КОРОТКИМ именем: в прозе плана они поминаются постоянно
@@ -40,7 +54,7 @@ const WITOK_ARTIFACTS = new Set([
   'handoff.md',
   'gates.md',
 ]);
-const WITOK_ARTIFACT_RE = /^(chunk-\d+-journal\.md|verification-report-\d+-attempt-\d+\.md|self-review-\d+-attempt-\d+\.md|chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt))$/i;
+const WITOK_ARTIFACT_RE = /^(chunk-\d+-journal\.md|plan-v\d+\.md|verification-report-\d+-attempt-\d+\.md|self-review-\d+-attempt-\d+\.md|chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt|evidence\.json|review\.md))$/i;
 
 /** Файлы без расширения, которые встречаются в планах как обычные цели правки. */
 const EXTENSIONLESS = new Set([
@@ -70,15 +84,19 @@ function clean(s: string): string {
  * серия `test21`, 2026-09-17): `ministral` вписал в `files_to_touch` куски сигнатуры вызова
  * вместо путей — `/sendNotification.*to,phone,text/` и `/logEvent/;logEvent` — оба приняты
  * старой проверкой (есть `/`), оба отклонены политикой `pathScope` уже на этапе `chunk`, на
- * ход дороже. Список — не полный алфавит «плохих» символов, а ровно то, что уже наблюдалось
- * в мусоре: регэксп-мета (`*`) и разделители перечисления/аргументов (`,` `;`).
+ * ход дороже. Это не полный алфавит «плохих» символов: здесь регэксп-мета, разделители
+ * перечисления/аргументов и знаки, недопустимые в Windows-пути или похожие на синтаксис поля.
  */
-const NOT_PATH_CHARS = /[*,;]/;
+// `?` is not valid in a Windows file name and commonly appears in optional
+// property/signature fragments (for example `opts.issuer?`). Treating that
+// punctuation as a path expanded the write allowlist with a symbol name.
+const NOT_PATH_CHARS = /[*,;?<>|"]/;
 
 /** Похоже ли на путь, а не на номер строки, прозу или имя символа. */
 function looksLikePath(raw: string): boolean {
   const t = clean(raw);
   if (t === '' || /\s/.test(t)) return false;
+  if (t.endsWith('/')) return false; // scope entries are files, not directories
   if (t.includes('‹') || t.includes('›')) return false;
   if (/^[#\d.,)]+$/.test(t)) return false; // номер строки таблицы
   if (t.includes('::')) return false; // `путь:символ` — форма отчёта разведки
@@ -334,6 +352,16 @@ export function extractFilesToTouch(planText: string): string[] {
   return out;
 }
 
+/** Directories cannot be entries in a write allowlist; each row must name a file. */
+export function filesToTouchDirectories(planText: string): string[] {
+  return parseTables(planText)
+    .filter((table) => /files_to_touch/i.test(table.section))
+    .flatMap((table) => table.rows.flatMap((row) => row
+      .map((cell) => cell.trim().replace(/^`|`$/gu, ''))
+      .filter((cell) => /^(?:[\w.-]+\/)+$/u.test(cell)),
+    ));
+}
+
 /**
  * Засевает пустую таблицу `files_to_touch` строками из «Что придётся тронуть» задачи (4.1,
  * «П»-половина — механический засев ДО хода модели; «М»-половина уже была:
@@ -386,4 +414,56 @@ export function seedFilesToTouch(
   const newSection = newLines.join('\n');
   const newText = planText.slice(0, sectionStart) + newSection + planText.slice(sectionStart + section.length);
   return { text: newText, seeded: rows.length };
+}
+
+/** Add only missing entries, used to reconcile explicit plan-step paths with the allowlist. */
+export function appendFilesToTouch(
+  planText: string,
+  entries: readonly TouchEntry[],
+): { text: string; appended: number } {
+  if (entries.length === 0) return { text: planText, appended: 0 };
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return { text: planText, appended: 0 };
+  const existing = new Set(extractFilesToTouch(planText));
+  const seen = new Set(existing);
+  const rows: string[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    const note = entry.note === '' ? 'см. шаг плана' : entry.note;
+    rows.push(`| \`${entry.path}\` | ${note} |`);
+  }
+  if (rows.length === 0) return { text: planText, appended: 0 };
+  const lines = boundary.section.split('\n');
+  const separatorAt = lines.findIndex((line) => LEADING_PIPE_SEPARATOR_RE.test(line.trim()));
+  if (separatorAt < 0) return { text: planText, appended: 0 };
+  let rowsEnd = separatorAt + 1;
+  while (rowsEnd < lines.length && lines[rowsEnd]!.trim().startsWith('|')) rowsEnd++;
+  const updated = [...lines.slice(0, rowsEnd), ...rows, ...lines.slice(rowsEnd)].join('\n');
+  return {
+    text: planText.slice(0, boundary.start) + updated + planText.slice(boundary.start + boundary.section.length),
+    appended: rows.length,
+  };
+}
+
+/** Remove exact allowlist rows after a boundary check has proved they are forbidden. */
+export function removeFilesFromTouch(planText: string, paths: readonly string[]): { text: string; removed: number } {
+  if (paths.length === 0) return { text: planText, removed: 0 };
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return { text: planText, removed: 0 };
+  const denied = new Set(paths);
+  let removed = 0;
+  const sectionLines = boundary.section.split('\n').filter((line) => {
+    if (!line.trimStart().startsWith('|') || LEADING_PIPE_SEPARATOR_RE.test(line.trim())) return true;
+    const cells = splitRow(line).map((cell) => cell.trim().replace(/^`|`$/gu, ''));
+    const path = pathFromRow(line) ?? cells.find((cell) => /^(?:[\w.-]+\/)+$/u.test(cell)) ?? null;
+    if (path === null || !denied.has(path)) return true;
+    removed++;
+    return false;
+  });
+  const section = sectionLines.join('\n');
+  return {
+    text: planText.slice(0, boundary.start) + section + planText.slice(boundary.start + boundary.section.length),
+    removed,
+  };
 }

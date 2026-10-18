@@ -11,6 +11,7 @@ import { LiveProgress } from '../components/run/LiveProgress.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
 import { RunHeader } from '../components/run/RunHeader.tsx';
 import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
+import { ExecutionTimeline } from '../components/run/ExecutionTimeline.tsx';
 import { RunSummaryStrip } from '../components/run/RunSummaryStrip.tsx';
 import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
@@ -27,7 +28,7 @@ import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
 import { groupEvents } from '../lib/eventGroups.ts';
 import { computeNowFocus } from '../lib/nowFocus.ts';
 import { decisionQueueCount, mergePending } from '../lib/pending.ts';
-import { suggestedStage } from '../lib/stageProgress.ts';
+import { redVerdictRoute, suggestedStage } from '../lib/stageProgress.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
@@ -39,6 +40,7 @@ export function RunPage({
   onViewChange,
   initialRequirement = '',
   onExit,
+  onOpenDashboard,
 }: {
   runId: string;
   /** Режим страницы: «Сейчас» — управление витком, «Наблюдение» — лента/дифф/метрики/контекст. */
@@ -54,11 +56,13 @@ export function RunPage({
    */
   initialRequirement?: string;
   onExit: () => void;
+  onOpenDashboard?: () => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [stage, setStage] = useState<StageId>('intent');
   const [prompt, setPrompt] = useState<PreparedPrompt | null>(null);
   const [requirement, setRequirement] = useState(initialRequirement);
+  const [executionMode, setExecutionMode] = useState<'legacy' | 'guided'>('legacy');
   /** Что именно решил человек — сохраняется в артефакте рядом с подписью. */
   const [decisionNote, setDecisionNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -201,6 +205,8 @@ export function RunPage({
   // запрос от агента; без него ни счётчик в заголовке вкладки, ни уведомление о красном
   // вердикте не срабатывали вовсе.
   const verdictNeedsAction = detail !== null && detail.verdict !== null && !detail.verdict.passed;
+  /** Куда подсказка ведёт после красного вердикта — одно правило на выбор этапа и фокус. */
+  const redRoute = redVerdictRoute(detail === null ? null : detail.verdict);
 
   /** Всё, что стоит и ждёт человека прямо сейчас, — вход для оповещений и счётчика. */
   const waiting = useMemo(
@@ -252,11 +258,7 @@ export function RunPage({
   const stageSeeded = useRef(false);
   useEffect(() => {
     if (stageSeeded.current || detail === null) return;
-    const seed = suggestedStage(
-      detail.stage,
-      detail.stages,
-      detail.verdict !== null && !detail.verdict.passed,
-    );
+    const seed = suggestedStage(detail.stage, detail.stages, redRoute);
     if (seed === null) return;
     stageSeeded.current = true;
     setStage(seed);
@@ -294,7 +296,7 @@ export function RunPage({
     setError(null);
     setBusy(true);
     try {
-      await api.runStage(runId, stage, { prompt: edited, ...opts });
+      await api.runStage(runId, stage, { prompt: edited, ...(stage === 'intent' ? { requirement, executionMode: detail?.guided ? 'guided' : executionMode } : {}), ...opts });
     } catch (e) {
       setBusy(false);
       setError((e as Error).message);
@@ -386,6 +388,7 @@ export function RunPage({
         artifact: d.artifact,
         label: d.label,
         granted,
+        ...(detail.preparation == null ? {} : { preparationFingerprint: detail.preparation.fingerprint }),
         ...(decisionNote.trim() === '' ? {} : { note: decisionNote.trim() }),
         // Chunk и попытка — те, что человек сейчас видит: между чтением артефакта и
         // нажатием кнопки виток мог уйти на следующую попытку.
@@ -442,7 +445,7 @@ export function RunPage({
     queueCount: decisionQueueCount(asks, approvals, decision),
     runningStage: detail.stage,
     verdictRed: verdictNeedsAction,
-    nextRunnable: suggestedStage(null, detail.stages, verdictNeedsAction),
+    nextRunnable: suggestedStage(null, detail.stages, redRoute),
   });
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;
@@ -458,6 +461,35 @@ export function RunPage({
 
   return (
     <div className="flex h-full flex-col">
+      {stage === 'intent' && detail?.preparation == null && !stageRunning ? (
+        <label className="flex items-center gap-2 p-2 text-sm">Исполнение задачи
+          <select value={executionMode} onChange={e => setExecutionMode(e.target.value as 'legacy' | 'guided')}>
+            <option value="legacy">Текущий флоу</option>
+            <option value="guided">Проверяемые шаги · эксперимент · одна локальная модель · лимит 30 минут</option>
+          </select>
+        </label>
+      ) : null}
+      {detail?.guided ? (
+        <section className="rounded border border-slate-700 p-3 text-sm" aria-label="Проверяемые шаги">
+          <p>Осталось {Math.ceil(detail.guided.remainingMs / 60000)} мин · {detail.guided.currentItem ?? 'Ожидание следующего этапа'}</p>
+          {detail.guided.stopReason ? <p className="text-amber-300">{detail.guided.stopReason}</p> : null}
+          {detail.guided.progress ? <details>
+            <summary>Сохранённый прогресс · переиспользовано {detail.guided.progress.reused}</summary>
+            <p>Предложения: {detail.guided.progress.proposed} · наблюдения: {detail.guided.progress.observed} · устарело: {detail.guided.progress.stale}</p>
+            <p>Предложение модели требует проверки. Наблюдение может содержать неуспешный результат.</p>
+            {detail.guided.progress.units.map(unit => <p key={unit.id}>{unit.id}: {{ proposed: 'Предложено', observed: 'Результат наблюдения', stale: 'Источники изменились' }[unit.status]}</p>)}
+            {Object.entries(detail.guided.progress.recoveries).map(([id, recovery]) => <p key={id} className="text-amber-300">
+              {id}: {recovery.stopped ? 'Восстановление остановлено' : `Ошибок: ${recovery.failures}`} · {recovery.reason}
+            </p>)}
+          </details> : null}
+          {detail.guided.items.map(item => <details key={item.id}>
+            <summary>{item.id}: {{ pending: 'Ожидает', running: 'В работе', checked: 'Проверено', failed: 'Ошибка', blocked: 'Заблокировано' }[item.status]} · попыток {item.attempts}</summary>
+            <p className="whitespace-pre-wrap">{item.title}</p>
+            <p>Ожидание: {item.prediction}</p>
+            {detail.guided?.observations.filter(o => o.itemId === item.id).map((o, i) => <pre key={i} className="whitespace-pre-wrap">{`${o.at}\nОжидалось: ${o.prediction}\nНаблюдение: ${o.result}`}</pre>)}
+          </details>)}
+        </section>
+      ) : null}
       <RunHeader
         detail={detail}
         connected={connected}
@@ -467,6 +499,7 @@ export function RunPage({
         onConfirmCancel={setConfirmCancel}
         onCancel={() => void cancel()}
         onExit={onExit}
+        {...(onOpenDashboard === undefined ? {} : { onOpenDashboard })}
       />
       <RunSummaryStrip detail={detail} />
 
@@ -558,6 +591,7 @@ export function RunPage({
                 asks={asks}
                 approvals={approvals}
                 decision={decision}
+                preparation={detail?.preparation ?? null}
                 decisionNote={decisionNote}
                 clockOffsetMs={clockOffsetMs.current}
                 onNoteChange={setDecisionNote}
@@ -608,6 +642,7 @@ export function RunPage({
                   stage={stage}
                   prompt={prompt}
                   blockers={blockers}
+                  envNotes={stageInfo?.envNotes ?? []}
                   uiBusy={uiBusy}
                   busyReason={busyReason}
                   autoRules={autoRules}
@@ -649,11 +684,12 @@ export function RunPage({
             ) : null}
 
             {tab === 'events' ? (
+              <><ExecutionTimeline runId={runId} revision={events.length} />
               <EventStream
                 events={stageEvents}
                 precomputed={stageEventItems}
                 currency={detail?.currency}
-              />
+              /></>
             ) : null}
             {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на
                 verify — история нужна на обоих. */}

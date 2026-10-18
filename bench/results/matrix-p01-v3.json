@@ -1,0 +1,664 @@
+{
+  "run": {
+    "slug": "matrix-p01-v3",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-09-30T18:01:36.550Z",
+    "finishedAt": "2026-09-30T18:04:20.198Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 22
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап закрыт: код и содержание — работа модели, оформление добрано рантаймом (исполнитель упал только на лимите/оформлении при полных артефактах)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 15,
+        "modelRequests": 2,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 23459,
+          "outputTokens": 1189,
+          "cacheReadTokens": 20021,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 42524
+        },
+        "durationMs": 26604,
+        "requestDurationsMs": [
+          779,
+          1109,
+          2265,
+          3146,
+          6939,
+          9010,
+          1248,
+          3097,
+          8988,
+          2668,
+          2590,
+          694
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 139570,
+          "outputTokens": 2413,
+          "cacheReadTokens": 117178,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 80099
+        },
+        "durationMs": 71623,
+        "requestDurationsMs": [
+          28162,
+          10049,
+          1244,
+          1210,
+          494,
+          1280,
+          1030,
+          2000,
+          516,
+          514,
+          551,
+          481,
+          537,
+          1616,
+          530,
+          843,
+          764,
+          1392,
+          8147,
+          3642,
+          8468,
+          2816,
+          3832
+        ]
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 233798,
+          "outputTokens": 1347,
+          "cacheReadTokens": 206426,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 70628
+        },
+        "durationMs": 64608,
+        "requestDurationsMs": [
+          7321,
+          3391,
+          3689,
+          1409,
+          1397,
+          11002,
+          2746,
+          1335,
+          1248,
+          4820,
+          5457,
+          5586,
+          1405,
+          5133,
+          2038,
+          6132,
+          6525
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 16,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 19
+      },
+      {
+        "stage": "ask",
+        "questions": 1,
+        "approvals": 9,
+        "waitMs": 33
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:85d74a34-d0f2-48a4-ae4e-349b332a9653",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:22649d63-e4f5-483a-a35d-1e965d7eea28",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:1bd69bad-1d5f-484b-8bcf-aefe836ce638",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:2d8ce201-8f1b-4b5c-9d1d-d0aaecda8bd3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:32ec38f3-e9db-47f1-bd9b-3e60a97445e8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:0d690aae-af8c-44a7-96e3-56951b8bacc3",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-szlZ9q\\.sdlc\\matrix-p01-v3\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:6663fa0f-ab19-4340-8fa9-0ae303c83170",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-szlZ9q\\.sdlc\\matrix-p01-v3\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:862e2ba2-6584-42e3-99ab-3d2c08a1cb6f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:909caf2f-e1d2-4881-b0bc-006af96797a2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/matrix-p01-v3/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:17074153-c1ce-4bcf-ad21-c16c821bf80a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/matrix-p01-v3/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:9b1d483f-63e4-4944-a176-2f08de5554e4",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:5a162b2a-5d00-4f43-b0b8-f57219f670cf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/matrix-p01-v3/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:1959efa8-0524-400d-9b0f-d3ea1793db94",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "ask",
+        "requestId": "form:7217a03b-9014-44fc-9731-fb61f7311989",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p01-v3\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какое значение по умолчанию использовать для `defaultDueDays` в конфиге?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.default"
+      },
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Какое значение по умолчанию использовать для `defaultDueDays` в конфиге?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.default"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10831,
+        "userChars": 4251,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9441,
+        "userChars": 15464,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6676,
+        "userChars": 14515,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-3202c002-4a92-447c-accd-2bf1e6055007-1",
+        "questionId": "intent-open-0",
+        "text": "Какое значение по умолчанию использовать для `defaultDueDays` в конфиге?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-3202c002-4a92-447c-accd-2bf1e6055007-2",
+        "questionId": "q1",
+        "text": "Какое значение по умолчанию использовать для `defaultDueDays` в конфиге?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "bf12298c188f9420d1cda16ab8a87f852c92dfb8e846a0d1693759c40dc44790",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "dae5756316e97550c687b2a0a6be470ad0e6c946cbf092ddb2d4b38045aec9ba",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "48dfc1657323f2bc67b8b162a1134f8015c7f43cd7adf2901a083f9487191e44",
+    "state": "finished",
+    "capturedAt": "2026-09-30T18:04:20.225Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "ask",
+      "at": "2026-09-30T18:04:20.137Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "8d634e81c185b5d8717e5ddc0295ac874e0cab0d018d9165e2c9cb681204740f",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "5bb136f336295704d45e7b00f1095a799f0e0185dd7ae8e5d20f1e2db62a930b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "f7d168b879ea4458c0c84748b773a35d69bd9a9110a3dd9896827f3de97781a6",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "676ba34ecac9af241f765fd20af8aae37bb6eeddf633bbc701fa2e3f697e4a8b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "6aa386205daaa27f03e104dda4f08d3f6d6b35b2d049c021f12ac0332df99501",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "inventory-undo",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-GIqNHl",
+    "baseCommit": "0699f53e0f20f164704c9cf03a95e1f5c8da0fc5",
+    "contract": {
+      "task": "Export createInventory(initial) from src/inventory.mjs. initial is a record of nonnegative safe integer quantities. Copy it on construction. Return {reserve(sku,quantity),release(token),available(sku)}. reserve requires positive safe integer quantity (RangeError otherwise), returns null for unknown SKU or insufficient stock, otherwise subtracts stock and returns a unique opaque token. release returns true and restores stock once for a token issued by this instance; unknown, foreign or already released token returns false. available returns current count, or zero for unknown SKU. Instances are independent.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export createInventory(initial) from src/inventory.mjs. initial is a record of nonnegative safe integer quantities. Copy it on construction. Return {reserve(sku,quantity),release(token),available(sku)}. reserve requires positive safe integer quantity (RangeError otherwise), returns null for unknown SKU or insufficient stock, otherwise subtracts stock and returns a unique opaque token. release returns true and restores stock once for a token issued by this instance; unknown, foreign or already released token returns false. available returns current count, or zero for unknown SKU. Instances are independent.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/inventory-undo.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T18:02:59.776Z"
+  },
+  "finishedAt": "2026-10-14T18:05:11.451Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "All checks pass.\n\n**Implementation** (`src/inventory.mjs`):\n- `createInventory(initial)` copies the record into an internal `Map` (mutations to the passed object don't affect state), validating each initial quantity as a nonnegative safe integer.\n- `reserve(sku, quantity)` throws `RangeError` for non-positive or non-safe-integer quantities; returns `null` for unknown SKU or insufficient stock; otherwise subtracts and returns `token` — an opaque object uniquely tied to this instance via a private `Map`.\n- `release(token)` restores stock exactly once per token (`true`), returning `false` for unknown, already-released, or foreign tokens (the private map is per-instance, and the token is removed after release).\n- `available(sku)` returns the current count, or `0` for unknown SKU.\n- The existing `protocolVersion` export is preserved.\n\n**Tests** (`test/inventory.test.mjs`, 9 tests): copying, reserve/release once, null on unknown/insufficient, quantity validation, foreign/unknown token rejection, token uniqueness, instance independence, and token opacity.\n\nRemaining notes: token is represented as a plain object rather than a Symbol — still opaque and unique per reservation, unforgeable in practice. `public-examples` check confirms the required export is in place.",
+    "usage": {
+      "inputTokens": 19254,
+      "outputTokens": 2269,
+      "cacheReadTokens": 18420,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 130357
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "c4ce67491b1cc7d842e40f65287e579f9d1cb08a834517efcf0fef1563deb284",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "c4ce67491b1cc7d842e40f65287e579f9d1cb08a834517efcf0fef1563deb284",
+        "passed": true,
+        "output": "✔ existing public API (0.5963ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 96.9642\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "passed": true,
+        "output": "✔ existing public API (0.5972ms)\n✔ initial stock is copied and available reports counts (1.3451ms)\n✔ reserve subtracts and returns token; release restores once (0.2103ms)\n✔ reserve unknown sku / insufficient stock returns null (0.1185ms)\n✔ reserve validates quantity (0.3646ms)\n✔ release rejects unknown and foreign tokens (0.1646ms)\n✔ tokens are unique (0.1247ms)\n✔ instances are independent (0.1274ms)\n✔ token is opaque object (0.1203ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 107.9114\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (0.6866ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 78.8453\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 7,
+      "writes": 4,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 27574.667,
+      "firstCheckMs": 114211.5207,
+      "humanWaitMs": 0,
+      "activeMs": 131085.14860000001,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (0.6866ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 78.8453\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+            "passed": true,
+            "output": "✔ existing public API (0.5972ms)\n✔ initial stock is copied and available reports counts (1.3451ms)\n✔ reserve subtracts and returns token; release restores once (0.2103ms)\n✔ reserve unknown sku / insufficient stock returns null (0.1185ms)\n✔ reserve validates quantity (0.3646ms)\n✔ release rejects unknown and foreign tokens (0.1646ms)\n✔ tokens are unique (0.1247ms)\n✔ instances are independent (0.1274ms)\n✔ token is opaque object (0.1203ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 107.9114\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export createInventory(initial) from src/inventory.mjs. initial is a record of nonnegative safe integer quantities. Copy it on construction. Return {reserve(sku,quantity),release(token),available(sku)}. reserve requires positive safe integer quantity (RangeError otherwise), returns null for unknown SKU or insufficient stock, otherwise subtracts stock and returns a unique opaque token. release returns true and restores stock once for a token issued by this instance; unknown, foreign or already released token returns false. available returns current count, or zero for unknown SKU. Instances are independent.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/inventory.mjs",
+    "test/inventory.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "2ad002174642adc2b4b4e87c92b509fd97d3e885c4295cabf327b2b759412213",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

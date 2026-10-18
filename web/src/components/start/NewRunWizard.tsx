@@ -4,7 +4,6 @@ import type { ConfigInfo, HistoryEntry, ProjectInfo, StageId } from '@sdlc-runne
 
 import { api } from '../../lib/api.ts';
 import { historyStatusLabel } from '../../lib/historyStatus.ts';
-import { evaluateReviewerRule } from '../../lib/reviewerRule.ts';
 import {
   WIZARD_STEPS,
   WIZARD_TITLES,
@@ -28,9 +27,8 @@ import { ProfileEditor } from '../ProfileEditor.tsx';
  * обязательный ввод — slug. Здесь дефолты выбраны заранее, и путь по умолчанию — два
  * «Далее» и текст задачи.
  *
- * Правило рецензента считается на каждом шаге и запирает переход (`stepBlocker`), а не
- * только краснеет текстом: раньше клиент предупреждал и пропускал дальше, а отказывал уже
- * сервер — после создания витка.
+ * Выбор модели для каждого этапа остаётся настройкой оператора; пригодность проверяется
+ * фактическими результатами и диагностикой, а не сравнением условных рангов.
  */
 export function NewRunWizard({
   config,
@@ -76,7 +74,6 @@ export function NewRunWizard({
 
   const base =
     project?.profiles.find((p) => p.name === profile)?.stages ?? ({} as Record<StageId, string[]>);
-  const rule = evaluateReviewerRule({ models: config.models, stages: stageOverrides, base });
 
   /**
    * Модели эффективного профиля (правка поверх базы) без повторов — их и прогоняет проба.
@@ -91,11 +88,26 @@ export function NewRunWizard({
     ),
   ];
 
+  /**
+   * Модель → этап, где она встретилась на верификации, если такой есть — иначе `undefined`
+   * (`api.probe` тогда меряет исполнителя, штатное умолчание). Роль решает набор кейсов на
+   * сервере (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`):
+   * `reviewFill` не вызывает инструментов, и проба Write/Edit мерила бы не тот порог для
+   * кандидата-рецензента. Модель, встретившаяся сразу на нескольких этапах (ансамбль
+   * рецензентов), — verify побеждает: именно она решает, ловит ли роль испытание.
+   */
+  const stageOfModel = new Map<string, StageId>();
+  for (const s of Object.keys(base) as StageId[]) {
+    for (const m of stageOverrides[s] !== undefined ? [stageOverrides[s]!] : (base[s] ?? [])) {
+      if (m !== '' && (s === 'verify' || !stageOfModel.has(m))) stageOfModel.set(m, s);
+    }
+  }
+
   const runProbe = async (): Promise<void> => {
     setProbe({ running: true, lines: effectiveModels.map((m) => ({ model: m, cases: null, error: null })) });
     for (const m of effectiveModels) {
       try {
-        const r = await api.probe(m);
+        const r = await api.probe(m, stageOfModel.get(m));
         setProbe((prev) => ({
           ...prev,
           lines: prev.lines.map((l) =>
@@ -114,7 +126,7 @@ export function NewRunWizard({
     setProbe((prev) => ({ ...prev, running: false }));
   };
 
-  const state = { projectChosen: project !== null, ruleBroken: rule.broken, slug };
+  const state = { projectChosen: project !== null, slug };
   const blocker = stepBlocker(step, state);
   const ready = canProceed(step, state);
 
@@ -300,7 +312,6 @@ export function NewRunWizard({
           {config.models.length > 0 ? (
             <ProfileEditor
               models={config.models}
-              base={base}
               stages={stageOverrides}
               onChange={onStageOverridesChange}
             />
@@ -362,12 +373,6 @@ export function NewRunWizard({
             </div>
           ) : null}
 
-          <p className="text-xs text-neutral-500">
-            Виток не стартует, если модель на <code className="font-mono">verify</code> не
-            строго сильнее модели на <code className="font-mono">chunk</code>: ревью слабее
-            исполнителя — декорация, а «Ревью независимым агентом» входит в минимальную
-            пятёрку гейтов и выключателя не имеет.
-          </p>
         </div>
       ) : null}
 

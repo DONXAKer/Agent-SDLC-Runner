@@ -13,6 +13,52 @@
 
 import { readField, replaceAfterLabel } from '../artifacts/artifact.ts';
 import { fillMechanicalPlaceholders } from './journalAutofill.ts';
+import { escapeCell, h2SectionRanges, parseTables } from '../md/table.ts';
+
+export interface PlanAcceptanceCheck {
+  id: string;
+  behavior: string;
+  procedure: string;
+  expected: string;
+}
+
+export function acceptanceChecksFromIntent(intentText: string): PlanAcceptanceCheck[] {
+  const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(intentText)?.[1];
+  if (block !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(block);
+      if (Array.isArray(parsed)) {
+        const checks = parsed.flatMap((item: unknown) => {
+          if (typeof item !== 'object' || item === null) return [];
+          const row = item as Record<string, unknown>;
+          return typeof row.id === 'string' && /^claim-\d+$/u.test(row.id) &&
+            typeof row.behavior === 'string' && row.behavior.trim() !== '' &&
+            typeof row.procedure === 'string' && row.procedure.trim() !== '' &&
+            typeof row.expected === 'string' && row.expected.trim() !== ''
+            ? [{ id: row.id, behavior: row.behavior, procedure: row.procedure, expected: row.expected }]
+            : [];
+        });
+        if (checks.length > 0) return checks;
+      }
+    } catch {
+      // The finalized intent may have been rendered to its markdown table already.
+    }
+  }
+  // The finalizer renders and removes the temporary JSON comments after validating them.
+  // Recover the same four canonical fields from the stable table representation.
+  return parseTables(intentText)
+    .filter((table) => table.section.toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е').includes('приемочн'))
+    .flatMap((table) => table.rows.flatMap((row) => {
+      const id = row[0]?.trim() ?? '';
+      const behavior = row[1]?.trim() ?? '';
+      const combined = row[2]?.trim() ?? '';
+      const split = /Ожидаемо\s*:\s*/iu.exec(combined);
+      if (!/^claim-\d+$/u.test(id) || behavior === '' || split === null) return [];
+      const procedure = combined.slice(0, split.index).replace(/^Процедура:\s*/iu, '').replace(/[.\s]+$/u, '').trim();
+      const expected = combined.slice(split.index + split[0].length).trim();
+      return procedure !== '' && expected !== '' ? [{ id, behavior, procedure, expected }] : [];
+    }));
+}
 
 /**
  * Шаблоны, у которых ВСЕ поля рантайма закрывает автозаполнение этого файла до модели.
@@ -39,10 +85,32 @@ export interface PlanFacts {
   clarificationDone: boolean;
   /** HEAD либо причина его отсутствия — строкой: поле обязано закрыться. */
   base: string;
+  requirementsHash: string;
+  acceptanceChecks?: readonly PlanAcceptanceCheck[];
+}
+
+function replacePlanAcceptanceTable(text: string, checks: readonly PlanAcceptanceCheck[]): { text: string; filled: number } {
+  if (checks.length === 0) return { text, filled: 0 };
+  const range = h2SectionRanges(text, /^Проверки приёмки$/iu)[0];
+  if (range === undefined) return { text, filled: 0 };
+  const body = text.slice(range.start, range.end);
+  const lines = body.split(/\r?\n/u);
+  const headerAt = lines.findIndex((line) => /^\|\s*ID\s*\|/iu.test(line));
+  if (headerAt < 0 || headerAt + 1 >= lines.length || !/^\|?\s*:?-{2,}/u.test(lines[headerAt + 1]!)) {
+    return { text, filled: 0 };
+  }
+  let tableEnd = headerAt + 2;
+  while (tableEnd < lines.length && /^\s*\|/u.test(lines[tableEnd]!)) tableEnd++;
+  const rows = checks.map((check) => `| ${[check.id, check.behavior, check.procedure, check.expected].map(escapeCell).join(' | ')} |`);
+  if (lines.slice(headerAt + 2, tableEnd).join('\n') === rows.join('\n')) return { text, filled: 0 };
+  lines.splice(headerAt + 2, tableEnd - (headerAt + 2), ...rows);
+  const replacement = lines.join('\n');
+  return { text: text.slice(0, range.start) + replacement + text.slice(range.end), filled: 1 };
 }
 
 export function autofillPlan(text: string, f: PlanFacts): { text: string; filled: number } {
-  return fillMechanicalPlaceholders(text, (inner, line) => {
+  const filled = fillMechanicalPlaceholders(text, (inner, line) => {
+    if (inner === 'sha256 требований' && /\*\*Требования \(SHA-256\):\*\*/u.test(line)) return f.requirementsHash;
     if (inner === 'название витка') return f.title;
     // `‹да/нет›` стоит и в таблице осей плана — там это выбор модели, а не факт рантайма.
     if (!/\*\*(Вход|База):\*\*/u.test(line)) return null;
@@ -51,6 +119,24 @@ export function autofillPlan(text: string, f: PlanFacts): { text: string; filled
     if (inner.startsWith('base_sha')) return f.base;
     return null;
   });
+  // Older templates have no fingerprint field. Add it while preparing the plan,
+  // before human approval; never repair an approved snapshot on restore.
+  let withHash: { text: string; filled: number };
+  if (!/^\s*- \*\*Требования \(SHA-256\):\*\*/mu.test(filled.text)) {
+    const line = `- **Требования (SHA-256):** ${f.requirementsHash}\n`;
+    const base = /^- \*\*База:\*\*[^\n]*(?:\n|$)/mu;
+    const text2 = base.test(filled.text)
+      ? filled.text.replace(base, (match) => `${match.trimEnd()}\n${line}`)
+      : `${filled.text.trimEnd()}\n\n${line}`;
+    withHash = { text: text2, filled: filled.filled + 1 };
+  } else {
+    const refreshed = replaceAfterLabel(filled.text, 'Требования (SHA-256)', f.requirementsHash);
+    withHash = refreshed !== null && refreshed !== filled.text
+      ? { text: refreshed, filled: filled.filled + 1 }
+      : filled;
+  }
+  const acceptance = replacePlanAcceptanceTable(withHash.text, f.acceptanceChecks ?? []);
+  return { text: acceptance.text, filled: withHash.filled + acceptance.filled };
 }
 
 export interface ReadinessFacts {
@@ -58,24 +144,104 @@ export interface ReadinessFacts {
   date: string;
   /** Чей прогон: 1 — этап intent, 2 — этап plan. Дата другого прогона не трогается. */
   run: 1 | 2;
+  /** Runtime-computed compact evidence; absent during the initial mechanical seed pass. */
+  checks?: string;
+  verdict?: 'ready' | 'not';
 }
 
 /** Секция второго прогона. Окончание перечислено явно: `\b` по кириллице не работает. */
 const RUN_2_HEADING = /^##\s+Прогон\s+2(\s|$)/mu;
+const RUN_2_PENDING = {
+  date: '\u041e\u0436\u0438\u0434\u0430\u0435\u0442 \u043f\u0440\u043e\u0433\u043e\u043d\u0430 2',
+  checks: '\u041e\u0436\u0438\u0434\u0430\u0435\u0442 \u044d\u0442\u0430\u043f\u0430 \u043f\u043b\u0430\u043d\u0430',
+  verdict: '\u041d\u0435 \u0432\u044b\u0447\u0438\u0441\u043b\u0435\u043d',
+} as const;
+const RUN_1_PENDING = {
+  checks: 'Ожидает проверки этапа intent',
+  verdict: 'Не вычислен',
+} as const;
 
 export function autofillReadiness(text: string, f: ReadinessFacts): { text: string; filled: number } {
+  // The original readiness template asked the model to certify a table and four
+  // generic human answers. Readiness now comes from executable artifact checks.
+  // Normalize that known template while seeding it, retaining recorded answers.
+  if (/^\|\s*#\s*\|\s*Проверка\s*\|\s*Статус\s*\|/mu.test(text)) {
+    const answers = text.split(/\r?\n/u).filter((line) =>
+      /^- \*\*Ответ человека \(/u.test(line) && !/[‹›]/u.test(line),
+    );
+    const sections = text.split(/(?=^##\s+Прогон\s+[12](?:\s|$))/mu);
+    const title = sections.shift() ?? '# Готовность задачи: ‹название витка›\n\n';
+    text = title + sections.map((section) => {
+      const run = /^##\s+Прогон\s+([12])/mu.exec(section)?.[1];
+      const date = /^(?:- )?\*\*Дата:\*\*\s*(.*)$/mu.exec(section)?.[1] ?? '‹дата›';
+      return [section.split(/\r?\n/u)[0], '', `- **Дата:** ${date}`,
+        `- **Проверки:** ‹проверки прогона ${run}›`,
+        `- **Вердикт прогона ${run}:** ‹готова / не готова›`, '', ''].join('\n');
+    }).join('');
+    if (answers.length) text += `## Ранее записанные ответы человека\n\n${answers.join('\n')}\n`;
+  }
   const cut = text.search(RUN_2_HEADING);
-  const head = cut < 0 ? text : text.slice(0, cut);
-  const tail = cut < 0 ? '' : text.slice(cut);
+  let head = cut < 0 ? text : text.slice(0, cut);
+  let tail = cut < 0 ? '' : text.slice(cut);
+  let resolvedRun1Pending = 0;
+  let resolvedPending = 0;
+  if (f.run === 1) {
+    const replacements: Array<[string, string | undefined]> = [
+      [RUN_1_PENDING.checks, f.checks],
+      [RUN_1_PENDING.verdict, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+    ];
+    for (const [pending, value] of replacements) {
+      if (value !== undefined && head.includes(pending)) {
+        head = head.replaceAll(pending, value);
+        resolvedRun1Pending++;
+      }
+    }
+  }
+  if (f.run === 2) {
+    const replacements: Array<[string, string | undefined]> = [
+      [RUN_2_PENDING.date, f.date],
+      [RUN_2_PENDING.checks, f.checks],
+      [RUN_2_PENDING.verdict, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+    ];
+    for (const [pending, value] of replacements) {
+      if (value !== undefined && tail.includes(pending)) {
+        tail = tail.replaceAll(pending, value);
+        resolvedPending++;
+      }
+    }
+  }
   const part = (chunk: string, ownRun: boolean) =>
-    fillMechanicalPlaceholders(chunk, (inner) => {
+    fillMechanicalPlaceholders(chunk, (inner, line) => {
       if (inner === 'название витка') return f.title;
       if (inner === 'дата' && ownRun) return f.date;
+      if (ownRun && line.includes('**Проверки:**')) return f.checks ?? RUN_1_PENDING.checks;
+      if (ownRun && line.includes('**Вердикт прогона') && f.verdict !== undefined) {
+        return f.verdict === 'ready' ? 'готова' : 'не готова';
+      }
+      if (ownRun && line.includes('**Вердикт прогона')) return RUN_1_PENDING.verdict;
+      if (!ownRun && f.run === 1) {
+        if (inner === 'дата') return RUN_2_PENDING.date;
+        if (line.includes('**Проверки:**')) return RUN_2_PENDING.checks;
+        if (line.includes('**Вердикт прогона')) return RUN_2_PENDING.verdict;
+      }
       return null;
     });
   const a = part(head, f.run === 1);
   const b = part(tail, f.run === 2);
-  return { text: a.text + b.text, filled: a.filled + b.filled };
+  let own = f.run === 1 ? a.text : b.text;
+  let refreshed = 0;
+  for (const [label, value] of [
+    ['Проверки', f.checks],
+    [`Вердикт прогона ${f.run}`, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+  ]) {
+    if (value === undefined) continue;
+    const replaced = replaceAfterLabel(own, label!, value);
+    if (replaced !== null && replaced !== own) { own = replaced; refreshed++; }
+  }
+  return {
+    text: f.run === 1 ? own + b.text : a.text + own,
+    filled: a.filled + b.filled + resolvedRun1Pending + resolvedPending + refreshed,
+  };
 }
 
 /**
@@ -118,6 +284,10 @@ export interface HandoffFacts {
   published: 'нет';
   /** Итог гейта «Проверка предусловий публикации», посчитанного рантаймом на входе этапа. */
   publishGate: { status: string; branchOk: string; hasCommit: string; junk: string };
+  /** Номер витка по этой задаче — число секций «## Виток» в handoff (эта — последняя). */
+  loop: number;
+  /** Дата секции витка — сегодня. */
+  date: string;
 }
 
 /**
@@ -144,6 +314,11 @@ export interface HandoffFacts {
 export function autofillHandoff(text: string, f: HandoffFacts): { text: string; filled: number } {
   const filled = fillMechanicalPlaceholders(text, (inner, line) => {
     if (inner === 'название витка') return f.title;
+    // Заголовок секции витка «## Виток ‹K› — ‹дата›»: номер и дата — факты рантайма.
+    if (line.trimStart().startsWith('## Виток')) {
+      if (inner === 'K') return String(f.loop);
+      if (inner === 'дата') return f.date;
+    }
     if (inner.startsWith('✅/❌/⏭')) return f.publishGate.status;
     if (inner === 'та / не та') return f.publishGate.branchOk;
     if (inner === 'нет / что именно') return f.publishGate.junk;

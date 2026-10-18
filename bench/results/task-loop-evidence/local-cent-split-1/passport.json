@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "cent-split",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "ac37171789249cde7ce329964e0c61006e863f6000e650b2476dbe1d1dc71d5a",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-6bNyX3",
+  "baseCommit": "83e8f8411ce120b62ffcaf7da248838b101f750e",
+  "contract": {
+    "task": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": false,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/cent-split.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T15:12:10.839Z"
+}

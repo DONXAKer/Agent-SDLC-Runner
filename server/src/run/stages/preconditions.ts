@@ -3,10 +3,57 @@
  * артефакта, решение человека, контур витка и минимум приёмочного листа.
  */
 
-import { artifactExists, countPlaceholdersExceptSections, pathIsDirectory, readArtifact, readDecision } from '../../artifacts/artifact.ts';
+import type { StageId } from '@sdlc-runner/shared';
+
+import {
+  artifactExists,
+  countPlaceholders,
+  countPlaceholdersExceptSections,
+  countPlaceholdersInReadinessRun,
+  pathIsDirectory,
+  readArtifact,
+  readDecision,
+} from '../../artifacts/artifact.ts';
 import { CLAIMS_MINIMUM, countClaims } from '../../artifacts/claims.ts';
+import { isPreparationV2, researchProblem, preparation } from '../../artifacts/preparation.ts';
+import { checkIntentAgainstSnapshot } from '../../artifacts/intentSections.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import type { Precondition, StageContext } from './types.ts';
+
+/**
+ * Секции задачи, переписанные вне трёх законных правок (`artifacts/intentSections.ts`);
+ * `null` — снимка нет (виток начат до его появления или с середины) либо всё законно.
+ */
+export function intentTamperedSections(c: StageContext): string[] | null {
+  if (isPreparationV2(c.paths) && preparation(c.paths)!.revisions.length === 0) return null;
+  const intent = readArtifact(c.paths.intent);
+  if (!intent.exists) return null;
+  const check = checkIntentAgainstSnapshot(c.paths.intentSections, intent.text);
+  if (check === null) return null;
+  return check.illegal.length === 0 ? null : check.illegal;
+}
+
+/**
+ * Задача не переписана внутри витка: этапы 4 и 6 сверяют `intent.md` со снимком секций
+ * (`SDLC.md` → «Вердикт», восьмое условие). Законны только правки, которые снимок узнаёт;
+ * иное — переписанная задача, а не правка, и этап не начинается.
+ */
+export function intentSectionsIntact(describe: string): Precondition {
+  return {
+    describe,
+    artifact: (c) => c.paths.intent,
+    check: (c) => {
+      const illegal = intentTamperedSections(c);
+      return illegal === null
+        ? null
+        : `задача изменена внутри витка вне трёх законных правок этапа 1 — секции ${illegal
+            .map((s) => `«${s}»`)
+            .join(', ')} в ${c.paths.intent} не совпадают со снимком ${c.paths.intentSections}. ` +
+            'Законны: заполненная «Что придётся тронуть», закрытые «Открытые вопросы», дописанные строки ' +
+            'приёмочного листа при нетронутых старых, секция с новой записью «уточнено с одобрения ‹имя›».';
+    },
+  };
+}
 
 // ── помощники предусловий ──────────────────────────────────────────────────
 
@@ -55,22 +102,80 @@ export function intentPlaceholdersOutsideTouch(text: string): number {
 }
 
 /**
- * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
- * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
+ * ОДНА функция полноты `intent.md` на всех потребителей: страж завершения этапа 1
+ * (`intentPlaceholderProblem`), предусловие входа в разведку и предусловие входа в план.
+ *
+ * Секция «Что придётся тронуть» законно пуста, пока её не заполнила разведка: на полном
+ * контуре — до входа в `plan`, на мелком — всегда (этапы 2–3 схлопываются в точечную
+ * разведку этапа 5, `templates/intent.template.md` → «Контур»; секцию там не заполняет
+ * никто, а `files_to_touch` план пишет сам). Пока проверки было две — страж этапа 1 считал
+ * без секции, вход в `plan` считал всё, — этап 1 на мелком контуре отчитывался `ok⚠`, а
+ * `plan` не стартовал по тому же файлу с «незаполненных мест: 2» (test28, `qwen3-8b`,
+ * 2026-09-23): два ответа на вопрос «артефакт полон?» по одному артефакту.
  */
-export function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
+export function intentPlaceholderCount(c: StageContext, text: string, afterExploration: boolean): number {
+  if (isPreparationV2(c.paths) && !afterExploration) return researchProblem(text) === null ? 0 : 1;
+  const touchRequired = afterExploration && !isSmallContour(c);
+  return touchRequired ? countPlaceholders(text) : intentPlaceholdersOutsideTouch(text);
+}
+
+/**
+ * Незаполненные места артефакта этапа для вопроса «этап пройден?» — страница витка и
+ * дашборд. `intent.md` судится той же функцией, что страж этапа 1 (`intentPlaceholderCount`
+ * без секции «Что придётся тронуть»): иначе пройденная задача с законно пустой секцией
+ * светилась бы проваленной — третья проверка одного файла, от которой уходил test28.
+ *
+ * `readiness.md` — тем же приёмом, но по СВОЕЙ секции «Прогон N»: файл общий у intent
+ * (Прогон 1) и plan (Прогон 2), и без этого пройденный intent висел `failed`, пока plan не
+ * допишет свою половину (`countPlaceholdersInReadinessRun`, code-review-all, 2026-09-26).
+ * `stageId` называет, ЧЕЙ прогон судить — не задан (вызывающему нечем его назвать, как
+ * `dashboard/detail.ts` на общем списке артефактов) — файл считается целиком, как раньше.
+ */
+export function artifactPlaceholders(
+  path: string,
+  c: StageContext,
+  stageId?: StageId,
+): { exists: boolean; placeholders: number } {
+  const a = readArtifact(path);
+  if (!a.exists) return { exists: false, placeholders: 0 };
+  if (path === c.paths.intent) return { exists: true, placeholders: intentPlaceholderCount(c, a.text, false) };
+  if (path === c.paths.readiness) {
+    const run = stageId === 'intent' ? 1 : stageId === 'plan' ? 2 : null;
+    if (run !== null) return { exists: true, placeholders: countPlaceholdersInReadinessRun(a.text, run) };
+  }
+  return { exists: true, placeholders: a.placeholders };
+}
+
+/**
+ * Предусловие «задача заполнена» той же функцией, что страж этапа 1. `afterExploration` —
+ * ждём ли уже заполненную разведкой секцию «Что придётся тронуть» (вход в `plan`), или
+ * она ещё законно пуста (вход в `explore`).
+ */
+export function intentFilled(describe: string, afterExploration: boolean): Precondition {
   return {
     describe,
-    artifact: file,
+    artifact: (c) => c.paths.intent,
+    // Всё незаполненное — в секции «Что придётся тронуть»: её дописывает разведка, и вход
+    // отклонён по её недоработке, а не по задаче, которую intent сдал целиком.
+    blame: (c) => {
+      if (!afterExploration) return undefined;
+      const a = readArtifact(c.paths.intent);
+      return a.exists && intentPlaceholdersOutsideTouch(a.text) === 0 ? 'explore' : undefined;
+    },
     check: (c) => {
-      const a = readArtifact(file(c));
-      if (!a.exists) return `нет файла ${a.path}`;
-      const n = intentPlaceholdersOutsideTouch(a.text);
+      const a = readArtifact(c.paths.intent);
+      if (!a.exists) {
+        return pathIsDirectory(a.path)
+          ? `по пути ${a.path} лежит каталог, а не файл артефакта`
+          : `нет файла ${a.path}`;
+      }
+      const n = intentPlaceholderCount(c, a.text, afterExploration);
       if (n > 0) return `в ${a.path} осталось незаполненных мест: ${n} — артефакт не готов`;
       return null;
     },
   };
 }
+
 
 /** Причины «решения нет», за которые отвечает человек, а не модель этапа-производителя. */
 const HUMAN_PENDING_WHY: ReadonlySet<string> = new Set([
@@ -123,6 +228,7 @@ export function hasOpenQuestions(text: string): boolean {
 
 /** Мелкий контур: этапы 2 и 3 не запускаются, разведка точечная на этапе 5. */
 export function isSmallContour(c: StageContext): boolean {
+  if (isPreparationV2(c.paths)) return false;
   const intent = readArtifact(c.paths.intent);
   if (!intent.exists) return false;
   const m = /^.*\*\*Контур:\*\*(.*)$/m.exec(intent.text);
@@ -150,6 +256,7 @@ export function claimsMinimum(): Precondition {
     check: (c) => {
       const intent = readArtifact(c.paths.intent);
       if (!intent.exists) return `нет файла ${c.paths.intent}`;
+      if (isPreparationV2(c.paths)) return researchProblem(intent.text);
       // Подсчёт — общим `countClaims` (ячейка id канонически несёт и теги: `claim-1 [edge]`;
       // прежний локальный regex требовал голый `claim-N` и блокировал разведку на
       // полностью правильном intent.md).
@@ -179,4 +286,55 @@ export function relOf(c: StageContext, absolute: string): string {
   const root = c.paths.projectRoot.replace(/\\/g, '/');
   const p = absolute.replace(/\\/g, '/');
   return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
+}
+
+/**
+ * Вердикт прогона N проверки готовности (`readiness.md`, строка «Вердикт прогона N:»):
+ * `ready` — «готова» одним значением, `not` — «не готова», `null` — бланк
+ * («готова / не готова — ‹…›»), плейсхолдер или строки нет.
+ */
+export function readinessVerdict(text: string, run: 1 | 2): 'ready' | 'not' | null {
+  const re = new RegExp(`вердикт\\s+прогона\\s+${run}[*_]*\\s*:\\s*[*_]*\\s*(.*)$`, 'i');
+  for (const raw of text.split(/\r?\n/)) {
+    const m = re.exec(raw);
+    if (m === null) continue;
+    const v = (m[1] ?? '').replace(/[*_`]/g, '').trim().toLowerCase().replace(/ё/g, 'е');
+    if (v.includes('‹') || /готова\s*\/\s*не\s+готова/.test(v)) return null;
+    // Решает ПЕРВОЕ «готова» строки и отрицание перед ним — не начало строки: «❌ не
+    // готова», «Задача не готова» прежде давали `null`, и предусловие пропускало
+    // отвергнутую задачу (code-review-all 2026-09-23).
+    if (!/(^|[^а-я])готова($|[^а-я])/.test(v)) return null;
+    // Любое ослабление «готова» — не готова: «не совсем готова», «не полностью готова»,
+    // «почти готова», «готова не полностью», «частично готова». Однозначно «готова» —
+    // только без них; иначе предусловие пропускало задачу, которую проверка отвергла.
+    const weakened =
+      /(^|[^а-я])не\s+([а-я]+\s+){0,2}готова($|[^а-я])/.test(v) ||
+      /(^|[^а-я])(почти|частично|условно)\s+готова($|[^а-я])/.test(v) ||
+      /(^|[^а-я])готова\s+(не($|[^а-я])|частично|условно|с\s+оговорк)/.test(v);
+    return weakened ? 'not' : 'ready';
+  }
+  return null;
+}
+
+/**
+ * Предусловие «готовность задачи не отвергнута прогоном N»: не только наличие
+ * `readiness.md`, но и его вердикт. Файл с «не готова» прежде пропускал виток дальше — `flow-verdict.py`
+ * эталона такой виток роняет (code-review-all 2026-09-23).
+ */
+export function readinessReady(describe: string, run: 1 | 2, requireFile = true): Precondition {
+  return {
+    describe,
+    artifact: (c) => c.paths.readiness,
+    check: (c) => {
+      const p = c.paths.readiness;
+      const a = readArtifact(p);
+      if (!a.exists) return requireFile ? `нет файла ${p}` : null;
+      // Блокирует явное «не готова». Незаполненную строку вердикта ловит страж
+      // заполненности формы на этапе, который её пишет, — здесь второе решение о том же
+      // было бы лишним и роняло бы формы, где строка по-другому оформлена.
+      return readinessVerdict(a.text, run) === 'not'
+        ? `проверка готовности (прогон ${run}) вынесла «не готова» — задачу чинят до следующего этапа (${p})`
+        : null;
+    },
+  };
 }

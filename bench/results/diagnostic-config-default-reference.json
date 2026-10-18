@@ -1,0 +1,384 @@
+{
+  "run": {
+    "slug": "diagnostic-config-default-reference",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-09-30T16:48:12.918Z",
+    "finishedAt": "2026-09-30T16:52:27.954Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в секции «Что придётся тронуть» файла задачи осталось незаполненных мест: 2 — эту секцию заполняет разведка. Выпиши в неё строки «путь — что здесь меняем» по карте кодовой базы и сохрани инструментом Edit: без неё этап 4 не стартует.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 19
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 62309,
+          "outputTokens": 1069,
+          "cacheReadTokens": 57004,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 49533
+        },
+        "durationMs": 28377,
+        "requestDurationsMs": [
+          2452,
+          2818,
+          3495,
+          1121,
+          6509,
+          11820,
+          4086,
+          4600,
+          7004,
+          4825,
+          815
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 184477,
+          "outputTokens": 8077,
+          "cacheReadTokens": 160635,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 234297
+        },
+        "durationMs": 225972,
+        "requestDurationsMs": [
+          18470,
+          19410,
+          1149,
+          34533,
+          1655,
+          1845,
+          2036,
+          1950,
+          108014,
+          1543,
+          11954,
+          916,
+          1911,
+          2591,
+          442,
+          787,
+          5472,
+          8335,
+          2192,
+          9110
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 15
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 14
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 5
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:35486fbb-36b7-4b8d-9dfa-76c32d5ec85c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diagnostic-config-default-reference\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 11
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:8c04a10b-00dd-47f9-a45e-05a2f0dab115",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diagnostic-config-default-reference\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:ab3ba985-dbf1-4c05-9162-ad0f54201be4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diagnostic-config-default-reference\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какой формат использовать для опции `defaultDueDays` в конфиге площадки?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10941,
+        "userChars": 4251,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9529,
+        "userChars": 15624,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-f2597e8b-71ca-42e6-8038-f234b48b152f-1",
+        "questionId": "intent-open-0",
+        "text": "Какой формат использовать для опции `defaultDueDays` в конфиге площадки?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "c2de65f96f7cc9ccdf5b00c12f619b52389096c7fdde18b852cfe765b8521495",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "81748c2488410d81232a6da8063ca6243410bd398f3e87895be550e762c3c395",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1200000
+    },
+    "workspaceHash": "0c9da3b0e9d8f5a3d5e8b1b8111f48be1d44c9b1fb0a14d4bd0ef4021698827b",
+    "state": "finished",
+    "capturedAt": "2026-09-30T16:52:27.982Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-09-30T16:52:27.950Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "89cca830fdadbb9ed97188e50a79324e46ee2bd6126fd2a971784938ceb94354",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "f5e8351d5a02c0959ff9d6ae09d9f25312c68de0a3e210078c773dbd6be41ba9",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "2b9fd3053e46bd30f08d7a65f998b4de7f83c998971ca62323064e7a6adb9a1b",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "76bed931b1ea4379ac9d84eaa19fa95bcaae7e899e4ff4cd4497bcd5dc8cf2f9",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "4a4b766fb70987d1efef718762c03f6ea6fd037a250eed2dd2712efd39a88748",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

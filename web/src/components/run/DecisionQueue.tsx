@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { Decision } from '@sdlc-runner/shared';
+import type { Decision, PreparationSummary } from '@sdlc-runner/shared';
 
 import { fmtWaitedFor } from '../../lib/format.ts';
 import type { PendingAsk, PendingCall } from '../../lib/pending.ts';
@@ -19,6 +19,7 @@ export function DecisionQueue({
   asks,
   approvals,
   decision,
+  preparation,
   decisionNote,
   clockOffsetMs,
   onNoteChange,
@@ -30,6 +31,7 @@ export function DecisionQueue({
   approvals: PendingCall[];
   /** Ждущая приёмка записи этапа — или null, когда этап её не требует либо она записана. */
   decision: { label: string; artifact: string } | null;
+  preparation?: PreparationSummary | null;
   decisionNote: string;
   /**
    * Поправка часов: `Date.now()` клиента минус `serverNow` из ответа сервера. `createdAt`
@@ -149,6 +151,7 @@ export function DecisionQueue({
         {decision !== null ? (
           <DecisionCard
             decision={decision}
+            preparation={preparation ?? null}
             note={decisionNote}
             onNoteChange={onNoteChange}
             onDecide={onDecide}

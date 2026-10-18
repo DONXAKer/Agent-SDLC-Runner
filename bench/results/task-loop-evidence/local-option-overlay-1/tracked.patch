@@ -1,0 +1,19 @@
+diff --git a/src/options.mjs b/src/options.mjs
+index e8014d2..26eb859 100644
+--- a/src/options.mjs
++++ b/src/options.mjs
+@@ -1 +1,14 @@
+ export const protocolVersion = 1;
++
++export function resolveOptions(base, override) {
++  const result = {};
++  for (const [key, value] of Object.entries(base)) {
++    result[key] = value;
++  }
++  for (const [key, value] of Object.entries(override)) {
++    if (value !== undefined) {
++      result[key] = value;
++    }
++  }
++  return result;
++}

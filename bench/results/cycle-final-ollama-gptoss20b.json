@@ -1,0 +1,240 @@
+{
+  "run": {
+    "slug": "cycle-final-ollama-gptoss20b",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T19:29:50.767Z",
+    "finishedAt": "2026-09-29T19:32:23.225Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-fpkuI5\\.sdlc\\cycle-final-ollama-gptoss20b\\readiness.md. Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 55580,
+          "outputTokens": 6914,
+          "cacheReadTokens": 48756,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 283582
+        },
+        "durationMs": 151349,
+        "requestDurationsMs": [
+          32304,
+          36009,
+          37993,
+          10978,
+          26087,
+          36835,
+          4553,
+          22644,
+          48082,
+          28105
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:e14763d5-987f-4bf7-847a-7ecbd2680d04",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\cycle-final-ollama-gptoss20b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10906,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "149ea73440554bc2e17590316dddfba30b9de0d63dabfb8f488403e7e8138804",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "38301fc6b6ea38bde8bb21d3e3f9e9c0970ce63eb2c5c04ac19848b1cd316636",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 2700000
+    },
+    "workspaceHash": "8b118ca96a30cc35bcc90460a48ec4af56581b2d94c03e30fb77c451da9ffcaa",
+    "state": "finished",
+    "capturedAt": "2026-09-29T19:32:23.242Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T19:32:23.221Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "2f9e369dff3379d00208c84d56fea864a33fb60ed0a568881aecd0b7ff652293",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "54d0c2242d31f4ca55a48a691dbdc762da08b5f9b3dc0fda757ffb40825b3073",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "3e31f1eefe844987b875224efe7fdf54de8252fe2d861c60a60c86fdd84f4d3b",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "d0be687254dc20e8a094c9f4fd8fe1853dc49b2dac35612ea194fa8dbd33952d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

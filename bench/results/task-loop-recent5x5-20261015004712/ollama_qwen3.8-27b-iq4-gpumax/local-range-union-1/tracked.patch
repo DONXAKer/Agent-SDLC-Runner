@@ -1,0 +1,41 @@
+diff --git a/src/ranges.mjs b/src/ranges.mjs
+index e8014d2..a1e9e24 100644
+--- a/src/ranges.mjs
++++ b/src/ranges.mjs
+@@ -1 +1,36 @@
+ export const protocolVersion = 1;
++
++function validatePair(pair) {
++  if (
++    !Array.isArray(pair) ||
++    pair.length !== 2 ||
++    !Number.isFinite(pair[0]) ||
++    !Number.isFinite(pair[1]) ||
++    pair[0] > pair[1]
++  ) {
++    throw new TypeError('Expected a finite [start, end] pair with start <= end');
++  }
++}
++
++export function mergeRanges(ranges) {
++  if (!Array.isArray(ranges)) {
++    throw new TypeError('Expected an array of ranges');
++  }
++
++  const sorted = ranges.map((pair) => {
++    validatePair(pair);
++    return [pair[0], pair[1]];
++  }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
++
++  const merged = [];
++  for (const pair of sorted) {
++    const last = merged[merged.length - 1];
++    if (last && pair[0] <= last[1]) {
++      last[1] = Math.max(last[1], pair[1]);
++    } else {
++      merged.push(pair);
++    }
++  }
++
++  return merged;
++}

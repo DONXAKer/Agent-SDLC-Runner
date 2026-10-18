@@ -7,13 +7,14 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { STAGE_ORDER } from '@sdlc-runner/shared';
-import type { RunEvent, StageId } from '@sdlc-runner/shared';
+import type { RunEvent, RunMetrics, StageId } from '@sdlc-runner/shared';
 import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+import { guidedSummary, readGuided } from '../../server/src/run/guidedState.ts';
 import { readPersistedEvents } from '../../server/src/eventLog.ts';
 
 import { ApprovalGate } from '../../server/src/approval/gate.ts';
@@ -26,28 +27,36 @@ import { ApprovalBus, AskBus, HumanScriptError, attachOperator, emptyOperatorLog
 import { createCollector } from './collector.ts';
 import type { ToolRequestEvent, ToolResolvedEvent } from './collector.ts';
 import { runBench } from './driver.ts';
+import type { DriverStageRecord, DriverStopReason } from './driver.ts';
+import { observeArtifacts, passport, treeDigest } from './diagnostics.ts';
+import type { DiagnosticPassport, RunDiagnostics } from './diagnostics.ts';
 import { buildResult, writeResult } from './result.ts';
 import { OptionsError, USAGE, parseArgs, rawLogWanted, resolveTurnLimits } from './options.ts';
 import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
+import type { BuiltProfile } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
-import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, verifyRestoredBranch } from './snapshot.ts';
+import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, startStageForMeasurement, verifyRestoredBranch } from './snapshot.ts';
 import { TaskError, requireTaskFiles } from './tasks.ts';
 import type { TaskPaths } from './tasks.ts';
 import { rawLogDisabledReason, resetRawLog } from '../../server/src/provider/rawLog.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
+import { refreshAttemptEvidence } from './seedEvidence.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
-import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import { REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
+import { ensureBenchStateDir } from './stateDir.ts';
 import { draftJournalEntry } from './journal.ts';
 import { createProgressPrinter } from './progress.ts';
+import { createRunStateWriter } from './runState.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+ensureBenchStateDir();
 const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
 /**
@@ -193,6 +202,22 @@ interface LiveOutcome {
   durationMs: number;
   /** Сырой дамп выключился отказами записи посреди прогона — причина; `null` — не выключался. */
   rawLogDisabled: string | null;
+  /**
+   * Длительность ОДНОГО запроса к измеряемой модели — максимум и 95-й перцентиль, по всем
+   * запросам всех измеряемых этапов (`built.measured`). `null` — ни одного запроса
+   * измеряемого этапа не было (снимок, обрыв до старта). Отдельно от `durationMs` (время
+   * всего прогона): критерий 2 квалификации рецензента (`docs/proposals/reviewer-qualification.md`)
+   * судит по одному запросу — зависший на 20 минут запрос топит получасовой бюджет этапа, а
+   * общее время прогона это не показывает.
+   */
+  requestLatencyMs: { maxMs: number; p95Ms: number } | null;
+  /**
+   * Щуп посева этого сэмпла — `null`, если `--seed` не задан или прогон не дошёл до
+   * измерения. Несёт `expected` (`'review'`/`'gate'`, `SeedDef.expected`) — критерий 5
+   * квалификации рецензента (`docs/proposals/reviewer-qualification.md`): «3/8» без этой
+   * метки смешивает находимость чтением diff'а с контролем автоматики набора.
+   */
+  seed: SeedProbe | null;
 }
 
 interface LiveRunFlags {
@@ -227,7 +252,12 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       targetSlug: opts.slug,
       expectedTask: opts.task,
     });
-    await verifyRestoredBranch(restored.root, restored.branch);
+    try {
+      await verifyRestoredBranch(restored.root, restored.branch);
+    } catch (error) {
+      restored.dispose();
+      throw error;
+    }
     wsRoot = restored.root;
     wsBranch = restored.branch;
     wsDispose = restored.dispose;
@@ -236,7 +266,18 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // самом снимке, а не в ключах прогона — прогон не может её переврать.
     // Точку снимка `restoreSnapshot` уже проверил (`readSnapshotMeta` бросает на `null`).
     const nextStage = startStageAfter(restored.stoppedAfterStage)!;
-    startStage = nextStage;
+    // Измерение одного этапа со снимка должно начинаться на измеряемом этапе, а не
+    // прогонять промежуточные control-маршруты. Для --all сохраняем обычное продолжение
+    // сразу за точкой снимка.
+    startStage = startStageForMeasurement(nextStage, opts.mode.kind === 'stage' ? opts.mode.stage : undefined);
+    if (opts.mode.kind === 'stage' && STAGE_ORDER.indexOf(opts.mode.stage) < STAGE_ORDER.indexOf(nextStage)) {
+      restored.dispose();
+      throw new SnapshotError(`снимок уже прошёл измеряемый этап ${opts.mode.stage}; выбери снимок до него`);
+    }
+    if (opts.stopAfterStage !== undefined && STAGE_ORDER.indexOf(opts.stopAfterStage) < STAGE_ORDER.indexOf(nextStage)) {
+      restored.dispose();
+      throw new SnapshotError(`снимок начинает с ${nextStage}, но --stop-after-stage ${opts.stopAfterStage} уже пройден`);
+    }
     console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage}, старт с ${nextStage})`);
     console.log(`рабочая копия: ${wsRoot}`);
     // Посев вносится ПОСЛЕ восстановления и ДО первого этапа прогона: патч попытки
@@ -249,6 +290,10 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const seed = seedById(opts.seed);
       try {
         applySeed(wsRoot, seed);
+        // Патч снимка снят ДО посева — без перегенерации рецензент (и встроенные гейты)
+        // читают дерево БЕЗ посеянного дефекта: находимость на снимке была бы слепой по
+        // построению стенда, а не по способностям модели (`bench/src/seedEvidence.ts`).
+        await refreshAttemptEvidence(wsRoot, opts.slug);
       } catch (e) {
         wsDispose();
         throw e;
@@ -266,7 +311,20 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     console.log(`ветка витка:   ${ws.branch} (база ${ws.baseCommit.slice(0, 8)})`);
   }
 
-  const built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
+  if (opts.executionMode === 'guided' && opts.fromSnapshot !== null) {
+    const restoredGuided = readGuided(new WitokPaths(wsRoot, opts.slug));
+    if (!restoredGuided || (opts.guidedEngineVersion !== undefined && restoredGuided.engineVersion !== opts.guidedEngineVersion)) {
+      wsDispose();
+      throw new SnapshotError('Эксперимент guided требует снимок guided той же версии движка');
+    }
+  }
+  let built: BuiltProfile;
+  try {
+    built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
+  } catch (error) {
+    wsDispose();
+    throw error;
+  }
   console.log(`профиль:       ${built.profile.label}`);
   for (const stage of STAGE_ORDER) {
     const measured = built.measured.includes(stage);
@@ -281,9 +339,11 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     const route = built.profile.routes[stage];
     const problem = await contextProblemFor(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
     if (problem !== null) {
-      console.error(`\nокно контекста (этап «${stage}»): ${problem}`);
+      // `contextProblemFor` возвращает объект (`ContextProblem`), а не строку: интерполяция
+      // целиком печатала «[object Object]» вместо причины.
+      console.error(`\nокно контекста (этап «${stage}»): ${problem.message}`);
       wsDispose();
-      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null };
+      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null, requestLatencyMs: null, seed: null };
     }
   }
 
@@ -335,10 +395,42 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     routeFor: (stage) => built.routes[stage],
     write: logLine,
   });
+  // Машинное состояние прогона для дашборда (`runState.ts`): pid, рабочая копия, этапы.
+  const runState = createRunStateWriter(dirname(progressFile), {
+    slug: opts.slug,
+    model: opts.model,
+    task: opts.task,
+    pid: process.pid,
+    workspace: wsRoot,
+    startedAt: new Date().toISOString(),
+    mode: opts.mode,
+    routes: built.routes,
+    measured: [...built.measured],
+    startStage: startStage ?? 'intent',
+    currencies: built.currencies,
+  });
+  /**
+   * Исключение до `try` прогона (оператор, создание `Run`) — тоже конец прогона: без записи
+   * его состояние оставалось бы «идёт», а в `--repeat` процесс жив до конца серии.
+   */
+  const guard = <T,>(f: () => T): T => {
+    try {
+      return f();
+    } catch (e) {
+      runState.exception(e instanceof Error ? e.message : String(e));
+      runState.close();
+      throw e;
+    }
+  };
+  let lastEvent: RunDiagnostics['lastEvent'] = null;
   const collector = createCollector({
     projectRoot: () => wsRoot,
     slug: () => opts.slug,
-    onEvent: progress,
+    onEvent: (e) => {
+      lastEvent = { type: e.type, stage: 'stage' in e ? String(e.stage) : null, at: new Date().toISOString() };
+      progress(e);
+      runState.onEvent(e);
+    },
   });
 
   // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
@@ -360,6 +452,9 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       writeTargets: p.writeTargets,
       destructive: p.destructive,
       ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      // Без него перенаправление своего артефакта (`artifactAddress.ts`) в живой серии
+      // не доходило до отчёта вовсе: вызов в событии уже канонический.
+      ...(p.readdressed === undefined ? {} : { readdressed: p.readdressed }),
       ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     };
@@ -406,15 +501,16 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     }),
   );
 
-  const operatorHandle = attachOperator({
+  const operatorHandle = guard(() => attachOperator({
+    strictQuestions: opts.strictQuestions === true || opts.executionMode === 'guided',
     gate: approvalBus,
     askGate: askBus,
     runId: () => runId,
     script,
     log: operatorLog,
-  });
+  }));
 
-  const run = new Run({
+  const run = guard(() => new Run({
     config,
     project: built.project,
     profile: built.profile,
@@ -428,7 +524,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // `costUsd === null`, то есть измеряемая модель не тратила НИЧЕГО, а прогон вставал
     // на «бюджет прогона исчерпан: $8.1476 из $5.0000» — это потратил opus на verify.
     budgetStages: new Set(built.measured),
-  });
+  }));
   runId = run.id;
 
   // Трение о человека считает ВИТОК — на стенде тем же способом, что в проде: шины лишь
@@ -440,8 +536,68 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   collector.emit({ type: 'run_started', runId: run.id, slug: opts.slug, profile: built.profile.label, projectRoot: wsRoot });
 
   const startedAt = new Date();
+  const records: DriverStageRecord[] = [];
+  const cancellation = new AbortController();
+  let conditions: DiagnosticPassport;
   try {
+    conditions = passport({
+      repo: resolve(BENCH_DIR, '..'),
+      input: opts.fromSnapshot === null ? wsRoot : join(SNAPSHOTS_DIR, opts.fromSnapshot),
+      config, snapshotName: opts.fromSnapshot,
+      stageTimeoutMs: opts.stageTimeoutMs, runTimeoutMs: opts.runTimeoutMs,
+      promptRoots: [config.runner.skillsDir, config.runner.agentsDir, config.runner.methodologyDir],
+    });
+  } catch (error) {
+    run.cancel('failed to capture diagnostic passport');
+    operatorHandle.detach();
+    await run.dispose();
+    wsDispose();
+    runState.exception(error instanceof Error ? error.message : String(error));
+    runState.close();
+    throw error;
+  }
+  const diagnostic = (state: RunDiagnostics['state']): RunDiagnostics => ({
+    passport: conditions, workspaceHash: treeDigest(wsRoot), state, capturedAt: new Date().toISOString(), lastEvent,
+    artifacts: observeArtifacts(new WitokPaths(wsRoot, opts.slug).dir), semanticAssessment: 'not-assessed',
+  });
+  const persistPartial = (state: RunDiagnostics['state'], reason: DriverStopReason): void => {
+    const result = buildResult({
+      opts, built, startedAt, finishedAt: new Date(),
+      guided: guidedSummary(new WitokPaths(wsRoot, opts.slug)),
+      driver: { stages: [...records], finalVerdict: run.lastVerdict, stopped: reason },
+      metrics: run.metrics, operator: operatorLog, observed: collector.state,
+      turnLimits: resolveTurnLimits(base.runner.limits, opts),
+    });
+    result.diagnostics = diagnostic(state);
+    writeResult(join(RESULTS_DIR, `${opts.slug}.json`), result);
+    const artifactDir = join(TRACES_DIR, opts.slug, 'artifacts');
+    mkdirSync(artifactDir, { recursive: true });
+    for (const artifact of result.diagnostics.artifacts) {
+      const destination = join(artifactDir, artifact.path);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(new WitokPaths(wsRoot, opts.slug).dir, artifact.path), destination);
+    }
+  };
+  const onCancel = (): void => {
+    cancellation.abort();
+    run.cancel('benchmark cancelled by operator');
+    try { persistPartial('cancelled', 'cancelled'); }
+    catch (error) { writeProgressFile(`cancel checkpoint failed: ${String(error)}`); }
+  };
+  process.on('SIGINT', onCancel);
+  process.on('SIGTERM', onCancel);
+  const checkpoint = setInterval(() => {
+    try { persistPartial(cancellation.signal.aborted ? 'cancelled' : 'running', cancellation.signal.aborted ? 'cancelled' : 'running'); }
+    catch (error) { writeProgressFile(`checkpoint failed: ${String(error)}`); }
+  }, 10_000);
+  try {
+    persistPartial('running', 'running');
     const driverResult = await runBench({
+      preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
+      ...(opts.executionMode === undefined ? {} : { executionMode: opts.executionMode }),
+      ...(opts.guidedEngineVersion === undefined ? {} : { guidedEngineVersion: opts.guidedEngineVersion }),
+      records, signal: cancellation.signal,
+      ...(opts.stopAfterStage === undefined ? {} : { measurementEnd: opts.stopAfterStage }),
       run,
       stageTimeoutMs: opts.stageTimeoutMs,
       runTimeoutMs: opts.runTimeoutMs,
@@ -453,14 +609,31 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
       // драйвера: он про виток, не про файлы снимка.
       ...(opts.makeSnapshot === null ? {} : { stopAfterStage: opts.snapshotAfter }),
+      // `--stage verify` без `--make-snapshot` — usage документирует «измерять один этап»:
+      // не уходить на chunk следующей попытки по вердикту `retry` (серия 2026-09-27/28 —
+      // такой уход платный, неизмеряемый и топит вердикт измеренной попытки шумом chunk'а).
+      ...(opts.makeSnapshot === null && opts.mode.kind === 'stage' && opts.mode.stage === 'verify'
+        ? { stopAfterVerify: true }
+        : {}),
       onDecision: logLine,
+      ...(opts.captureInputs ? { onStageCompleted: (record: import('./driver.ts').DriverStageRecord) => {
+        if (record.stage === 'handoff' || (record.stage === 'verify' && !run.lastVerdict?.passed)) return;
+        const name = `${opts.slug}-after-${record.stage}-c${record.chunk}-a${record.attempt}`;
+        makeSnapshot({ workspaceRoot: wsRoot, snapshotsDir: SNAPSHOTS_DIR, name, slug: opts.slug,
+          branch: wsBranch, stoppedAfterStage: record.stage, task: opts.task,
+          authorModel: built.routes[record.stage], chunk: record.chunk, attempt: record.attempt });
+        logLine(`📸 диагностический вход сохранён: ${name}`);
+      } } : {}),
     });
     const finishedAt = new Date();
+    clearInterval(checkpoint);
+    persistPartial(driverResult.stopped === 'cancelled' ? 'cancelled' : 'running', driverResult.stopped);
     writeProgressFile(
       `\n# ${finishedAt.toTimeString().slice(0, 8)} остановка: ${driverResult.stopped} · вердикт: ` +
         `${driverResult.finalVerdict === null ? '—' : driverResult.finalVerdict.action} · ` +
         `${Math.round((finishedAt.getTime() - startedAt.getTime()) / 60000)} мин`,
     );
+    runState.stopped(driverResult.stopped, driverResult.finalVerdict === null ? null : driverResult.finalVerdict.action);
 
     if (opts.makeSnapshot !== null && driverResult.stopped === 'snapshot-point') {
       makeSnapshot({
@@ -471,13 +644,18 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         branch: wsBranch,
         stoppedAfterStage: opts.snapshotAfter,
         task: opts.task,
+        authorModel: built.routes[opts.snapshotAfter],
       });
+      persistPartial('finished', 'snapshot-point');
+      runState.snapshot(opts.makeSnapshot);
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
       return {
         code: 0,
         hidden: null,
         durationMs: finishedAt.getTime() - startedAt.getTime(),
         rawLogDisabled: rawLogDisabledReason(),
+        requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
+        seed: null,
       };
     }
 
@@ -489,10 +667,22 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const reportPath = run.ctx.paths.verificationReport(run.ctx.chunk, run.ctx.attempt);
       const reportText = existsSync(reportPath) ? readFileSync(reportPath, 'utf8') : '';
       const verdictReasons = driverResult.finalVerdict?.reasons ?? null;
+      const verifyRecord = [...driverResult.stages].reverse().find((stage) => stage.stage === 'verify');
+      const measured =
+        verifyRecord !== undefined &&
+        verifyRecord.blockers.length === 0 &&
+        !verifyRecord.timedOut &&
+        verifyRecord.envFailure === undefined &&
+        driverResult.finalVerdict !== null;
       seedProbe =
         opts.seed === SEED_NONE
-          ? probeNoSeed({ verdictReasons, gateResults: run.gateResults })
-          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults });
+          ? probeNoSeed({
+              verdictReasons,
+              gateResults: run.gateResults,
+              measured,
+              verdictPassed: driverResult.finalVerdict?.passed ?? null,
+            })
+          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults, measured });
       console.log(`посев:     ${seedProbe.note}`);
     }
 
@@ -516,8 +706,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // наборов), не должен вешать бенчмарк после оплаченного прогона — зависший импорт цели
     // без потолка висел бы вечно.
     const hidden =
-      hasFeature && chunkRan
-        ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot, timeoutMs: HIDDEN_TESTS_TIMEOUT_MS })
+      hasFeature && chunkRan && !cancellation.signal.aborted
+        ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot, timeoutMs: HIDDEN_TESTS_TIMEOUT_MS, signal: cancellation.signal })
         : null;
 
     const honesty = checkHonesty({
@@ -541,6 +731,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       startedAt,
       finishedAt,
       driver: driverResult,
+      execution: run.executionPage(0, 1).summary,
+      guided: guidedSummary(new WitokPaths(wsRoot, opts.slug)),
       metrics: run.metrics,
       operator: operatorLog,
       observed: collector.state,
@@ -551,7 +743,9 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     });
 
     const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
+    result.diagnostics = diagnostic(cancellation.signal.aborted || driverResult.stopped === 'cancelled' ? 'cancelled' : 'finished');
     writeResult(resultPath, result);
+    runState.resultWritten();
     console.log(`\nостановка: ${driverResult.stopped}`);
     console.log(`вердикт:   ${driverResult.finalVerdict === null ? '—' : JSON.stringify(driverResult.finalVerdict)}`);
     console.log(`результат: ${resultPath}`);
@@ -572,6 +766,13 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const traceDir = join(TRACES_DIR, opts.slug);
       mkdirSync(traceDir, { recursive: true });
       copyFileSync(paths.events, join(traceDir, 'events.ndjson'));
+      const flow = join(paths.runnerDir, 'flow');
+      if (existsSync(flow)) cpSync(flow, join(traceDir, 'flow'), { recursive: true });
+      const flowHtml = join(paths.runnerDir, 'flow.html');
+      if (existsSync(flowHtml)) {
+        copyFileSync(flowHtml, join(traceDir, 'flow.html'));
+        console.log(`схема:     ${join(traceDir, 'flow.html')}`);
+      }
       console.log(`трассы:    ${traceDir}`);
     } catch (e) {
       // Прогон уже оплачен и отчёт уже написан: отказ копирования называем, но не роняем им
@@ -590,13 +791,21 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       hidden: hidden === null ? null : { pass: hidden.pass, total: hidden.total },
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       rawLogDisabled,
+      requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
+      seed: seedProbe,
     };
   } catch (e) {
+    try { persistPartial(cancellation.signal.aborted ? 'cancelled' : 'exception', cancellation.signal.aborted ? 'cancelled' : 'exception'); }
+    catch (error) { writeProgressFile(`exception checkpoint failed: ${String(error)}`); }
     // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
     // идущего или убитого процесса.
     writeProgressFile(`\n# ${new Date().toTimeString().slice(0, 8)} исключение: ${e instanceof Error ? e.message : String(e)}`);
+    runState.exception(e instanceof Error ? e.message : String(e));
     throw e;
   } finally {
+    clearInterval(checkpoint);
+    process.off('SIGINT', onCancel);
+    process.off('SIGTERM', onCancel);
     if (progressFd !== null) {
       try {
         closeSync(progressFd);
@@ -604,6 +813,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         // лог уже дописан; закрытие не должно ронять итог прогона
       }
     }
+    runState.close();
     operatorHandle.detach();
     await run.dispose();
     if (opts.keepWorkspace) console.log(`\nрабочая копия оставлена: ${wsRoot}`);
@@ -628,19 +838,28 @@ async function probeRun(opts: BenchOptions): Promise<number> {
   const { def, providerDef } = target;
   const contextProblem = await contextProblemFor(def.provider, def.model, def.contextWindow, providerDef.baseUrl);
   if (contextProblem !== null) {
-    console.error(`окно контекста: ${contextProblem}`);
+    console.error(`окно контекста: ${contextProblem.message}`);
     return 2;
   }
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  // Роль решает набор кейсов (критерий 3 квалификации рецензента,
+  // `docs/proposals/reviewer-qualification.md`): `reviewFill` не вызывает ни одного
+  // инструмента, и кейсы Write/Edit измеряют способности исполнителя chunk — не её.
+  // `--all` verify никогда не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
+  const forReviewer = opts.mode.kind === 'stage' && opts.mode.stage === 'verify';
   const report = await probeModel({
     provider,
     model: def.model,
     // Та же конфигурация, что у этапа: без params проба мерила бы не ту модель,
     // которую потом запускают (params и заводились ради tool-calling).
-    params: def.params ?? null,
+    params: def.provider === 'lmstudio'
+      ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+      : def.params ?? null,
     // Свой потолок на КАЖДЫЙ кейс, а не общий на пробу: медленная модель исчерпывала
     // общий сигнал первым кейсом, и остальные красились тем же приговором.
     caseTimeoutMs: opts.stageTimeoutMs,
+    role: forReviewer ? 'verify' : 'chunk',
+    ...(forReviewer ? { cases: REVIEWER_PROBE_CASES } : {}),
   });
   console.log(formatProbe(report));
   // Средовой сбой — «не измерено» (2), как у всего бенчмарка, а не приговор модели.
@@ -665,6 +884,25 @@ function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor((sorted.length - 1) / 2)]!;
+}
+
+/** N-й перцентиль (0–100) уже отсортированного не обязан быть — сортируем сами. Пусто — null. */
+function percentile(values: readonly number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[index]!;
+}
+
+/**
+ * Максимум и p95 длительности ОДНОГО запроса, по всем запросам ИЗМЕРЯЕМЫХ этапов витка —
+ * см. `LiveOutcome.requestLatencyMs`. Пул этапов, а не один: `--all` меряет несколько
+ * этапов разом, и зависший запрос на любом из них одинаково топит бюджет.
+ */
+function requestLatencyOf(metrics: RunMetrics, measured: readonly StageId[]): LiveOutcome['requestLatencyMs'] {
+  const pooled = metrics.stages.filter((s) => measured.includes(s.stage)).flatMap((s) => s.requestDurationsMs);
+  if (pooled.length === 0) return null;
+  return { maxMs: Math.max(...pooled), p95Ms: percentile(pooled, 95)! };
 }
 
 /**
@@ -745,6 +983,47 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
         `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
     );
   }
+  // Латентность ОДНОГО запроса — отдельно от времени всего прогона (критерий 2 квалификации
+  // рецензента, `docs/proposals/reviewer-qualification.md`): худший максимум по серии (не
+  // отличается «повезло один раз» от «стабильно виснет») и медиана p95 (типичный хвост).
+  const withLatency = measuredSamples.filter((o) => o.requestLatencyMs !== null);
+  if (withLatency.length > 0) {
+    const maxes = withLatency.map((o) => o.requestLatencyMs!.maxMs);
+    const p95s = withLatency.map((o) => o.requestLatencyMs!.p95Ms);
+    console.log(
+      `  запрос: p95 медиана ${((median(p95s) ?? 0) / 1000).toFixed(1)} с, ` +
+        `худший максимум по серии ${(Math.max(...maxes) / 1000).toFixed(1)} с` +
+        (withLatency.length < measuredSamples.length
+          ? ` (по ${withLatency.length} из ${measuredSamples.length} сэмплов)`
+          : ''),
+    );
+  }
+  // Находимость посева — ОТДЕЛЬНО по review-классам (ловит только чтение diff'а) и
+  // gate-классам (контроль самой автоматики набора, не рецензента). Критерий 5 квалификации
+  // рецензента (`docs/proposals/reviewer-qualification.md`): смешанное «X из N» уже давало
+  // читателю неверное впечатление о находимости рецензента (`gpt-oss-20b-rf`, «3/8» вместо
+  // честных «1 из 6» review-классов — два из трёх пойманных были gate-контролем).
+  const seedSamples = measuredSamples.filter((o): o is LiveOutcome & { slug: string; seed: SeedProbe } => o.seed !== null);
+  const withSeed = seedSamples.filter((o) => o.seed.measured === true);
+  if (seedSamples.length > 0) {
+    const { seedId, expected } = seedSamples[0]!.seed;
+    const caught = withSeed.filter((o) => o.seed.caught).length;
+    const sampleNote = withSeed.length < seedSamples.length ? ` (по ${withSeed.length} из ${seedSamples.length} сэмплов)` : '';
+    if (seedId === SEED_NONE) {
+      const reviewCount = withSeed.filter((o) => o.seed.reviewRequired === true).length;
+      const notMeasured = seedSamples.length - withSeed.length;
+      console.log(`  посев «none» (кандидаты для ручной сверки): ${reviewCount}; измерено ${withSeed.length}/${seedSamples.length}, не измерено ${notMeasured}`);
+    } else {
+      const kindLabel =
+        expected === 'gate'
+          ? 'gate-класс — контроль автоматики набора, НЕ находимость рецензента'
+          : expected === 'review'
+            ? 'review-класс — ловит только чтение diff\'а'
+            : 'класс не размечен';
+      const notMeasured = seedSamples.length - withSeed.length;
+      console.log(`  посев «${seedId}» (${kindLabel}): поймано ${caught} из ${withSeed.length}; не измерено ${notMeasured}${sampleNote}`);
+    }
+  }
 
   // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —
   // худший исход, как везде в вердиктах. Через measuredSamples, а не магический фильтр
@@ -816,4 +1095,5 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 const code = await main(process.argv.slice(2));
-process.exit(code);
+// Let pending HTTP/libuv handles close before exit (forced exit can assert on Windows).
+process.exitCode = code;

@@ -1,0 +1,70 @@
+diff --git a/src/ranges.mjs b/src/ranges.mjs
+index e8014d2..3305c7c 100644
+--- a/src/ranges.mjs
++++ b/src/ranges.mjs
+@@ -1 +1,65 @@
+ export const protocolVersion = 1;
++
++export function mergeRanges(ranges) {
++  if (!Array.isArray(ranges)) {
++    throw new TypeError('Input must be an array');
++  }
++
++  if (ranges.length === 0) {
++    return [];
++  }
++
++  // Create a deep copy to avoid mutating input
++  const copiedRanges = [];
++  for (let i = 0; i < ranges.length; i++) {
++    const range = ranges[i];
++    
++    // Validate each range
++    if (!Array.isArray(range) || range.length !== 2) {
++      throw new TypeError('Each range must be an array of exactly 2 elements');
++    }
++
++    const start = range[0];
++    const end = range[1];
++
++    // Check if start and end are finite numbers
++    if (typeof start !== 'number' || typeof end !== 'number' || 
++        !Number.isFinite(start) || !Number.isFinite(end)) {
++      throw new TypeError('Range endpoints must be finite numbers');
++    }
++
++    // Check if start <= end
++    if (start > end) {
++      throw new TypeError('Range start must be less than or equal to end');
++    }
++
++    // Create a new array to avoid sharing references
++    copiedRanges.push([start, end]);
++  }
++
++  // Sort ranges by start time
++  copiedRanges.sort((a, b) => a[0] - b[0]);
++
++  // Merge ranges
++  const merged = [];
++  let current = copiedRanges[0];
++
++  for (let i = 1; i < copiedRanges.length; i++) {
++    const next = copiedRanges[i];
++
++    // If current range overlaps or touches next range, merge them
++    if (current[1] >= next[0]) {
++      // Merge by extending the end if needed
++      current[1] = Math.max(current[1], next[1]);
++    } else {
++      // Otherwise, add current range and start a new one
++      merged.push(current);
++      current = next;
++    }
++  }
++
++  // Add the last range
++  merged.push(current);
++
++  return merged;
++}

@@ -1,0 +1,464 @@
+{
+  "id": "guided-smoke-20261013192144510",
+  "phase": "smoke",
+  "status": "running",
+  "codeHash": "721767e4f86703c594bee73aaeca217df26406b2f8562ccdb072558e296856bd",
+  "revision": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+  "environment": {
+    "ollamaVersion": "0.40.2",
+    "baseUrl": "http://localhost:11434",
+    "models": [
+      {
+        "registry": {
+          "id": "ollama:qwen3.8-27b-iq4-gpumax",
+          "provider": "ollama",
+          "model": "qwen3.8-27b-iq4-ctx32k-gpumax",
+          "contextWindow": 32768,
+          "rank": 64,
+          "formFill": true,
+          "exploreFill": true,
+          "params": {
+            "reasoning_effort": "none",
+            "max_tokens": 4096
+          }
+        },
+        "tag": "qwen3.8-27b-iq4-ctx32k-gpumax:latest",
+        "digest": "90e3ad7e8c56a9e98c6f5b8998e96a3718d73bb4e69bb8587f956ff67ea6db06",
+        "size": 15183993101
+      },
+      {
+        "registry": {
+          "id": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+          "provider": "ollama",
+          "model": "ministral3-14b-ctx32k",
+          "contextWindow": 32768,
+          "rank": 40,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true,
+          "stepFill": true,
+          "planAxisFill": true
+        },
+        "tag": "ministral3-14b-ctx32k:latest",
+        "digest": "742b27152a4ab193d4acd4af95330050ca40bef4f10823b652edd83decbc56ac",
+        "size": 9082557485
+      },
+      {
+        "registry": {
+          "id": "ollama:gpt-oss-20b-compactfill",
+          "provider": "ollama",
+          "model": "gpt-oss-20b-ctx16k",
+          "contextWindow": 16384,
+          "rank": 52,
+          "stepFill": true,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true
+        },
+        "tag": "gpt-oss-20b-ctx16k:latest",
+        "digest": "a5f46ba4bb5bcce52d511571e4375be47422a10d62ff3ca70b12ccd96cc17199",
+        "size": 13793441564
+      },
+      {
+        "registry": {
+          "id": "ollama:mellum2-12b-instruct-q6-compactfill",
+          "provider": "ollama",
+          "model": "mellum2-12b-instruct-q6-ctx32k",
+          "contextWindow": 32768,
+          "rank": 50,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true
+        },
+        "tag": "mellum2-12b-instruct-q6-ctx32k:latest",
+        "digest": "061112094780d23d088232d7461373c91df7ffcf7b4e9883e633b1d0c340ad09",
+        "size": 10879834355
+      }
+    ]
+  },
+  "cases": [
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4
+    }
+  ],
+  "limits": {
+    "stageMinutes": 30,
+    "runMinutes": 60
+  },
+  "holdout": [
+    "rename-field",
+    "idempotent-retry"
+  ],
+  "runs": [
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4,
+      "caseIndex": 0,
+      "slug": "guided-smoke-20261013192144510-1-1",
+      "args": [
+        "bench/src/cli.ts",
+        "--all",
+        "--model",
+        "ollama:gpt-oss-20b-compactfill",
+        "--task",
+        "add-validator",
+        "--execution-mode",
+        "guided",
+        "--guided-engine-version",
+        "4",
+        "--preparation-version",
+        "3",
+        "--strict-questions",
+        "--stage-timeout",
+        "30",
+        "--run-timeout",
+        "60",
+        "--attempts",
+        "3",
+        "--slug",
+        "guided-smoke-20261013192144510-1-1"
+      ],
+      "status": "failed",
+      "startedAt": "2026-10-13T19:21:45.008Z",
+      "exitCode": 1,
+      "finishedAt": "2026-10-13T19:31:36.885Z",
+      "minutes": 9.864616666666667,
+      "success": false,
+      "stopped": "blocked",
+      "falseSuccess": false,
+      "scopeFailure": false,
+      "progress": {
+        "proposed": 26,
+        "observed": 1,
+        "stale": 0,
+        "reused": 0,
+        "units": [
+          {
+            "id": "intent:field:compact::задача: ‹название›||scalar|heading|‹название›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::коротко||multiline|paragraph|‹аудитория и ожидаемый результат›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::зачем||multiline|paragraph|‹какую проблему решаем›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::что делаем||multiline|paragraph|‹наблюдаемое изменение поведения›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::чего не делаем||multiline|paragraph|‹явно заданные границы; неизвестное помечай предположением›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:contract:0",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:repair:0:Что делаем",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:repair:0:Чего не делаем",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:repair:0:Приёмочный лист",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:contract:1",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:repair:1:Приёмочный лист",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:proposal:intent:contract:2",
+            "stage": "intent",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "intent:contract-checked",
+            "stage": "intent",
+            "status": "observed",
+            "revision": 1
+          },
+          {
+            "id": "explore:src/index.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:test/invoice.test.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:src/customer.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:src/invoice.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:test/lines.test.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:src/lines.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:scripts/build-check.mjs",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "explore:src/config.ts",
+            "stage": "explore",
+            "status": "proposed",
+            "revision": 1
+          },
+          {
+            "id": "plan:candidate",
+            "stage": "plan",
+            "status": "proposed",
+            "revision": 9
+          },
+          {
+            "id": "plan:step:1",
+            "stage": "plan",
+            "status": "proposed",
+            "revision": 9
+          },
+          {
+            "id": "plan:step:2",
+            "stage": "plan",
+            "status": "proposed",
+            "revision": 9
+          },
+          {
+            "id": "plan:step:3",
+            "stage": "plan",
+            "status": "proposed",
+            "revision": 9
+          }
+        ],
+        "recoveries": {
+          "plan:validation": {
+            "failures": 2,
+            "narrowed": false,
+            "stopped": false,
+            "kind": "plan",
+            "reason": "в «Подход» укажи файлы и символы, по которым выбрано решение",
+            "inputHash": "5353bc548a9156ec35deaf409afab15615260f0d4ad1bcf67294f25aa7a6be0b"
+          }
+        }
+      },
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T19:22:14.939Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 8,
+            "requests": 8,
+            "inputTokens": 15293,
+            "outputTokens": 7757,
+            "durationMs": 204368
+          },
+          "format-repair": {
+            "usageEvents": 1,
+            "requests": 1,
+            "inputTokens": 6709,
+            "outputTokens": 2396,
+            "durationMs": 44387
+          },
+          "semantic-repair": {
+            "usageEvents": 6,
+            "requests": 6,
+            "inputTokens": 26134,
+            "outputTokens": 6706,
+            "durationMs": 125437
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 4,
+            "requests": 4,
+            "inputTokens": 9324,
+            "outputTokens": 8013,
+            "durationMs": 140572
+          },
+          "unclassified": {
+            "usageEvents": 8,
+            "requests": 0,
+            "inputTokens": 11070,
+            "outputTokens": 5829,
+            "durationMs": 106004
+          }
+        },
+        "failures": {
+          "format": 1
+        },
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 8,
+        "firstMutation": null
+      },
+      "failure": {
+        "kind": "plan",
+        "origin": "plan",
+        "retryStage": "plan",
+        "reason": "основания: claim-5: основание для несуществующего требования"
+      },
+      "hidden": null,
+      "routes": {
+        "intent": "ollama:gpt-oss-20b-compactfill",
+        "explore": "ollama:gpt-oss-20b-compactfill",
+        "ask": "ollama:gpt-oss-20b-compactfill",
+        "plan": "ollama:gpt-oss-20b-compactfill",
+        "chunk": "ollama:gpt-oss-20b-compactfill",
+        "verify": "ollama:gpt-oss-20b-compactfill",
+        "handoff": "ollama:gpt-oss-20b-compactfill"
+      },
+      "tokens": 99231
+    },
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4,
+      "caseIndex": 1,
+      "slug": "guided-smoke-20261013192144510-2-2",
+      "args": [
+        "bench/src/cli.ts",
+        "--all",
+        "--model",
+        "ollama:gpt-oss-20b-compactfill",
+        "--task",
+        "config-default",
+        "--execution-mode",
+        "guided",
+        "--guided-engine-version",
+        "4",
+        "--preparation-version",
+        "3",
+        "--strict-questions",
+        "--stage-timeout",
+        "30",
+        "--run-timeout",
+        "60",
+        "--attempts",
+        "3",
+        "--slug",
+        "guided-smoke-20261013192144510-2-2"
+      ],
+      "status": "running",
+      "startedAt": "2026-10-13T19:31:37.312Z"
+    }
+  ]
+}

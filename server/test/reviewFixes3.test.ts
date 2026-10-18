@@ -49,6 +49,8 @@ const blockedGate = {
   status: '⏭' as const,
   inapplicableSignedBy: null,
   envBlocked: true,
+  // Улика инструмента обязательна: без неё незапуск — обычный красный (`SDLC.md`).
+  missingTool: 'bash: java: command not found',
 };
 
 describe('blocked_env не отменяет остановки витка', () => {
@@ -130,9 +132,11 @@ describe('условие возврата к принятому риску', () 
       '',
     ].join('\n');
 
+  // Условие возврата — пометка `revisitMissing`, а не открытый долг (code-review-all
+  // 2026-09-23, правило долга `SDLC.md`); предлог «при» условием по-прежнему не считается.
   it('предлог «при» условием возврата не считается', () => {
     const g = parseGates(gates('риск принят: неприменим при текущей архитектуре'));
-    strictEqual(g.debt[0]?.closed, false);
+    strictEqual(g.debt[0]?.revisitMissing, true);
   });
 
   it('«вернёмся, когда…» условием считается', () => {

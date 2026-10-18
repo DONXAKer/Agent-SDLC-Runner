@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "task": "idempotent-retry",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-gzvB57",
+  "baseCommit": "d7f471c07c292e87d41ff58401a15b3ee87e8585",
+  "contract": {
+    "task": "# Идемпотентная отправка\n\nВызывающая сторона ретраит по таймауту: не дождалась ответа — вызвала отправку ещё раз. У нас\nкаждый вызов честно уходит в транспорт, и человек получает одно и то же уведомление дважды, а\nто и трижды. Нужна идемпотентность отправки.\n\n## Что должно получиться\n\n1. `sendNotification(transport, msg, opts?)` (`src/sender.ts`, реэкспорт из `src/index.ts`)\n   принимает третьим параметром **необязательные** опции `{ idempotencyKey?: string }`.\n   Повторный вызов с тем же ключом **не отправляет** повторно и возвращает прежний `id` —\n   тот, что выдал транспорт при первой отправке.\n2. Вызовы **без ключа** работают как раньше: всегда отправляют, даже если сообщение\n   совпадает с уже отправленным. Существующие тесты остаются зелёными и **без правки** —\n   они вызывают `sendNotification` двумя аргументами, и это обязано остаться законным.\n3. Один ключ — одно тело. Повторный вызов с тем же ключом, но **другим** сообщением\n   (отличается любое из `to`, `text`, `phone`) — это ошибка вызывающего: бросается\n   исключение. Не тихая отправка и не тихий возврат чужого `id`.\n4. Хранилище ключей — в процессе: `Map` в модуле отправки или в новом модуле `src/`.\n   Внешних зависимостей нет и не появится.\n5. На новое поведение есть тест рядом с существующими (`test/`), и набор тестов прогнан\n   по-настоящему командой проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/idempotent-retry`. Виток полный — мелким контуром не закрывать.\n- Транспорт (`src/transport.ts`) не трогаем: идемпотентность — забота отправителя, транспорт\n  про ключи не знает. `memoryTransport` — стенд, а не место для логики.\n- Время жизни ключа — процесс. TTL и очистку хранилища в этом витке не делаем.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "src/transport.ts",
+      "test/sender.test.ts",
+      "test/outbox.test.ts",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build-check.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/**/*.test.ts"
+      ]
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-transfer.json",
+  "acceptanceFile": "bench/checks/acceptance/retry.mjs",
+  "control": "local",
+  "startedAt": "2026-10-14T14:11:08.534Z"
+}

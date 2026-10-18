@@ -1,0 +1,298 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 139211,
+    "remainingMs": 1660789,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261004042637470-m5-t1",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-04T05:00:32.056Z",
+    "finishedAt": "2026-10-04T05:02:52.264Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/index.ts не подготовлено: Исправь формат предыдущего ответа: Unterminated string in JSON at position 2251 (line 1 column 2252)\n{\"fact\":\"В файле `src/index.ts` экспортируются основные функции и типы: \\n- `add`, `formatRub`, `percent`, `rub`, `subtract` из `money.ts`; тип `Kopeck` тоже из `money.ts`.\\n- `lineTotal`, `subtotal` из `lines.ts`; тип `Line` из `lines.ts`.\\n- тип `Customer` из `customer.ts`.\\n- `DEFAULT_CONFIG`, `resolveConfig` из `config.ts`; тип `BillingConfig` из `config.ts`.\\n- `buildInvoice` и тип `Invoice` из `invoice.ts`.\\n- публичная функция `bill(number, customer, lines, config)` – обёртка над `buildInvoice`.\\nСейчас в публичном контракте нет функции `validateCustomer`, которая должна быть экспортирована из нового модуля `validate.ts`.\\n\\nimpact:\\\"Для выполнения задачи необходимо добавить экспорт `validateCustomer` во внешнее API. Это позволяет вызывающим использовать валидацию покупателя, а также делает тесты, которые импортируют `validateCustomer` из `src/index.ts`, корректными. Остальная логика пакета при этом не меняется.\\\"\\n\\nchange\\\":\\\"/\\\\**\\n * Публичный контракт пакета.\\n *\\n * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\\n * ссылаются напрямую, но потребитель знает только отсюда.\\n \\\\*/\\n\\nexport { add, formatRub, percent, rub, subtract } from './money.ts';\\nexport type { Kopeck } from './money.ts';\\n\\nexport { lineTotal, subtotal } from './lines.ts';\\nexport type { Line } from './lines.ts';\\n\\nexport type { Customer } from './customer.ts';\\n\\nexport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\\nexport type { BillingConfig } from './config.ts';\\n\\nexport { buildInvoice } from './invoice.ts';\\nexport type { Invoice } from './invoice.ts';\\n\\n// New export for the customer validator\\nexport { validateCustomer } from './validate.ts';\\n\\nimport { buildInvoice } from './invoice.ts';\\nimport type { BillingConfig } from './config.ts';\\nimport type { Customer } from './customer.ts';\\nimport type { Invoice } from './invoice.ts';\\nimport type { Line } from './lines.ts';\\n\\n/** Точка входа для вызывающих: выставить счёт. */\\nexport function bill(\\n  number: string,\\n  customer: Customer,\\n  lines: readonly Line[],\\n  config?: Partial<BillingConfig>,\\n): Invoice {\\n  return buildInvoice(number, customer, lines, config);\\n}\\n\\\"\\n\\nreuse\\\":null\\n\\nrisks\\\":[]\\n\\nquestions\\\":[]}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 16062,
+          "outputTokens": 4808,
+          "cacheReadTokens": 11347,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 138370
+        },
+        "durationMs": 83133,
+        "requestDurationsMs": [
+          7167,
+          18171,
+          28519,
+          10901,
+          19315,
+          29545,
+          24758
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 3245,
+          "outputTokens": 3170,
+          "cacheReadTokens": 667,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 56038
+        },
+        "durationMs": 56094,
+        "requestDurationsMs": [
+          28187,
+          27851
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 5
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:4ee2ee36-583f-41ea-a27b-a12e2b36ded1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261004042637470-m5-t1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4677,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 6562,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e611e4a29f305fc1cd45b01350e27ff26cb9c462f365bf8c69c1c4d430a4ad3e",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "3129e60967fdc236c57d9532a518951b081ed29e419287e737f72a20884ad2cf",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "12707016eef89e440ad0e3c6736433daf7e56894d4d73e047d427c564092c57d",
+    "state": "finished",
+    "capturedAt": "2026-10-04T05:02:52.281Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-04T05:02:52.262Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "8af277570fdd252039c355eb6e6b7b2cb915cb3369d35f852d39b576efccd1a9",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "466c81bc445a2ae05ffc0d05046a7aae59c19da139bd4e9d6a3f13a0541789f2",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "1885fc72923164f1ad36c0e5ed873445aa17765dc3ef46facdf3c8fd4fc03410",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "13cba8e9d991666f982900eac7866a6f388239297547ec92730a8532b0034420",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -8,7 +8,8 @@ import { readArtifact } from '../../../artifacts/artifact.ts';
 import { extractFilesToTouch } from '../../../artifacts/planFiles.ts';
 import { describeStep, planSteps } from '../../../artifacts/planSteps.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
-import { StepExecutor } from '../../../exec/StepExecutor.ts';
+import { StepExecutor, mentionsFile } from '../../../exec/StepExecutor.ts';
+import type { StepCheck } from '../../../exec/StepExecutor.ts';
 import { gateKey } from '../../../gates/gatesFile.ts';
 import type { GateRow, GatesFile } from '../../../gates/gatesFile.ts';
 import { normalizePlanPath } from '../../../policy/paths.ts';
@@ -46,6 +47,64 @@ import { runNamedGate } from './evidence.ts';
  * остался бы неиспользуемым и вводил бы в заблуждение, что выбор гейтов всё ещё зависит от
  * того, какой файл правит шаг.
  */
+/**
+ * Из уже прогнанных красных строк после шага — какая идёт в `problem` карточки: первая,
+ * чей текст называет файл ЭТОГО шага (`mentionsFile`), иначе первая красная вообще —
+ * прежнее поведение («чужая» краснота не тормозит шаг, `StepExecutor` пометит его ✅ «вне
+ * этого файла») не меняется, когда ни одна строка про файл шага. Пустой список — гейты
+ * пройдены (`null`).
+ *
+ * Вынесена чистой функцией отдельно от прогона гейтов ради теста: раньше первая красная
+ * строка обрывала проход по остальным, и «Сборка», красная по чужой причине, не давала
+ * даже запуститься «Тестам» — модель ни разу не видела ошибку СВОЕГО же тестового файла,
+ * пока не собирался бриф на следующую ПОПЫТКУ этапа (найдено 2026-09-25,
+ * `d2-devstral-vat-rounding`: `test/vat.test.ts` не грузился три попытки подряд).
+ */
+export function pickStepFailure(failures: readonly StepCheck[], file: string): StepCheck | null {
+  const own = failures.find((f) => f.status === 'failed' && mentionsFile(f.problem, file));
+  return own ?? failures[0] ?? null;
+}
+
+/** Defer an import check only when the failing module is an explicitly later plan step. */
+export function plannedDependencyBlocker(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): string | null {
+  for (const failure of failures) {
+    if (failure.status !== 'failed' || !/(?:Cannot find module|ERR_MODULE_NOT_FOUND)/i.test(failure.problem)) continue;
+    if (!mentionsFile(failure.problem, currentFile)) continue;
+    const dependency = laterFiles.find((file) => mentionsFile(failure.problem, file));
+    if (dependency) return dependency;
+  }
+  return null;
+}
+
+/** A test failure against a file with another declared step is checked after that follow-up. */
+export function plannedSameFileFollowup(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): boolean {
+  const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  if (!laterFiles.some((file) => normalize(file) === normalize(currentFile))) return false;
+  return failures.some((failure) => failure.status === 'failed'
+    && /гейт «Тесты»|(?:node|npm).*test/i.test(failure.problem)
+    && mentionsFile(failure.problem, currentFile));
+}
+
+/** Defer intermediate test regressions whose stack points to a file assigned to a later step. */
+export function plannedTestFollowup(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): string | null {
+  const sameFile = plannedSameFileFollowup(failures, currentFile, laterFiles);
+  if (sameFile) return currentFile;
+  for (const failure of failures) {
+    if (failure.status !== 'failed' || !/(?:гейт «Тесты»|node|npm).*test/i.test(failure.problem)) continue;
+    if (!mentionsFile(failure.problem, currentFile)) {
+      const future = laterFiles.find((file) => mentionsFile(failure.problem, file));
+      if (future) return future;
+    }
+  }
+  return null;
+}
+
 export function gatesForStep(gates: GatesFile | null): GateRow[] {
   const rows: GateRow[] = [];
   const build = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
@@ -121,6 +180,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
     // `contextWindow` (`config/models.json`) не получали от него никакой защиты,
     // потому что этот код его не читал (code-review-all, 2026-09-11).
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+    stepContext: route.stepContext,
     steps,
     planText,
     humanFacts: humanFactsBlock(host.paths.clarificationReport) ?? '',
@@ -130,22 +190,38 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
         ? null
         : {
             name: checkLabel,
-            run: async () => {
+            run: async (step) => {
               const rows = gatesForStep(gates);
               if (rows.length === 0) {
                 return { status: 'skipped', note: 'для этого шага в наборе нет применимой строки гейта' };
               }
+              // Все строки проходятся до конца, не только до первой красной — иначе
+              // «Сборка», красная по чужой причине, не давала «Тестам» даже
+              // запуститься, и модель ни разу не видела ошибку СВОЕГО же тестового
+              // файла (см. `pickStepFailure`). «Строка не найдена»/`envBlocked` —
+              // тоже НЕ обрывают проход: раньше немедленный `return` на этих двух
+              // ветках топил уже накопленный `failures` целиком, включая реальный
+              // диагноз более ранней строки (code-review-all, 2026-09-26) — тот же
+              // класс потери, ради устранения которого писался весь цикл. Они лишь
+              // запоминаются как «эта строка ничего не сказала» и участвуют в решении
+              // только если содержательных failures не набралось вовсе.
+              const failures: StepCheck[] = [];
+              let unavailable: { note: string } | null = null;
               for (const row of rows) {
                 const r = await runNamedGate(host, row.name);
-                if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
+                if (r === null) {
+                  unavailable = { note: 'строка гейта не найдена при прогоне' };
+                  continue;
+                }
                 if (r.status === '❌') {
-                  const tail = (r.outputTail ?? '').trim();
-                  return {
+                  const tail = (r.output ?? r.outputTail ?? '').trim();
+                  failures.push({
                     status: 'failed',
                     problem:
                       `гейт «${r.name}» (${r.command ?? 'встроенная реализация'}, код ${r.exitCode ?? '—'}): ${r.lastLine}` +
                       (tail === '' ? '' : `\n${tail}`),
-                  };
+                  });
+                  continue;
                 }
                 if (r.status === '⏭') {
                   // `envBlocked` различает «среда не дала запуститься» (раннера нет,
@@ -155,14 +231,28 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
                   // до этой правки обе ветки уходили в один и тот же `skipped`, и
                   // `StepExecutor` красил шаг `✅` с находкой в хвосте `note`, а не в
                   // статусе (code-review-all, 2026-09-11).
-                  if (r.envBlocked) return { status: 'skipped', note: r.lastLine };
-                  return {
-                    status: 'failed',
-                    problem: `гейт «${r.name}» вернул ⏭ по содержанию, не по среде: ${r.lastLine}`,
-                  };
+                  if (r.envBlocked) {
+                    unavailable = { note: r.lastLine };
+                    continue;
+                  }
+                  failures.push({ status: 'failed', problem: `гейт «${r.name}» вернул ⏭ по содержанию, не по среде: ${r.lastLine}` });
+                  continue;
                 }
               }
-              return { status: 'ok' };
+              const laterFiles = steps.filter((candidate) => candidate.n > step.n).map((candidate) => candidate.file);
+              const deferred = plannedDependencyBlocker(failures, step.file, laterFiles);
+              const testFollowup = plannedTestFollowup(failures, step.file, laterFiles);
+              if (testFollowup !== null) return {
+                status: 'skipped',
+                note: `проверка изменила тесты для ${testFollowup}, у которого есть следующий шаг плана; повторная проверка после него`,
+              };
+              if (deferred !== null) return {
+                status: 'skipped',
+                note: `импорт ${deferred} явно создаётся следующим шагом плана; повторная проверка после его выполнения`,
+              };
+              const picked = pickStepFailure(failures, step.file);
+              if (picked !== null) return picked;
+              return unavailable === null ? { status: 'ok' } : { status: 'skipped', note: unavailable.note };
             },
           },
   });

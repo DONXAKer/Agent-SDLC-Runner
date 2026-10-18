@@ -12,8 +12,11 @@
  * «после chunk». Именно фикстуры, а не того, что написала модель: текст модельных файлов
  * от сэмпла к сэмплу разный, и посев по нему то попадал бы, то нет — стенд обязан быть
  * побайтово одинаковым для всех измеряемых моделей. Патч попытки рантайм перегенерирует
- * из дерева сам (`run/evidence.ts`), поэтому посеянное попадает в diff, который читает
- * рецензент, тем же путём, что и работа исполнителя.
+ * из дерева сам (`run/evidence.ts`), но только В КОНЦЕ chunk'а — а посев вносится ПОСЛЕ
+ * восстановления снимка, когда chunk уже отработал в прошлом. Поэтому вызывающий (`cli.ts`)
+ * обязан перегенерировать патч и улики САМ, сразу после `applySeed` (`seedEvidence.ts`) —
+ * без этого рецензент и встроенные гейты читают патч БЕЗ посеянного дефекта, и находимость
+ * на снимке слепа по построению (найдено на серии 2026-09-27/28, `docs/model-runs.md`).
  *
  * Цель посева — файл, который у этой задачи заведомо в плане (`src/tariffs.ts`: там живёт
  * `priceFor`, а его правит любой сэмпл). Посев в файл ВНЕ плана меряет не рецензента, а
@@ -78,7 +81,7 @@ export interface SeedDef {
   mentions: readonly RegExp[];
 }
 
-/** Специальное значение `--seed`: ничего не сеем, меряем ложные срабатывания. */
+/** Специальное значение `--seed`: контроль без посева; находки требуют сверки со снимком. */
 export const SEED_NONE = 'none';
 
 export const SEEDS: readonly SeedDef[] = [
@@ -310,6 +313,10 @@ export interface SeedProbe {
   where: ('gate' | 'report')[];
   /** Строка для отчёта — человеку, без расшифровки регулярок. */
   note: string;
+  /** Измерение модели состоялось; без этого ни пойманность, ни пропуск не считаются. */
+  measured?: boolean;
+  /** Контроль `none` нашёл потенциально реальную проблему; нужна ручная классификация. */
+  reviewRequired?: boolean;
 }
 
 /**
@@ -325,8 +332,9 @@ export function probeSeed(args: {
   reportText: string;
   verdictReasons: readonly string[] | null;
   gateResults: readonly GateRunResult[];
+  measured: boolean;
 }): SeedProbe {
-  const { seed } = args;
+    const { seed } = args;
   const haystack = [args.reportText, ...(args.verdictReasons ?? [])].join('\n');
   const named = seed.mentions.some((re) => re.test(haystack));
   const watched = new Set(seed.gates.map(gateKey));
@@ -343,19 +351,24 @@ export function probeSeed(args: {
     caught: where.length > 0,
     where,
     note:
-      where.length === 0
+      !args.measured
+        ? `измерение не состоялось; находимость посева не оценена (${seed.what})`
+        : where.length === 0
         ? `посев «${seed.id}» НЕ назван: ${seed.what}`
         : `посев «${seed.id}» назван (${where.join(', ')}): ${seed.what}`,
+    measured: args.measured,
   };
 }
 
 /**
- * Контрольный прогон без посева: рецензент, «находящий» дефекты в чистом сэмпле, бесполезен
- * ровно так же, как слепой. Здесь `caught` означает ЛОЖНОЕ срабатывание.
+ * Контрольный прогон без посева. Без известного чистого эталона найденная проблема может
+ * быть дефектом снимка, а не ложным срабатыванием; поэтому кандидат требует ручной сверки.
  */
 export function probeNoSeed(args: {
   verdictReasons: readonly string[] | null;
   gateResults: readonly GateRunResult[];
+  measured: boolean;
+  verdictPassed: boolean | null;
 }): SeedProbe {
   const gateRed = args.gateResults.some((g) => g.status === '❌');
   const findings = (args.verdictReasons ?? []).filter((r) => /расхождени|регресси|инвариант/i.test(r));
@@ -367,11 +380,19 @@ export function probeNoSeed(args: {
     seedId: SEED_NONE,
     klass: 'без посева — проверка ложных срабатываний',
     expected: null,
+    // Без отдельного эталона чистоты нельзя автоматически объявить находку ложной:
+    // она может указывать на дефект самого снимка (как claim-7 в серии 2026-09-28).
     caught: where.length > 0,
     where,
     note:
-      where.length === 0
+      !args.measured
+        ? 'измерение не состоялось; ложные срабатывания не оценены'
+        : where.length > 0 || args.verdictPassed === false
+          ? `найдены возможные проблемы, нужна ручная сверка с исходной задачей и снимком: ${findings.join('; ') || 'вердикт проверки не зелёный'}`
+          : where.length === 0
         ? 'без посева: ложных срабатываний нет'
-        : `без посева ЕСТЬ срабатывания (${where.join(', ')}): ${[...findings].join('; ') || 'красный гейт'}`,
+        : `красный гейт (${where.join(', ')}); нужна ручная сверка снимка`,
+    measured: args.measured,
+    reviewRequired: args.measured && (where.length > 0 || args.verdictPassed === false),
   };
 }

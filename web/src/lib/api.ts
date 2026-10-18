@@ -2,6 +2,10 @@ import type {
   AutoApproveRules,
   BrowseResult,
   ConfigInfo,
+  DashboardArtifactResponse,
+  DashboardCardRef,
+  DashboardDetail,
+  DashboardResponse,
   Decision,
   HistoryEntry,
   PreparedPrompt,
@@ -57,12 +61,14 @@ export const api = {
   config: (): Promise<ConfigInfo> => fetch('/api/config').then(json<ConfigInfo>),
 
   /**
-   * Преполётная проба tool-calling модели — скрининг перед стартом витка. Три микро-кейса
-   * за секунды вместо десятков минут этапа: доходит ли модель до вызова инструмента вообще.
-   * Красная проба — предупреждение, не блок.
+   * Преполётная проба модели — скрининг перед стартом витка, красная проба — предупреждение,
+   * не блок. `stage` решает набор кейсов на сервере: для `verify` — закрытый текстовый
+   * вопрос рецензента (`reviewFill` не вызывает ни одного инструмента), для остальных —
+   * три микро-кейса tool-calling исполнителя. Без `stage` сервер меряет исполнителя —
+   * не роняй параметр для модели на этапе verify, иначе проба скажет не о том пороге.
    */
-  probe: (model: string): Promise<ProbeResponse> =>
-    post('/api/probe', { model }).then(json<ProbeResponse>),
+  probe: (model: string, stage?: string): Promise<ProbeResponse> =>
+    post('/api/probe', { model, ...(stage === undefined ? {} : { stage }) }).then(json<ProbeResponse>),
 
   browse: (path?: string): Promise<BrowseResult> =>
     fetch(`/api/browse${path !== undefined ? `?path=${encodeURIComponent(path)}` : ''}`).then(
@@ -107,8 +113,8 @@ export const api = {
    * для любого статуса истории, не только `open`: закрытый/убранный виток не имеет живого
    * `runId`, поэтому берётся по `project`+`slug`, не по `id`, как `run()` выше.
    */
-  historyEvents: (project: string, slug: string): Promise<RunEvent[]> =>
-    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`).then(
+  historyEvents: (project: string, slug: string, signal?: AbortSignal): Promise<RunEvent[]> =>
+    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`, { signal }).then(
       json<RunEvent[]>,
     ),
 
@@ -127,6 +133,7 @@ export const api = {
     body: {
       prompt?: { system: string; user: string };
       requirement?: string;
+      executionMode?: 'legacy' | 'guided';
       extra?: string;
       /** Объявленный оператором обрыв витка: handoff оформляется без зелёного вердикта. */
       abortHandoff?: boolean;
@@ -178,6 +185,7 @@ export const api = {
       artifact: string;
       label: string;
       granted: boolean;
+      preparationFingerprint?: string;
       note?: string;
       chunk?: number;
       attempt?: number;
@@ -204,4 +212,33 @@ export const api = {
    */
   forget: (id: string): Promise<unknown> =>
     fetch(`/api/runs/${id}`, { method: 'DELETE' }).then(json),
+
+  /**
+   * Список дашборда. `prevEtag` — метка уже показанного списка: сервер отвечает 304, браузер
+   * отдаёт закэшированное тело с той же меткой, и мегабайтный список (сотни прогонов
+   * стенда) не разбирается заново на каждый тик. `data: null` — «не изменился».
+   */
+  dashboard: async (
+    prevEtag: string | null,
+  ): Promise<{ etag: string | null; serverNow: number | null; data: DashboardResponse | null }> => {
+    const res = await fetch('/api/dashboard', { cache: 'no-cache' });
+    const etag = res.headers.get('etag');
+    // Часы сервера — из заголовка: на 304 браузер отдаёт закэшированное тело со СТАРЫМ
+    // `serverNow`, а заголовки ответа 304 он обновляет.
+    const header = Number(res.headers.get('x-server-now'));
+    const serverNow = Number.isFinite(header) && header > 0 ? header : null;
+    if (res.ok && etag !== null && etag === prevEtag) return { etag, serverNow, data: null };
+    return { etag, serverNow, data: await json<DashboardResponse>(res) };
+  },
+
+  dashboardDetail: (ref: DashboardCardRef): Promise<DashboardDetail> =>
+    fetch(dashboardUrl(ref)).then(json<DashboardDetail>),
+
+  /** Содержимое одного файла карточки — по имени из словаря сервера, не по пути. */
+  dashboardArtifact: (ref: DashboardCardRef, name: string): Promise<DashboardArtifactResponse> =>
+    fetch(`${dashboardUrl(ref)}/artifact?name=${encodeURIComponent(name)}`).then(json<DashboardArtifactResponse>),
 };
+
+function dashboardUrl(ref: DashboardCardRef): string {
+  return `/api/dashboard/${ref.source}/${encodeURIComponent(ref.project)}/${encodeURIComponent(ref.slug)}`;
+}

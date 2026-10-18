@@ -11,6 +11,7 @@ import {
   branchNameFromField,
   countPlaceholders,
   countPlaceholdersExceptSections,
+  countPlaceholdersInReadinessRun,
   decisionValue,
   placeholderRanges,
   readDecision,
@@ -19,6 +20,7 @@ import {
   writeArtifact,
 } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
+import { resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { checkPreconditions, stageById } from '../src/run/stages.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-test-')));
@@ -153,6 +155,46 @@ describe('поля решений человека', () => {
   });
 });
 
+// Поле «Действие» записи о дефекте (handoff): двоеточие ПОСЛЕ жирной метки с курсивным
+// пояснением, значение — выбор из меню, а не подпись. До этой правки `readDecision` не
+// видел поле вовсе (`missing`), а при виде — требовал бы имя и дату.
+const ACTION_MENU =
+  '- **Действие** _(выбирает человек, агент только предлагает)_: н/п / конструкция / проверка /\n' +
+  '  принятие риска\n';
+
+describe('поле-выбор «Действие» (вторая форма метки)', () => {
+  it('вторая форма метки находится: меню не выбрано — placeholder, а не missing', () => {
+    strictEqual(readDecision(ACTION_MENU, DECISION.action).state, 'placeholder');
+  });
+
+  it('одна ветка из канона — granted, с пояснением после тире тоже', () => {
+    for (const v of ['конструкция', 'проверка', 'принятие риска', 'Конструкция — гейт на пустой sku']) {
+      strictEqual(readDecision(`- **Действие** _(выбирает человек)_: ${v}`, DECISION.action).state, 'granted', v);
+    }
+  });
+
+  it('«н/п» — не решение (форма блока «дефектов не было»), текст не из канона — не решение', () => {
+    strictEqual(readDecision('- **Действие** _(выбирает человек)_: н/п', DECISION.action).state, 'placeholder');
+    strictEqual(readDecision('- **Действие** _(выбирает человек)_: переписать всё', DECISION.action).state, 'placeholder');
+  });
+
+  it('лишние ветки вычеркнуты — осталась одна, это выбор', () => {
+    const t = '- **Действие** _(выбирает человек)_: ~~н/п~~ / конструкция / ~~проверка~~ / ~~принятие риска~~';
+    strictEqual(readDecision(t, DECISION.action).state, 'granted');
+  });
+
+  it('setDecision сохраняет курсивное пояснение метки', () => {
+    const t = setDecision(ACTION_MENU, DECISION.action, 'проверка');
+    ok(t.startsWith('- **Действие** _(выбирает человек, агент только предлагает)_: проверка'), t);
+  });
+
+  it('первая форма и прочие поля не задеты; жирное слово в прозе полем не считается', () => {
+    strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
+    strictEqual(readDecision('- **Одобрение:** Иван · 2026-08-16', DECISION.approval).state, 'granted');
+    strictEqual(readField('Смотри **Ветка витка** в задаче: там всё', 'Ветка витка'), null);
+  });
+});
+
 describe('readField: сырое значение простого поля', () => {
   it('заполненное поле возвращается как есть', () => {
     strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
@@ -174,9 +216,18 @@ describe('предусловия этапов', () => {
   });
 
   it('chunk начинается, когда одобрение записано в файл', () => {
-    writeArtifact(paths.plan, setDecision(PLAN_UNAPPROVED, DECISION.approval, 'Иван · 2026-08-16'));
-    const r = checkPreconditions(stageById('chunk'), ctx);
-    ok(r.ok, r.problems.join('; '));
+    const isolatedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-approved-plan-')));
+    try {
+      const isolatedPaths = new WitokPaths(isolatedRoot, 'demo');
+      const plan = `${PLAN_UNAPPROVED}- **Требования (SHA-256):** \`${resolvedRequirementsHash('', '')}\`\n`;
+      writeArtifact(isolatedPaths.intent, '');
+      writeArtifact(isolatedPaths.clarificationReport, '');
+      writeArtifact(isolatedPaths.plan, setDecision(plan, DECISION.approval, 'Иван · 2026-08-16'));
+      const r = checkPreconditions(stageById('chunk'), { paths: isolatedPaths, chunk: 1, attempt: 1 });
+      ok(r.ok, r.problems.join('; '));
+    } finally {
+      rmSync(isolatedRoot, { recursive: true, force: true });
+    }
   });
 
   it('отрицательное решение блокирует так же, как незаполненное', () => {
@@ -339,6 +390,28 @@ describe('предусловия этапов', () => {
     ok(!r.problems.some((p) => /Опоры осей/.test(p)), r.problems.join('; '));
   });
 
+  // Живой прогон b6-2 (gpt-oss-20b, 2026-09-24): два настоящих символа в кавычках через
+  // слэш читались одним путём `longestSide/dimensionSum` — честный отчёт закрыл виток.
+  it('символы в обратных кавычках через слэш путём не считаются; сочинённый путь в кавычках — считается', () => {
+    writeArtifact(join(root, 'src', 'a.ts'), 'export const a = 1;\n');
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Опоры осей',
+      '| Ось | Механизм проекта | Как он применяется здесь |', '|---|---|---|',
+      '| Отказы зависимостей | `longestSide`/`dimensionSum` | простые операции |',
+      '| Ресурсы | `WEIGHT_LIMITS_G` в `src/a.ts` | ограничения на веса |',
+    ].join('\n'));
+    let r = checkPreconditions(stageById('ask'), ctx);
+    ok(!r.problems.some((p) => /Опоры осей/.test(p)), r.problems.join('; '));
+
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Опоры осей',
+      '| Ось | Механизм проекта | Как он применяется здесь |', '|---|---|---|',
+      '| Отказы зависимостей | `longestSide`/`src/fake.ts` | нет такого файла |',
+    ].join('\n'));
+    r = checkPreconditions(stageById('ask'), ctx);
+    ok(r.problems.some((p) => /Опоры осей.*src\/fake\.ts/.test(p)), r.problems.join('; '));
+  });
+
   it('«нет механизма» в опорах осей ложного срабатывания не даёт', () => {
     writeArtifact(paths.explorationReport, [
       '# Отчёт разведки', '## Опоры осей',
@@ -484,6 +557,32 @@ describe('плейсхолдеры без секции', () => {
   it('отсутствующая секция не роняет подсчёт', () => {
     const text = '## Коротко\n‹что делаем›\n';
     strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 1);
+  });
+});
+
+// Аналог test28 (`intentFilled`) для `readiness.md`: файл общий у intent (прогон 1) и
+// plan (прогон 2), и до плана «Прогон 2» законно пуст — не ошибка intent'а (code-review-all,
+// 2026-09-26).
+describe('countPlaceholdersInReadinessRun: своя секция «Прогон N», не весь файл', () => {
+  const text =
+    '## Прогон 1\n' +
+    '- **Вердикт прогона 1:** готова\n' +
+    '- поле: заполнено\n\n' +
+    '## Прогон 2\n' +
+    '- **Вердикт прогона 2:** ‹готова / не готова›\n' +
+    '- поле: ‹заполнить›\n';
+
+  it('прогон 1 заполнен — 0 плейсхолдеров, хотя прогон 2 ещё пуст', () => {
+    strictEqual(countPlaceholdersInReadinessRun(text, 1), 0);
+  });
+
+  it('прогон 2 не заполнен — плейсхолдеры считаются по его секции', () => {
+    strictEqual(countPlaceholdersInReadinessRun(text, 2), 2);
+  });
+
+  it('секции нет (неизвестный шаблон) — падение на счёт по всему файлу, не на 0', () => {
+    const flat = '- поле: ‹заполнить›\n';
+    strictEqual(countPlaceholdersInReadinessRun(flat, 1), countPlaceholders(flat));
   });
 });
 

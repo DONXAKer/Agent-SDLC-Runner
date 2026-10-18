@@ -3,7 +3,7 @@
  * подменяются через `PreflightDeps`, файловые проверки идут по настоящему bench/.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { ok, deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,13 +11,14 @@ import { after, describe, it } from 'node:test';
 
 import { loadConfig } from '../../server/src/config/load.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
+import { ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
 import { spawnNode } from '../src/nodeTest.ts';
 import { parseArgs } from '../src/options.ts';
 import type { BenchOptions } from '../src/options.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from '../src/preflight.ts';
 import type { PreflightDeps, PreflightReport } from '../src/preflight.ts';
 
-const MODEL = 'ollama:qwen3.5:4b-ctx16k';
+const MODEL = 'ollama:qwen3:8b-ctx16k'; // существующая запись конфига (qwen3.5:4b-ctx16k удалён чисткой 2026-09-22)
 
 function opts(argv: readonly string[]): BenchOptions {
   return parseArgs(argv);
@@ -25,7 +26,7 @@ function opts(argv: readonly string[]): BenchOptions {
 
 const greenProbe: PreflightDeps['probe'] = async ({ cases }) => ({
   model: 'm',
-  cases: (cases ?? []).map((c) => ({ name: c.name, ok: true, detail: 'ok', env: false, durationMs: 1 })),
+  cases: (cases ?? []).map((c) => ({ name: c.name, ok: true, detail: 'ok', env: false, timedOut: false, durationMs: 1 })),
   passed: true,
   envBlocked: false,
 });
@@ -34,7 +35,11 @@ const greenProbe: PreflightDeps['probe'] = async ({ cases }) => ({
 function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
   return {
     probe: greenProbe,
+    // Прогрев и перезагрузка — внешние вызовы (chat, lms); в герметичном тесте — заглушки.
+    warmup: async () => {},
+    reloadEngine: async () => ({ kind: 'reloaded', detail: 'заглушка' }),
     contextProblem: async () => null,
+    layoutProblem: async () => null,
     spawnScript: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
     spawnTest: async () => ({ exitCode: 0, stdout: 'ok 1 - t', stderr: '', timedOut: false }),
     ...over,
@@ -150,11 +155,134 @@ describe('runPreflight', () => {
   it('расхождение окна — envBlocked до пробы модели', async () => {
     const report = await runPreflight(
       opts(['--model', MODEL, '--stage', 'chunk']),
-      greenDeps({ contextProblem: async () => 'тег даёт окно 4096, конфиг ждёт 16384' }),
+      greenDeps({ contextProblem: async () => ({ message: 'тег даёт окно 4096, конфиг ждёт 16384', reloadable: false }) }),
     );
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok));
     strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
+  });
+
+  it('--stage verify — набор кейсов рецензентский, не Write/Edit исполнителя (критерий 3 квалификации рецензента)', async () => {
+    // Правило рецензента: MODEL встаёт на verify (ранг 32) и обязан быть СИЛЬНЕЕ chunk —
+    // контрольный chunk по умолчанию (sonnet, 70) сильнее, профиль не собрался бы; подмена
+    // на модель ниже рангом (`ollama:cline_roocode:8b-ctx16k`, 30) — тот же приём, что в
+    // живых замерах локальных рецензентов.
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'verify', '--control-chunk', 'ollama:cline_roocode:8b-ctx16k']),
+      greenDeps(),
+    );
+    ok(report.checks.some((c) => c.name === 'модель: находка по посеянному дефекту'), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => c.name === 'модель: чистый фрагмент — без ложной находки'), JSON.stringify(report.checks));
+    strictEqual(report.checks.some((c) => c.name.startsWith('модель: заполнение поля через Edit')), false, 'кейс исполнителя chunk на роль рецензента не должен идти');
+  });
+
+  it('--stage verify — роль «verify» доезжает и до retry ОДНОГО кейса, не только до первого прогона (code-review-all, 2026-09-28)', async () => {
+    // До фикса роль вычислялась по ссылочному равенству `args.cases === REVIEWER_PROBE_CASES`
+    // прямо в probeModel — а retry-вызов здесь передаёт НОВЫЙ массив `[retryCase]`, и роль
+    // молча откатывалась к 'chunk' ровно там, где сравнение по ссылке и должно было
+    // сломаться. Явный параметр `role` в `probeArgs` (preflight.ts) обязан долетать до
+    // ОБОИХ вызовов `deps.probe`.
+    const roles: (string | undefined)[] = [];
+    let call = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      roles.push(a.role);
+      call++;
+      const cases = (a.cases ?? []).map((c) => ({
+        name: c.name,
+        // Первый прогон: один кейс красный (не среда, не таймаут) — вызывает retry этого
+        // кейса. Второй вызов (retry) — зелёный. Имя здесь — СЫРОЕ (как в `ProbeCase.name`,
+        // `находка по посеянному дефекту`), префикс «модель: » добавляет только `toCheck`.
+        ok: call > 1 || c.name !== 'находка по посеянному дефекту',
+        detail: 'ok',
+        env: false,
+        timedOut: false,
+        durationMs: 1,
+      }));
+      return { model: 'm', cases, passed: cases.every((c) => c.ok), envBlocked: false };
+    };
+    await runPreflight(
+      opts(['--model', MODEL, '--stage', 'verify', '--control-chunk', 'ollama:cline_roocode:8b-ctx16k']),
+      greenDeps({ probe }),
+    );
+    strictEqual(call, 2, 'ожидался основной прогон + один retry упавшего кейса');
+    deepStrictEqual(roles, ['verify', 'verify'], 'роль обязана быть verify на ОБОИХ вызовах, включая retry с новым массивом cases');
+  });
+
+  it('раскладка в порядке — строка «раскладка после прогрева» зелёная, проба гоняется', async () => {
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps());
+    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && c.ok), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => c.name.startsWith('модель: честность')), 'проба должна была гоняться следом');
+  });
+
+  it('частичный офлоад блокирует измерение по раскладке среды до пробы модели', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        layoutProblem: async () => ({ message: 'раскладка «m»: 26.0% GPU / 74.0% CPU — частичный офлоад' }),
+      }),
+    );
+    strictEqual(report.passed, false);
+    strictEqual(preflightExitCode(report), 2, 'раскладка VRAM не является провалом модельного кейса');
+    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && !c.ok && c.detail.includes('офлоад')));
+    strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
+  });
+
+  it('расхождение окна помечено reloadable, но БЕЗ --engine-reload — код 2, перезагрузка не вызывается', async () => {
+    let reloadCalled = false;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        contextProblem: async () => ({ message: 'модель не загружена', reloadable: true }),
+        reloadEngine: async () => {
+          reloadCalled = true;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloadCalled, false, 'GPU общий — без явного флага перезагрузки нет');
+    strictEqual(preflightExitCode(report), 2);
+    ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok));
+  });
+
+  it('--engine-reload чинит reloadable окно ДО прогрева: одна перезагрузка, повтор проверки зелёный (серия local6, 2026-09-24)', async () => {
+    let reloads = 0;
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        contextProblem: async () => {
+          contextCalls += 1;
+          return contextCalls === 1 ? { message: 'модель не загружена (state: not-loaded)', reloadable: true } : null;
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'lms load m -c 32768 --parallel 1 зелёный' };
+        },
+      }),
+    );
+    strictEqual(reloads, 1);
+    strictEqual(contextCalls, 2, 'первая проверка красная, вторая — после перезагрузки');
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    const c = report.checks.find((x) => x.name.startsWith('модель: окно контекста'));
+    ok(c?.name.includes('после перезагрузки'), JSON.stringify(c));
+  });
+
+  it('--engine-reload на reloadable окне, но перезагрузка не удалась — старые красные проверки НЕ теряются', async () => {
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        contextProblem: async () => {
+          contextCalls += 1;
+          return { message: 'модель не загружена (state: not-loaded)', reloadable: true };
+        },
+        reloadEngine: async () => ({ kind: 'failed' as const, detail: 'lms load снят по таймауту' }),
+      }),
+    );
+    strictEqual(contextCalls, 1, 'перезагрузка не удалась — второй проверки окна нет');
+    strictEqual(preflightExitCode(report), 2);
+    ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => !c.ok && c.detail.includes('lms load снят по таймауту')), JSON.stringify(report.checks));
   });
 
   it('красная модельная проба при зелёной среде — код 1, не 2', async () => {
@@ -163,7 +291,7 @@ describe('runPreflight', () => {
       greenDeps({
         probe: async ({ cases }) => ({
           model: 'm',
-          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'вызова нет', env: false, durationMs: 1 })),
+          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'вызова нет', env: false, timedOut: false, durationMs: 1 })),
           passed: false,
           envBlocked: false,
         }),
@@ -180,7 +308,7 @@ describe('runPreflight', () => {
       greenDeps({
         probe: async ({ cases }) => ({
           model: 'm',
-          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'ECONNREFUSED', env: true, durationMs: 1 })),
+          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'ECONNREFUSED', env: true, timedOut: false, durationMs: 1 })),
           passed: false,
           envBlocked: true,
         }),
@@ -193,6 +321,311 @@ describe('runPreflight', () => {
     const report = await runPreflight(opts(['--model', 'ollama:takoy-net', '--stage', 'chunk']), greenDeps());
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => !c.ok), JSON.stringify(report.checks));
+  });
+});
+
+describe('runPreflight: вторая попытка модельных кейсов', () => {
+  const FLAKY = 'правка поля без перезаписи файла';
+
+  /** Проба со сценарием для одного кейса: полный проход — красный, повтор — по флагу. */
+  const scriptedProbe =
+    (retryOk: boolean, env = false): PreflightDeps['probe'] =>
+    async ({ cases }) => {
+      const list = cases ?? [];
+      const single = list.length === 1;
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY || (single && retryOk),
+          env: c.name === FLAKY && env,
+          timedOut: false,
+          detail: c.name === FLAKY ? (single ? 'повтор' : 'вызова нет') : 'ok',
+          durationMs: 1,
+        })),
+        passed: true,
+        envBlocked: false,
+      };
+    };
+
+  it('одиночный ❌ шумного кейса: повтор зелёный — преполёт зелёный с пометкой «со 2-й попытки»', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(true)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(report.envBlocked, false);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, true, c?.detail);
+    ok(c?.detail.includes('со 2-й попытки'), c?.detail);
+    strictEqual(calls, 2, 'полный проход + один перезапуск упавшего кейса');
+  });
+
+  it('обе попытки красные — преполёт красный по модели (код 1), в деталях «2/2 попыток»', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(false)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, false);
+    strictEqual(report.envBlocked, false);
+    strictEqual(preflightExitCode(report), 1);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, false);
+    ok(c?.detail.includes('2/2 попыток'), c?.detail);
+    strictEqual(calls, 2);
+  });
+
+  it('средовой сбой (⛔) НЕ перезапускается: один проход, код 2', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(false, true)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, false);
+    strictEqual(report.envBlocked, true);
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(calls, 1, 'ретрай средового сбоя дорог (таймаут 120 с) и не про модель');
+  });
+
+  it('модельный провал + повтор, упавший средой — кейс не измерен: средовый красный (код 2)', async () => {
+    const probe: PreflightDeps['probe'] = async ({ cases }) => {
+      const list = cases ?? [];
+      const single = list.length === 1;
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY,
+          env: c.name === FLAKY && single,
+          timedOut: false,
+          detail: single ? 'ECONNREFUSED' : 'вызова нет',
+          durationMs: 1,
+        })),
+        passed: false,
+        envBlocked: single,
+      };
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.envBlocked, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(preflightExitCode(report), 2);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.env, true, c?.detail);
+    ok(c?.detail.includes('не измерен'), c?.detail);
+  });
+
+  it('кейс с timedOut — код 1 (не 2), НЕ перезапускается (серия local6, 2026-09-24: apriel-1.6-15b)', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async ({ cases }) => {
+      calls += 1;
+      const list = cases ?? [];
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY,
+          env: false,
+          timedOut: c.name === FLAKY,
+          detail: c.name === FLAKY ? 'кейс не уложился в потолок 120000 мс' : 'ok',
+          durationMs: 1,
+        })),
+        passed: false,
+        envBlocked: false,
+      };
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.envBlocked, false, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(preflightExitCode(report), 1);
+    strictEqual(calls, 1, 'таймаут кейса не перезапускается — повтор удвоил бы тот же потолок');
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, false);
+    strictEqual(c?.env, false);
+  });
+
+  it('--probe-timeout передаётся пробе как caseTimeoutMs', async () => {
+    let seenTimeout: number | undefined;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      seenTimeout = a.caseTimeoutMs;
+      return greenProbe(a);
+    };
+    await runPreflight(opts(['--model', MODEL, '--stage', 'chunk', '--probe-timeout', '6']), greenDeps({ probe }));
+    strictEqual(seenTimeout, 6 * 60_000);
+  });
+});
+
+describe('runPreflight: прогрев движка и автоперезагрузка', () => {
+  const WARMUP_CHECK = 'модель: прогрев движка';
+
+  it('прогрев идёт ДО проб и вердикт не меняет: зелёный прогрев — просто строка с длительностью', async () => {
+    const order: string[] = [];
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        warmup: async () => {
+          order.push('warmup');
+        },
+        probe: async (a) => {
+          order.push('probe');
+          return greenProbe(a);
+        },
+      }),
+    );
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    strictEqual(c?.ok, true, c?.detail);
+    deepStrictEqual(order, ['warmup', 'probe'], 'холодный старт обязан уйти в прогрев, а не в первую пробу');
+  });
+
+  it('прогрев упал средой, флаг выключен — код 2, проба не гонялась, перезагрузки нет, есть подсказка', async () => {
+    let probeCalled = false;
+    let reloadCalled = false;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        warmup: async () => {
+          throw new ProviderEnvError('HTTP 400 terminated');
+        },
+        probe: async (a) => {
+          probeCalled = true;
+          return greenProbe(a);
+        },
+        reloadEngine: async () => {
+          reloadCalled = true;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(report.envBlocked, true);
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(probeCalled, false, 'гонять семь кейсов по лёгшему движку бессмысленно');
+    strictEqual(reloadCalled, false, 'GPU общий — без явного флага перезагрузки нет');
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('--engine-reload'), c?.detail);
+  });
+
+  it('флаг включён: после сбоя движка — одна перезагрузка и один повтор; повтор зелёный — преполёт зелёный', async () => {
+    let warmups = 0;
+    let reloads = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          if (warmups === 1) throw new Error('fetch failed');
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'lms load m зелёный' };
+        },
+      }),
+    );
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(warmups, 2, 'первый прогрев + ровно один повтор после перезагрузки');
+    strictEqual(reloads, 1);
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('после перезагрузки'), c?.detail);
+  });
+
+  it('флаг включён, повтор снова упал — код 2, третьей попытки нет', async () => {
+    let warmups = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          throw new Error('fetch failed');
+        },
+        reloadEngine: async () => ({ kind: 'reloaded' as const, detail: 'ok' }),
+      }),
+    );
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(warmups, 2, 'повтор после перезагрузки ровно один');
+  });
+
+  it('перезагрузка не поддержана провайдером — честное сообщение, повтора пробы нет', async () => {
+    let warmups = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          throw new ProviderEnvError('HTTP 400 terminated');
+        },
+        reloadEngine: async () => ({ kind: 'unsupported' as const, detail: 'автоперезагрузка не поддержана' }),
+      }),
+    );
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(warmups, 1, 'без выполненной перезагрузки повтор бессмыслен');
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('не поддержана'), c?.detail);
+  });
+
+  it('не-средовой сбой прогрева перезагрузку не вызывает даже с флагом и преполёт не красит — классифицирует проба', async () => {
+    let reloads = 0;
+    let probeCalled = false;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          throw new ProviderHttpError('ollama: HTTP 400 от http://x — {"error":"max_tokens слишком мал"}', 400);
+        },
+        probe: async (a) => {
+          probeCalled = true;
+          return greenProbe(a);
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloads, 0, 'перезагрузка — только при сбое движка, не при любой ошибке');
+    strictEqual(probeCalled, true, 'ошибку не-движка классифицирует проба тем же запросом');
+    strictEqual(preflightExitCode(report), 0, JSON.stringify(report.checks.filter((c) => !c.ok)));
+  });
+
+  it('HTTP-ошибка с «fetch failed» в сыром теле — не сбой движка: перезагрузки нет', async () => {
+    let reloads = 0;
+    await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          throw new ProviderHttpError('ollama: HTTP 400 от http://x — {"error":{"message":"upstream fetch failed"}}', 400);
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloads, 0);
+  });
+
+  it('после перезагрузки окно контекста перепроверяется: урезанное окно краснит преполёт', async () => {
+    let warmups = 0;
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          if (warmups === 1) throw new ProviderEnvError('движок не ответил на прогрев');
+        },
+        contextProblem: async () => {
+          contextCalls += 1;
+          return contextCalls === 1 ? null : { message: 'загружено с окном 4096, конфиг ждёт 16384', reloadable: false };
+        },
+      }),
+    );
+    strictEqual(preflightExitCode(report), 2);
+    ok(
+      report.checks.some((c) => !c.ok && c.name.includes('после перезагрузки')),
+      JSON.stringify(report.checks.filter((c) => !c.ok)),
+    );
   });
 });
 

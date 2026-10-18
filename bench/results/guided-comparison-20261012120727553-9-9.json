@@ -1,0 +1,274 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:qwen3.8-27b-iq4-ctx32k-gpumax",
+    "budgetMs": 3600000,
+    "activeMs": 43389,
+    "remainingMs": 3556611,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T12:45:59.209Z",
+        "inputRevision": "871a58b4c4daaa8d028daf2ff3b781646f9d5aa1d817fdaf159454ceb56a03f3",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "                \"Гейт\": \"Сборка\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"node scripts/build-check.mjs — загрузка всех модулей src; компиляции нет, проект исполняется напрямую\"\n              },\n              {\n                \"Гейт\": \"Тесты\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"node --test \\\"test/**/*.test.ts\\\" — тот же вызов, что в scripts.test пакета\"\n              },\n              {\n                \"Гейт\": \"Scope: файлы вне плана\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: изменения от базы chunk'а сверяются с files_to_touch, каталог методологии из сверки исключён\"\n              },\n              {\n                \"Гейт\": \"Анти-обход тест-гейта\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: отключённые тесты и удалённые тестовые файлы в изменениях\"\n              },\n              {\n                \"Гейт\": \"Ревью независимым агентом\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"субагент sdlc-reviewer, модель строго сильнее исполнителя этапа 5\"\n              },\n              {\n                \"Гейт\": \"Scope: пути плана без правок\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: сверка files_to_touch с изменениями в обратную сторону\"\n              },\n              {\n                \"Гейт\": \"Scope: нетракованные файлы\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: нетракованные файлы вне каталога методологии; игнорируемые git-ом не считаются\"\n              },\n              {\n                \"Гейт\": \"Секреты в diff\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: ключи, токены и файлы окружения в добавленных строках\"\n              },\n              {\n                \"Гейт\": \"Ответы человека в коде\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: числа и цитаты из ответов человека (clarification-report.md) ищутся в добавленных строках diff\"\n              },\n              {\n                \"Гейт\": \"Проверка предусловий публикации\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 7\",\n                \"Чем реализован\": \"встроенная реализация: ветка витка, чистое дерево, отсутствие коммита на главной ветке\"\n              },"
+          }
+        ],
+        "uncertainties": [
+          "Проверка текущего реэкспорта src/validate.ts для уточнения оснований"
+        ],
+        "action": "read",
+        "reason": "Проверка текущего реэкспорта src/validate.ts для уточнения оснований",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { add, formatRub, percent, rub, subtract } from './money.ts';\n9\texport type { Kopeck } from './money.ts';\n10\t\n11\texport { lineTotal, subtotal } from './lines.ts';\n12\texport type { Line } from './lines.ts';\n13\t\n14\texport type { Customer } from './customer.ts';\n15\t\n16\texport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\n17\texport type { BillingConfig } from './config.ts';\n18\t\n19\texport { buildInvoice } from './invoice.ts';\n20\texport type { Invoice } from './invoice.ts';\n21\t\n22\timport { buildInvoice } from './invoice.ts';\n23\timport type { BillingConfig } from './config.ts';\n24\timport type { Customer } from './customer.ts';\n25\timport type { Invoice } from './invoice.ts';\n26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);\n36\t}\n37\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T12:46:15.753Z",
+        "inputRevision": "871a58b4c4daaa8d028daf2ff3b781646f9d5aa1d817fdaf159454ceb56a03f3",
+        "decision": "read",
+        "evidence": [],
+        "uncertainties": [
+          "Несовпадение строкового идентификатора ветки sdlc/add-validator (спецификация) и sdlc/add-validator (runtimeContext)",
+          "Неясно, какие поля содержит тип Customer для валидации email/phone."
+        ],
+        "action": "read",
+        "reason": "Спецификация определяет контракт validateCustomer(customer) и реэкспорт, но структуру объекта Customer и существующие поля в исходных данных не показано; для проверки целостности намерения и плана файлов нужен исходный файл.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "1\t/**\n2\t * Покупатель, которому выставляется счёт.\n3\t *\n4\t * Данные приходят из формы заказа как есть — валидирует их тот, кто выставляет счёт,\n5\t * а не форма (форма не знает правил биллинга, и дублировать их там — лишняя связность).\n6\t */\n7\t\n8\texport interface Customer {\n9\t  name: string;\n10\t  email: string;\n11\t  phone: string;\n12\t}\n13\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T12:46:28.996Z",
+        "inputRevision": "871a58b4c4daaa8d028daf2ff3b781646f9d5aa1d817fdaf159454ceb56a03f3",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Сбор данных не добавил нового входа"
+        ],
+        "action": "blocked",
+        "reason": "Сбор данных не добавил нового входа",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012120727553-9-9",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T12:45:44.306Z",
+    "finishedAt": "2026-10-12T12:46:29.014Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Сбор данных не добавил нового входа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 15100,
+          "outputTokens": 396,
+          "cacheReadTokens": 972,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 43834
+        },
+        "durationMs": 44151,
+        "requestDurationsMs": [
+          14083,
+          16525,
+          13226
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4874,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "eb0a142e22f3bb54c03987e195ab8bee87a1fce18cb0f8a0baf1f3972531ce18",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "2a94dfeba17154c1770d770aedfb6c9c29ffc6d048e81466fc40d278d41bcec6",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "d2d7a5a656e47695ae5b763cf17e0dbafb8b82fcfdde54328f3dcd3030e54d1e",
+    "state": "finished",
+    "capturedAt": "2026-10-12T12:46:29.033Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T12:46:28.999Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "c0e1091d5a4cf57888ff554f47b376cf3a8582a28b4eff4082aa0828345af95b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "cd920a22fa15468bd1f634812b222981176ee0c57344e80876d52a7bf9ff1bfd",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "6440659261d2860ada2f18dc251a0288b73184085b0b915b9349c75afe46ad60",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

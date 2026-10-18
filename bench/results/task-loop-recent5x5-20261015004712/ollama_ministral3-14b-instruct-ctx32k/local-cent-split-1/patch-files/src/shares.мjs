@@ -1,0 +1,22 @@
+export const protocolVersion= 1;
+
+export function splitCents(total, count) {
+    if (!Number.isSafeInteger(total) || total < 0)
+        throw new RangeError("total must be a nonnegative SafeInteger");
+
+    if  (!Number.isSafeInteger(count) || count <=  0   || count > 1000)
+        throw new RangeError("count must be a positive SafeInteger ≤ 1000");
+
+    const baseShare = Math. floor (total / count);
+    const remainder = total % count;
+    
+    const shares  = Array(count ).fill(baseShare);
+    
+    for (let i =  0; i  
+                  < remainder;
+            i++)
+    {  shares[i]++;
+    }
+    
+    return shares;
+}

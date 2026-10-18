@@ -1,0 +1,262 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 7656,
+    "remainingMs": 3592344,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-09T07:01:04.472Z",
+        "inputRevision": "0178c4ff4e25c2ec2c21e1fdf9fb00300c6a5e4023fa9f7f7e84b87c1215471f",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**."
+          },
+          {
+            "source": "request-1",
+            "quote": "2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова"
+          },
+          {
+            "source": "request-1",
+            "quote": "   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`."
+          },
+          {
+            "source": "request-1",
+            "quote": "   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему"
+          }
+        ],
+        "uncertainties": [
+          "Proceed with the current stage, no additional data required"
+        ],
+        "action": "read",
+        "reason": "Proceed with the current stage, no additional data required",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": false,
+          "text": "файла нет: request-1"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-09T07:01:04.498Z",
+        "inputRevision": "0178c4ff4e25c2ec2c21e1fdf9fb00300c6a5e4023fa9f7f7e84b87c1215471f",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Не удалось получить данные: файла нет: request-1"
+        ],
+        "action": "blocked",
+        "reason": "Не удалось получить данные: файла нет: request-1",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "json-flow-final-20261009065718375-m1-t2",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-09T07:00:56.170Z",
+    "finishedAt": "2026-10-09T07:01:04.522Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Не удалось получить данные: файла нет: request-1",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 1
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 4023,
+          "outputTokens": 314,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 7248
+        },
+        "durationMs": 7692,
+        "requestDurationsMs": [
+          7248
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4984,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "8af3b2dac19be14d72419f758a858b543601442d",
+      "sourceHash": "18b14b7cf5ab2c9460957c1b1cbfd373544e1ee428c6119a5848a0d5dc99aa1c",
+      "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+      "localEndpoints": {},
+      "inputHash": "6d801f8e654bbc3493865e7662e38c8376e54b6013f809e7c21c9d3a63d2e376",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "3239735785f515f52a5f7beb62442a86bf133db4d4840a12458b1877128f6adf",
+    "state": "finished",
+    "capturedAt": "2026-10-09T07:01:04.548Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-09T07:01:04.504Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "0fd81c4ebe52a9d96a5b6acd1070858f9b4ac4b1c6284b40b6a22fd27bfb3b25",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "af174720a45e64f1dd23ace68a03a1f9633e3128be62255f17ec4639c65023da",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -10,8 +10,11 @@
  */
 
 import { hasPlaceholder, signatureProblem } from '../artifacts/artifact.ts';
+import { SDLC_CONSTANTS, assertSameList } from '../config/constants.ts';
 import { parseTables } from '../md/table.ts';
 
+// Кортеж — ради типа `MinimumGate`; единственный источник — `sdlc-constants.json`, и
+// расхождение с ним — ошибка старта, а не молчаливая вторая копия минимума.
 const MINIMUM = [
   'Сборка',
   'Тесты',
@@ -19,6 +22,7 @@ const MINIMUM = [
   'Анти-обход тест-гейта',
   'Ревью независимым агентом',
 ] as const;
+assertSameList('минимум гейтов (mandatory_gates)', MINIMUM, SDLC_CONSTANTS.mandatory_gates);
 
 export type MinimumGate = (typeof MINIMUM)[number];
 
@@ -46,6 +50,14 @@ export interface DebtRow {
   closed: boolean;
   /** Чего не хватило для закрытия. Пусто, если закрыта. */
   why: string;
+  /**
+   * Принятый риск без условия возврата. Строку НЕ открывает: `SDLC.md` (правило долга
+   * набора) требует ручную проверку с именем и датой либо принятый риск с подписью, а
+   * `example/gates.md` эталона сам закрывает риски без срока — раннер, строже
+   * первоисточника, ронял вердикт каждого витка на наборе по образцу (code-review-all
+   * 2026-09-23). Сигнал остаётся для оператора: бессрочный риск не пересматривают.
+   */
+  revisitMissing: boolean;
 }
 
 /**
@@ -245,12 +257,12 @@ export function parseGates(text: string): GatesFile {
     const problems: string[] = [];
     if (!/проверяет\s+руками|риск\s+принят/i.test(how)) {
       problems.push('не сказано, закрывается ручной проверкой или принятым риском');
-    } else if (/риск\s+принят/i.test(how) && !RETURN_CONDITION.test(how)) {
-      // Принятый риск без условия возврата бессрочен, а бессрочный риск не пересматривают:
-      // одна такая строка переехала через четыре витка, и условие возврата к тому моменту
-      // уже наступило — заметить это было нечем.
-      problems.push('риск принят, но не сказано, когда к нему вернуться');
     }
+    // Принятый риск без условия возврата бессрочен, а бессрочный риск не пересматривают:
+    // одна такая строка переехала через четыре витка, и условие возврата к тому моменту
+    // уже наступило — заметить это было нечем. Поэтому — пометка, видимая оператору, но
+    // не открытый долг (см. `DebtRow.revisitMissing`).
+    const revisitMissing = /риск\s+принят/i.test(how) && !RETURN_CONDITION.test(how);
     // Подпись закрытия долга считается тем же предикатом, что и подпись решения человека
     // в артефакте и подпись неприменимости в отчёте: планка у них обязана быть одна.
     const signature = signatureProblem(`${who} ${date}`);
@@ -263,6 +275,7 @@ export function parseGates(text: string): GatesFile {
       who,
       closed: problems.length === 0,
       why: problems.join(', '),
+      revisitMissing,
     });
   }
 

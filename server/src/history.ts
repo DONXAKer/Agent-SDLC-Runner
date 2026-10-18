@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 import type { HistoryEntry, HistoryStatus, StageId } from '@sdlc-runner/shared';
 
-import { DECISION, artifactExists, hasPlaceholder, readArtifact, readDecision } from './artifacts/artifact.ts';
+import { DECISION, artifactExists, hasPlaceholder, readArtifact, readLastDecision } from './artifacts/artifact.ts';
 import { SDLC_DIR, WitokPaths } from './artifacts/paths.ts';
 
 /**
@@ -32,7 +32,7 @@ function lastStageReached(paths: WitokPaths, files: readonly string[]): StageId 
   return null;
 }
 
-function latestMtimeIso(dir: string, files: readonly string[]): string {
+export function latestMtimeIso(dir: string, files: readonly string[]): string {
   let max = 0;
   for (const f of files) {
     try {
@@ -53,10 +53,11 @@ function latestMtimeIso(dir: string, files: readonly string[]): string {
   }
 }
 
-function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {
+export function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {
   const handoff = readArtifact(paths.handoff);
   if (handoff.exists) {
-    const d = readDecision(handoff.text, DECISION.accepted);
+    // Последняя секция витка: первая «Приёмка» файла — прошлого витка той же задачи.
+    const d = readLastDecision(handoff.text, DECISION.accepted);
     if (d.state === 'granted') return 'done';
     if (d.state === 'declined') return 'aborted';
   }
@@ -77,7 +78,7 @@ function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {
  */
 const requirementCache = new Map<string, { mtimeMs: number; requirement: string | undefined }>();
 
-function requirementExcerpt(paths: WitokPaths): string | undefined {
+export function requirementExcerpt(paths: WitokPaths): string | undefined {
   // Кэш по времени правки — тем же приёмом, что у набора гейтов в `Run`: `GET /api/history`
   // сканирует ВСЕ каталоги витков проекта, и без кэша каждый заход на стартовый экран читал
   // десятки intent.md целиком синхронно, в том же цикле событий, что и поток WebSocket.

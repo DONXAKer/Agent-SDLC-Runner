@@ -22,8 +22,6 @@ const input = (over: Record<string, unknown> = {}) => ({
   failedClaimsByAttempt: [['c1'], ['c1']],
   chunkModelId: 'haiku',
   chunkRank: 1,
-  verifyModelId: 'opus',
-  verifyRank: 3,
   models,
   ...over,
 });
@@ -43,9 +41,10 @@ describe('застрявшие пункты приёмки', () => {
 });
 
 describe('предложение поднять модель', () => {
-  it('без застрявших пунктов эскалации нет', () => {
-    const e = suggestEscalation(input({ failedClaimsByAttempt: [['c1'], ['c2']] }));
-    strictEqual(e.kind, 'none');
+  it('may escalate to a model with the same rank as verify', () => {
+    const e = suggestEscalation(input({ chunkModelId: 'sonnet', chunkRank: 2 }));
+    strictEqual(e.kind, 'suggest');
+    if (e.kind === 'suggest') strictEqual(e.toModelId, 'opus');
   });
 
   it('берётся МИНИМАЛЬНАЯ модель строго сильнее текущей', () => {
@@ -54,19 +53,14 @@ describe('предложение поднять модель', () => {
     if (e.kind === 'suggest') strictEqual(e.toModelId, 'sonnet');
   });
 
-  it('подъём, ломающий правило рецензента, не предлагается', () => {
-    // chunk=sonnet(2), verify=opus(3): следующая сильнее — opus(3), но тогда verify
-    // перестал бы быть СТРОГО сильнее chunk.
+  it('may escalate as far as the highest available model', () => {
     const e = suggestEscalation(input({ chunkModelId: 'sonnet', chunkRank: 2 }));
-    strictEqual(e.kind, 'blocked');
-    if (e.kind === 'blocked') {
-      strictEqual(e.why.includes('строго сильнее'), true);
-      strictEqual(e.why.includes('оба этапа'), true);
-    }
+    strictEqual(e.kind, 'suggest');
+    if (e.kind === 'suggest') strictEqual(e.toModelId, 'opus');
   });
 
   it('когда поднимать некуда, это сказано вслух, а не замолчано', () => {
-    const e = suggestEscalation(input({ chunkModelId: 'opus', chunkRank: 3, verifyRank: 9 }));
+    const e = suggestEscalation(input({ chunkModelId: 'opus', chunkRank: 3 }));
     strictEqual(e.kind, 'blocked');
     if (e.kind === 'blocked') strictEqual(e.why.includes('поднимать некуда'), true);
   });

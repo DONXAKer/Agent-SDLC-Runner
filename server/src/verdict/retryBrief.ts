@@ -40,6 +40,57 @@ const GATE_TAIL_LINES = 12;
  * проекта (`at … file:///…/src/stock.ts:155`) под шаблон не подпадает и остаётся.
  */
 const INTERNAL_FRAME_RE = /^\s*at\s+(?:async\s+)?\S.*\((?:node:|internal\/)|^\s*at\s+(?:async\s+)?(?:node:|internal\/)|node_modules/;
+
+/**
+ * Собственная «визитка» `node --test` после ЛЮБОГО провала: 8 строк счётчиков
+ * (`ℹ tests/suites/pass/fail/…`) и повторный блок «✖ failing tests:» / `test at
+ * файл:N:N` / `✖ файл (Nms)` / `'test failed'` — по 3-4 строки на каждый упавший файл.
+ * Она не несёт диагноза и сама по себе съедает `GATE_TAIL_LINES` раньше настоящей
+ * причины — та же болезнь, что у `INTERNAL_FRAME_RE`, другой источник переполнения.
+ *
+ * Найдено на двух независимых прогонах 2026-09-25 (`d2-devstral-vat-rounding`,
+ * `s3-ministral3-vat-rounding`): три попытки подряд, оба разных модели, окно ретрая
+ * состояло ЦЕЛИКОМ из этой визитки — ни слова о `SyntaxError`, из-за которого их
+ * собственный новый тестовый файл не грузится. Рецензент (полный доступ к артефактам,
+ * не к брифу) каждый раз называл точную строку падения верно; модель на повторной
+ * попытке не видела её вовсе. Вероятный корень класса #13
+ * (`docs/model-error-taxonomy.md`) — «свой тест невалиден при верном коде»: открыт по
+ * 5+ случаям на 3+ моделях, и все известные — под `node --test`.
+ *
+ * Счётчики (`ℹ …`) — визитка безусловно, в живом выводе `node --test` их не бывает.
+ * Но `✖ <имя> (Nms)`/`test at …`/`'test failed'` печатаются ДВАЖДЫ: один раз сразу за
+ * причиной провала (живой вывод — если у теста говорящее имя, это может быть
+ * ЕДИНСТВЕННОЕ место с содержательным текстом, например при `assert.fail()` без
+ * сообщения), второй раз — в итоговом «✖ failing tests:» (recap, буквальный повтор).
+ * Резать нужно только повтор: безусловное совпадение любого `✖ … (Nms)` стирало бы и
+ * единственный содержательный экземпляр (code-review-all, 2026-09-26).
+ * `stripNodeTestBoilerplate` поэтому стейтфул — режет `✖ …`/`test at …`/`'test failed'`
+ * только ПОСЛЕ строки-маркера recap-блока, живой (первый) экземпляр остаётся.
+ *
+ * Тот же формат вывода разбирает `exec/StepExecutor.ts::FAILURE_LOCATION_RES` — с ДРУГОЙ
+ * задачей (куда роутить ремонт шага, не что обрезать в брифе), поэтому это не общий код, а
+ * два независимых набора регулярок. Правишь формат распознавания здесь — проверь тот файл.
+ */
+const NODE_TEST_COUNTER_RE =
+  /^\s*ℹ (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms|start of coverage report|end of coverage report)\b/;
+const NODE_TEST_RECAP_HEADER_RE = /^\s*✖ failing tests:\s*$/;
+const NODE_TEST_RECAP_LINE_RE = /^\s*test at .+:\d+:\d+\s*$|^\s*✖ .+\(\d+(\.\d+)?ms\)\s*$|^\s*'test failed'\s*$/;
+
+function stripNodeTestBoilerplate(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let inRecap = false;
+  for (const l of lines) {
+    if (NODE_TEST_RECAP_HEADER_RE.test(l)) {
+      inRecap = true;
+      continue;
+    }
+    if (NODE_TEST_COUNTER_RE.test(l)) continue;
+    if (inRecap && NODE_TEST_RECAP_LINE_RE.test(l)) continue;
+    out.push(l);
+  }
+  return out;
+}
+
 /** Сколько находок ревью показывается — дальше это уже отчёт, а не выжимка. */
 const FINDINGS_MAX = 8;
 
@@ -50,6 +101,12 @@ export interface RetryDetail {
   whatToFix?: ReadonlyMap<string, string>;
   /** Находки ревью §2–§5: суть и место. `anchored` — ссылка на место нашлась в патче. */
   findings?: readonly { text: string; evidence: string; anchored: boolean }[];
+  /**
+   * `retry_instruction` рецензента — одна строка «что чинить в первую очередь». Считалась
+   * (`reviewJson.ts`) и не подавалась: gpt-oss-20b три попытки подряд не тронул `sku !== ''`,
+   * дважды сделав правку old==new ровно на этом пункте (rename-field, 2026-09-25).
+   */
+  retryInstruction?: string;
 }
 
 /**
@@ -88,14 +145,15 @@ function gateLines(g: GateRunResult): string[] {
   const how = g.command ?? 'без команды';
   const code = g.exitCode === null ? '' : `, код ${g.exitCode}`;
   const head = `- «${g.name}» (${how}${code}): ${lastLineOf(g)}`;
-  const tail = (g.outputTail ?? '')
+  const lines = (g.outputTail ?? '')
     .split(/\r?\n/)
     .map((l) => l.trimEnd())
     .filter((l) => l.trim() !== '')
-    // Внутренние кадры выбрасываются ДО среза: иначе они съедают окно, и в бриф попадает
-    // последний провал вместо всех (см. INTERNAL_FRAME_RE).
-    .filter((l) => !INTERNAL_FRAME_RE.test(l))
-    .slice(-GATE_TAIL_LINES);
+    // Внутренние кадры и собственная визитка `node --test` выбрасываются ДО среза: иначе
+    // они съедают окно, и в бриф попадает последний провал вместо всех — или, у визитки,
+    // не попадает НИ ОДИН (см. INTERNAL_FRAME_RE, stripNodeTestBoilerplate).
+    .filter((l) => !INTERNAL_FRAME_RE.test(l));
+  const tail = stripNodeTestBoilerplate(lines).slice(-GATE_TAIL_LINES);
   if (tail.length === 0) return [head];
   // Четыре кавычки, как у `fence` в prompt/build.ts: хвост тестов, сравнивающих markdown,
   // сам содержит тройные, и ограждение из трёх ломало разметку остатка брифа.
@@ -130,6 +188,13 @@ export function buildRetryBrief(
   detail?: RetryDetail,
 ): string | null {
   const sections: string[] = [];
+
+  // Первой строкой — потому что это единственное место брифа, где рецензент назвал
+  // приоритет; ниже идут факты без порядка важности.
+  const instruction = detail?.retryInstruction?.trim() ?? '';
+  if (instruction !== '' && !/^н\/п$/i.test(instruction)) {
+    sections.push(`Рецензент: в первую очередь — ${instruction}`);
+  }
 
   const failedClaims = input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual');
   if (failedClaims.length > 0) {

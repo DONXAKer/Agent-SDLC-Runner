@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "page-window",
+  "model": "ollama:devstral-small-2",
+  "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZS20hF",
+  "baseCommit": "5ac651c53d9555f5de09ad08c47f01ef462787bb",
+  "contract": {
+    "task": "Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.",
+        "source": "Human task",
+        "checks": []
+      }
+    ],
+    "requireAdditionalTestsUnder": [
+      "test/"
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": false,
+  "visibleChecks": [
+    {
+      "name": "public-api",
+      "file": "bench/checks/evidence/page-window.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": null,
+  "temperature": null,
+  "contextWindow": 16384,
+  "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T22:22:40.960Z"
+}

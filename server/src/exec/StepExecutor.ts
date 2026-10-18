@@ -34,7 +34,9 @@
  *    человека: …`, а не выдумкой;
  *  - команда из поля «проверка» шага НЕ исполняется: это текст, написанный моделью на
  *    этапе 4, и запускать его без гейта одобрения значило бы обойти политику `Bash`.
- *    Проверяют гейты набора проекта; тесты прогоняет `recordAttemptEvidence` после этапа;
+ *    Проверяют включённые гейты набора проекта; если подходящей проверки нет или среда
+ *    пропустила её, шаг получает `⏭`, но применённая правка всё равно доходит до verify;
+ *    тесты попытки повторно прогоняет `recordAttemptEvidence` после этапа;
  *  - журнал chunk'а исполнитель не пишет: механику заполняет `autofillJournal`,
  *    содержательные поля — дозаполнение по полям с отчётом о шагах во входе;
  *  - улики по-прежнему пишет рантайм: шаг без diff'а — факт в отчёте, не «сделано»;
@@ -63,10 +65,13 @@ import { symlinkEscape } from '../approval/symlink.ts';
 import { git } from '../gates/git.ts';
 import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
 import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
+import { buildStepContext } from './stepContext.ts';
+import { stepPlanContext } from './stepPlanContext.ts';
 
 /**
  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
@@ -75,7 +80,14 @@ import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './c
 export type StepCheck =
   | { status: 'ok' }
   | { status: 'skipped'; note: string }
-  | { status: 'failed'; problem: string };
+  | { status: 'inapplicable'; reason: string; approvedBy: string; approvedAt: string }
+  | { status: 'failed'; problem: string; integrity?: true };
+
+function signedStepDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+}
 
 export interface StepExecutorOptions {
   provider: ChatProvider;
@@ -97,6 +109,8 @@ export interface StepExecutorOptions {
    * никакой защиты (code-review-all, 2026-09-11).
    */
   contextWindow?: number;
+  /** Лексический контекст шага (`stepContext.ts`) — см. `ModelDef.stepContext`. */
+  stepContext: boolean;
   steps: readonly PlanStep[];
   /** Текст плана — для ориентира; режется по `maxResultBytes`. */
   planText: string;
@@ -149,17 +163,25 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
     // `<<<<<<< SEARCH SEARCH: src/oversize.ts` и подобные — маркер построен верно, но
     // с лишним текстом на той же строке; семь подряд одинаковых спецсимволов на строке
     // практически не встречаются в реальном коде случайно, риск ложного совпадения низкий.
+    if (/^<{7}\s*SEARCH\b/.test(t)) {
+      // A nested opener means the outer block is malformed. Restarting here salvages a
+      // later well-formed block without ever writing protocol markers into source code.
+      state = 'search';
+      search = [];
+      replace = [];
+      continue;
+    }
     if (state === 'idle') {
-      if (/^<{7}\s*SEARCH\b/.test(t)) {
-        state = 'search';
-        search = [];
-        replace = [];
-      }
       continue;
     }
     if (state === 'search') {
       if (/^={7}(\s|$)/.test(t)) state = 'replace';
+      else if (/^>{7}\s*REPLACE\b/.test(t)) state = 'idle';
       else search.push(line);
+      continue;
+    }
+    if (/^={7}(\s|$)/.test(t)) {
+      state = 'idle';
       continue;
     }
     if (/^>{7}\s*REPLACE\b/.test(t)) {
@@ -169,6 +191,18 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
       continue;
     }
     replace.push(line);
+  }
+  if (out.length > 0) return out;
+
+  // Weak models also use an unambiguous fenced variant. Accept only complete multiline
+  // pairs; inline `SEARCH: x` and prose remain rejected because their boundaries are not safe.
+  const fenced = /(?:^|\n)\s*SEARCH:\s*\n```[^\n]*\n([\s\S]*?)\n```\s*\n+\s*REPLACE:\s*\n```[^\n]*\n([\s\S]*?)\n```/g;
+  for (const match of answer.matchAll(fenced)) {
+    const oldStr = match[1] ?? '';
+    const newStr = match[2] ?? '';
+    if (oldStr.trim() === '') continue;
+    if (/^(?:<{7}\s*SEARCH|={7}(?:\s|$)|>{7}\s*REPLACE)/m.test(`${oldStr}\n${newStr}`)) continue;
+    out.push({ oldStr, newStr });
   }
   return out;
 }
@@ -205,6 +239,38 @@ export function parseFileContent(answer: string): string | null {
   const raw = answer.trim();
   if (raw === '' || /^[А-Яа-яЁё]/u.test(raw) || !raw.includes('\n')) return null;
   return `${raw}\n`;
+}
+
+/**
+ * Recover a planned new function when a model returns its code block instead of
+ * SEARCH/REPLACE. This is intentionally limited to one new symbol named by the
+ * approved step; the resulting append still goes through the normal Edit gate.
+ */
+export function plannedFunctionAddition(
+  step: PlanStep,
+  current: string,
+  answer: string,
+): { oldStr: string; newStr: string } | null {
+  const symbol = step.symbol?.replace(/^новый\s*:\s*/iu, '').replace(/[`'"\s]/gu, '');
+  if (symbol === undefined || !/^[A-Za-z_$][\w$]*$/u.test(symbol)) return null;
+  const intentText = `${step.title}\n${step.action}`;
+  if (!new RegExp(`(?:добавить|создать|реализовать|implement|add|create)[^\\n]{0,100}\\b${symbol}\\b`, 'iu').test(intentText)) return null;
+  if (new RegExp(`\\bfunction\\s+${symbol}\\b|\\b(?:const|let|var)\\s+${symbol}\\b`, 'u').test(current)) return null;
+
+  const blocks = [...answer.matchAll(/```[^\r\n]*\r?\n([\s\S]*?)\r?\n```/gu)]
+    .map((match) => (match[1] ?? '').replace(/^\s*\/\/\s*[^\r\n]*\.(?:ts|tsx|js|jsx)\s*\r?\n/u, '').trim())
+    .filter((body) => new RegExp(`(?:export\\s+)?function\\s+${symbol}\\b`, 'u').test(body));
+  if (blocks.length !== 1) return null;
+  const addition = blocks[0]!;
+  if (/\b(?:describe|it|test)\s*\(/u.test(addition) || !addition.endsWith('}')) return null;
+
+  const lines = current.replace(/\r\n/gu, '\n').replace(/\s+$/u, '').split('\n');
+  for (let count = 1; count <= Math.min(lines.length, 12); count++) {
+    const oldStr = lines.slice(-count).join('\n');
+    if (oldStr.trim() === '' || current.replace(/\r\n/gu, '\n').indexOf(oldStr) !== current.replace(/\r\n/gu, '\n').lastIndexOf(oldStr)) continue;
+    return { oldStr, newStr: `${oldStr}\n\n${addition}` };
+  }
+  return null;
 }
 
 /**
@@ -279,18 +345,64 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * Упомянут ли файл шага в тексте ошибки гейта. Сначала — полный относительный путь (обеими
- * формами слэша). Если его нет — голый `basename`, НО с оговоркой: если перед найденным
- * `basename` в тексте стоит СВОЙ каталог (не пустой и не наш), это чужой файл с тем же
- * именем в другом месте (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба
- * `index.ts`), а не наш — раньше голое совпадение имени принимало такую ошибку за свою.
- * `basename` без всякого пути перед ним (многие гейты печатают ошибку без полного пути)
- * по-прежнему считается своим — второго кандидата с тем же именем в этом случае в тексте
- * просто нет, различать нечего.
+ * Явные МЕСТА ПАДЕНИЯ в тексте ошибки Node/`node --test` — не любое упоминание пути, а
+ * прямое «вот здесь»: `file:///…/<путь>:N` (сам Node, SyntaxError/uncaught на загрузке
+ * модуля), `✖ <путь> (Nms)` и `test at <путь>:N:M` (итог и повтор `node --test`).
+ *
+ * Тот же формат разбирает `verdict/retryBrief.ts::stripNodeTestBoilerplate` — с ДРУГОЙ
+ * задачей (обрезка визитки для брифа ретрая, не роутинг ремонта по файлу), поэтому это не
+ * один код, а два независимых набора регулярок на один формат вывода. Правишь формат
+ * распознавания здесь — проверь, не разошёлся ли он с тем файлом, и наоборот
+ * (code-review-all, 2026-09-26: тест-скрепа между ними пока не заведён).
  */
-function mentionsFile(problem: string, file: string): boolean {
+const FAILURE_LOCATION_RES = [
+  /file:\/\/\/(?:[A-Za-z]:)?([^\s:]+):\d+/g,
+  /✖\s+(\S+)\s+\(\d+(?:\.\d+)?ms\)/g,
+  /\btest at (\S+):\d+:\d+/g,
+];
+
+function failureLocations(problem: string): string[] {
+  const out: string[] = [];
+  for (const re of FAILURE_LOCATION_RES) {
+    for (const m of problem.matchAll(re)) {
+      if (m[1] !== undefined) out.push(m[1]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Упомянут ли файл шага в тексте ошибки гейта.
+ *
+ * Есть явные места падения (`failureLocations`) СВОЕГО файла — считаем упомянутым сразу:
+ * текст ошибки часто называет ещё и модуль, на который ссылается упавший импорт (`…
+ * '../src/lines.ts' does not provide an export named 'Line'`), и голое совпадение подстроки
+ * отправляло бы ремонт не в тот файл — падает `test/vat.test.ts:4`, а правку получал
+ * `src/lines.ts`, потому что его путь тоже есть в тексте (найдено 2026-09-25,
+ * `d2-devstral-vat-rounding`, попытка 3: модель три раунда крутила `interface`↔`type` в
+ * файле, где падать нечему) — вот для ЭТОГО случая места падения и приоритетны. Но если
+ * места падения нашлись и НИ ОДНО не про файл шага, это не приговор «чужая ошибка»: они
+ * могли быть про совсем другую часть текста (кадр стека зависимости, чужой рецепт), а
+ * простое упоминание своего пути в тексте — тоже сигнал, который раньше здесь ловился.
+ * Поэтому при отсутствии совпадения по местам падения проверка идёт дальше, как при их
+ * отсутствии: сначала полный относительный путь (обеими формами слэша), иначе голый
+ * `basename`, НО с оговоркой: если перед найденным `basename` в тексте стоит СВОЙ каталог
+ * (не пустой и не наш), это чужой файл с тем же именем в другом месте
+ * (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба `index.ts`), а не наш.
+ * `basename` без пути перед ним (многие гейты печатают ошибку без полного пути) по-прежнему
+ * считается своим — второго кандидата с тем же именем в этом случае в тексте просто нет,
+ * различать нечего.
+ */
+export function mentionsFile(problem: string, file: string): boolean {
   const posix = toPosix(file);
   const win = posix.replace(/\//g, '\\');
+  const isThisFile = (candidate: string): boolean => {
+    const c = toPosix(candidate);
+    return c === posix || c.endsWith(`/${posix}`);
+  };
+
+  if (failureLocations(problem).some(isThisFile)) return true;
+
   if (problem.includes(posix) || problem.includes(win)) return true;
 
   const base = basename(file);
@@ -299,6 +411,52 @@ function mentionsFile(problem: string, file: string): boolean {
   const matches = [...problem.matchAll(re)];
   if (matches.length === 0) return false;
   return matches.some((m) => m[1] === undefined || toPosix(m[1]) === ownDir);
+}
+
+/** Converts frequent compiler failures into a narrow instruction for the next repair round. */
+export function repairGuidance(problem: string, current: string | null): string[] {
+  const guidance: string[] = [];
+  const undefinedName = /(?:ReferenceError:\s*|Cannot find name\s+['"])([\p{L}_$][\p{L}\p{N}_$]*)(?:['"]|\s+is not defined)/u.exec(problem);
+  if (undefinedName) {
+    guidance.push(`Идентификатор \`${undefinedName[1]}\` используется без объявления. Исправь его источник в текущем файле: параметр функции, локальное объявление или импорт из реально экспортирующего модуля. Повтор той же строки вызова не устраняет ошибку.`);
+  }
+  const duplicate = /Identifier ['"]([^'"]+)['"] has already been declared/i.exec(problem);
+  if (duplicate !== null) {
+    const name = duplicate[1] ?? '';
+    const declaration = new RegExp(`\\b(?:const|let|var|function|class|interface|type)\\s+${escapeRegExp(name)}\\b`);
+    const locations = (current ?? '')
+      .split(/\r?\n/)
+      .map((line, index) => ({ line, n: index + 1 }))
+      .filter(({ line }) => declaration.test(line))
+      .map(({ line, n }) => `${n}: ${line.trim()}`);
+    guidance.push(
+      `Идентификатор \`${name}\` объявлен повторно. Удали или переиспользуй одно из существующих объявлений; не добавляй ещё одно.` +
+        (locations.length === 0 ? '' : `\nТекущие объявления:\n${locations.join('\n')}`),
+    );
+  }
+  if (/import declarations may only appear at top level|Unexpected token.*import|Cannot use import statement/i.test(problem)) {
+    guidance.push('Статический `import` разрешён только в начале модуля. Добавь его рядом с существующими импортами, не внутри функции.');
+  }
+  const missingExport = /does not provide an export named ['"]([^'"]+)['"]/i.exec(problem);
+  if (missingExport !== null) {
+    guidance.push(`Модуль не экспортирует \`${missingExport[1] ?? ''}\`. Используй только экспорты из контекста проекта или исправь имя импорта.`);
+  }
+  if (/require is not defined|Cannot find name ['"]require['"]/i.test(problem)) {
+    guidance.push('Проект использует ESM: замени `require(...)` статическим импортом в начале файла.');
+  }
+  const syntaxLine = /(?:file:\/\/\/[^\s:]+|(?:[A-Za-z]:)?[^\s:]+):(\d+)(?::\d+)?[\s\S]*?SyntaxError/i.exec(problem);
+  if (syntaxLine !== null && current !== null) {
+    const n = Number.parseInt(syntaxLine[1] ?? '', 10);
+    if (Number.isFinite(n) && n > 0) {
+      const lines = current.split(/\r?\n/);
+      const excerpt = lines
+        .slice(Math.max(0, n - 3), Math.min(lines.length, n + 2))
+        .map((line, index) => `${Math.max(0, n - 3) + index + 1}: ${line}`)
+        .join('\n');
+      guidance.push(`Синтаксическая ошибка указана около строки ${n}. Исправь структуру именно в этом месте:\n${excerpt}`);
+    }
+  }
+  return guidance;
 }
 
 /**
@@ -313,6 +471,48 @@ function matchEol(current: string, s: string): string {
   return s.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
 }
 
+/**
+ * Из блоков SEARCH/REPLACE одного ответа отбирает те, что применились бы ЧИСТО (ровно одно
+ * вхождение) в порядке блоков — симуляцией той части логики `Edit`
+ * (`exec/tools/index.ts::editTool`), что решает «однозначно или нет»: точный счёт
+ * вхождений, split/join, без «мягкого» совпадения по переносам строк (оно остаётся за
+ * настоящим `Edit` — блок, отсеянный здесь как «не найден», тот иногда всё же применит).
+ * Неоднозначный или не найденный блок пропускается КАК БУДТО его не было: следующие блоки
+ * проверяются против текста БЕЗ него, а не против исходного файла целиком — блоки часто
+ * независимы (несколько вхождений одного паттерна в разных местах файла), и один
+ * неоднозначный блок не должен топить остальные.
+ *
+ * Найдено 2026-09-25 (`d2-devstral-vat-rounding`, попытка 2, запрос `00021`): модель
+ * починила `SyntaxError` верно — убрала импорт типа и три аннотации блоками
+ * SEARCH/REPLACE, — но ОДИН из шести блоков совпадал в файле трижды. Прежде это отклоняло
+ * все шесть правок разом («Ни одна правка не применена»), а повторный запрос уже не нёс
+ * текста исходной ошибки (см. `steps.ts` — гейт «про этот файл») — модель отвечала
+ * пустыми правками.
+ */
+function selectApplicableEdits(
+  current: string,
+  edits: { oldStr: string; newStr: string }[],
+): { keep: { oldStr: string; newStr: string }[]; skipped: { index: number; reason: string }[] } {
+  const keep: { oldStr: string; newStr: string }[] = [];
+  const skipped: { index: number; reason: string }[] = [];
+  let simulated = current;
+  edits.forEach((e, i) => {
+    const oldStr = matchEol(simulated, e.oldStr);
+    const count = simulated.split(oldStr).length - 1;
+    if (count === 0) {
+      skipped.push({ index: i, reason: 'фрагмент не найден' });
+      return;
+    }
+    if (count > 1) {
+      skipped.push({ index: i, reason: `фрагмент встречается ${count} раз` });
+      return;
+    }
+    simulated = simulated.split(oldStr).join(matchEol(simulated, e.newStr));
+    keep.push(e);
+  });
+  return { keep, skipped };
+}
+
 const SYSTEM = [
   'Ты — исполнитель ОДНОГО шага одобренного плана в чужом проекте. Рантайм сам применяет',
   'твой ответ к файлу, сам прогоняет проверки, сам ведёт журнал и сам запускает тесты;',
@@ -324,6 +524,12 @@ const SYSTEM = [
   '- числа, пороги и формулировки из «фактов человека» и плана переноси ДОСЛОВНО;',
   '- не удаляй существующее поведение, если шаг этого не требует; не сокращай файл;',
   '- импортируй только то, что действительно экспортируется, с точностью до регистра;',
+  '- реализуй действие целиком: согласуй сигнатуры, типы, импорты и тело функции в названном файле;',
+  '- сверяй изменение с критериями приёмки и фактами человека: передавай входные данные по цепочке вызовов и сохрани каждое условие и граничный случай;',
+  '- если контракт текущего файла зависит от API файла будущего шага, используй только контракт, явно описанный в плане; правь только текущий файл и не отказывайся из-за того, что будущий файл ещё не изменён;',
+  '- при добавлении или передаче аргумента проверь объявление параметра у вызывающей функции;',
+  '- если контракт требует отсутствия опционального поля, не добавляй ключ со значением undefined;',
+  '- верни краткий завершённый рабочий код; комментарии объясняют только конкретные решения реализации;',
   '- если сделать шаг нельзя без решения человека — ответь ОДНОЙ строкой `БЕЗ ПРАВОК:',
   '  требует решения человека: <что именно>`, а не выдумывай значение;',
   '- никаких пояснений вне требуемого формата ответа.',
@@ -420,7 +626,7 @@ export class StepExecutor implements StageExecutor {
     let callsTotal = 0;
     const outcomes: StepOutcome[] = [];
     const total = this.o.steps.length;
-    const planBlock = cap(this.o.planText, this.o.maxResultBytes);
+    const planBlock = stepPlanContext(this.o.planText, this.o.maxResultBytes);
     const factsBlock = cap(this.o.humanFacts.trim(), this.o.maxResultBytes);
     const briefBlock = this.o.retryBrief === null ? '' : cap(this.o.retryBrief.trim(), this.o.maxResultBytes);
 
@@ -440,7 +646,9 @@ export class StepExecutor implements StageExecutor {
       return null;
     };
 
-    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
+    const chat = async (
+      messages: ChatMessage[],
+    ): Promise<{ text: string; finishReason: FinishReason; rawLogPath: string | null }> => {
       const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
@@ -457,7 +665,7 @@ export class StepExecutor implements StageExecutor {
       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
       hooks.onUsage(answer.usage, Date.now() - startedAt);
-      return { text: answer.text, finishReason: answer.finishReason };
+      return { text: answer.text, finishReason: answer.finishReason, rawLogPath: answer.rawLogPath ?? null };
     };
 
     // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
@@ -475,18 +683,29 @@ export class StepExecutor implements StageExecutor {
       current: string | null,
       answer: string,
       finishReason: FinishReason,
-    ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null }> => {
+    ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null; partialNote: string }> => {
       let toolName: 'Write' | 'Edit';
       let rawInput: Record<string, unknown>;
+      // Заполняется только в ветке Edit, когда часть блоков ответа применена, а часть
+      // отставлена на следующий раунд — см. `selectApplicableEdits`. Отдельное поле, а
+      // не приписка к `text`: три сайта, что строят `note` из `applied.text`, берут
+      // только первую строку (`.split('\n')[0]`) — приписка молча терялась (code-
+      // review-all, 2026-09-26). Вызывающая сторона решает сама, показывать ли её.
+      let partialNote = '';
       if (current !== null) {
         const edits = parseSearchReplace(answer);
         if (edits.length === 0) {
+          const addition = plannedFunctionAddition(step, current, answer);
+          if (addition !== null) edits.push(addition);
+        }
+        if (edits.length === 0) {
           const reason = noChangeReason(answer);
-          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason };
+          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason, partialNote: '' };
           return {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               answer.trim() === '' && finishReason === 'max_tokens'
                 ? truncatedNote
@@ -514,15 +733,26 @@ export class StepExecutor implements StageExecutor {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               'блок SEARCH покрывает файл целиком (или почти целиком) — так файл переписывается, ' +
               'а не правится. Возьми в SEARCH только тот фрагмент, который меняется.',
           };
         }
+        // Неоднозначный или не найденный блок больше не топит остальные: симуляция
+        // отбирает блоки, применимые чисто, в порядке ответа — см. `selectApplicableEdits`.
+        // Пусто применимого нет (или отобрать нечего отсеивать) — отдаём ВСЕ блоки как
+        // раньше: сообщение реального `Edit` (с мягким совпадением по переносам строк,
+        // чего симуляция не делает) точнее моей грубой прикидки.
+        const { keep, skipped } = selectApplicableEdits(current, edits);
+        const useEdits = keep.length === 0 ? edits : keep;
+        if (keep.length > 0 && skipped.length > 0) {
+          partialNote = `без изменений в этой правке: ${skipped.map((s) => `блок ${s.index + 1} — ${s.reason}`).join('; ')}`;
+        }
         toolName = 'Edit';
         rawInput = {
           file_path: step.file,
-          edits: edits.map((e) => ({
+          edits: useEdits.map((e) => ({
             old_string: matchEol(current, e.oldStr),
             new_string: matchEol(current, e.newStr),
           })),
@@ -531,11 +761,12 @@ export class StepExecutor implements StageExecutor {
         const content = parseFileContent(answer);
         if (content === null) {
           const reason = noChangeReason(answer);
-          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason };
+          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason, partialNote: '' };
           return {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               answer.trim() === '' && finishReason === 'max_tokens'
                 ? truncatedNote
@@ -555,9 +786,15 @@ export class StepExecutor implements StageExecutor {
         callerTools: req.allowedTools,
       });
       if (!decision.allowed) {
-        hooks.onFriction('denied');
+        // `hooks.onFriction('denied')` НЕ зовётся здесь: `apply()` не знает `rawLogPath`
+        // текущего раунда (он в области видимости внешнего цикла попыток, не этой функции),
+        // а метрика трения и метка корпуса обязаны идти ОДНИМ вызовом — тем же приёмом, что
+        // `LoopExecutor.friction()` (см. её докстринг). Вызывающий код (ветка
+        // `applied.denied` ниже) зовёт `hooks.onFriction('denied')` сам, рядом со своим
+        // `annotateExchange(...policy-denied...)` — два места, знающие об одном трении, не
+        // должны жить в разных функциях (code-review-all, 2026-09-27).
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
-        return { ok: false, denied: true, noChange: null, text: `запись отклонена: ${decision.reason}` };
+        return { ok: false, denied: true, noChange: null, partialNote: '', text: `запись отклонена: ${decision.reason}` };
       }
       const effective =
         decision.updatedInput === null
@@ -571,7 +808,7 @@ export class StepExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: Date.now() - started,
       });
-      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text };
+      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text, partialNote: outcome.ok ? partialNote : '' };
     };
 
     for (const step of this.o.steps) {
@@ -583,18 +820,28 @@ export class StepExecutor implements StageExecutor {
       }
 
       const before = readInsideRoot(req.cwd, step.file);
+      const stepContext = this.o.stepContext ? await buildStepContext(req.cwd, step, req.signal) : '';
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM },
         // Номер — `step.n` из плана, не позиция в отфильтрованном списке: сам план
         // (приложенный ниже целиком) ссылается на шаги под их настоящими номерами, и
         // расхождение двух нумераций в одном промпте путает модель.
-        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, before) },
+        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, stepContext, before) },
       ];
 
       let calls = 0;
       let status: StepStatus = '❌';
       let note = '';
-      let problem: string | null = null;
+      // Два раздельных источника «что не так» — не одна переменная: ошибка гейта
+      // («твой файл не проходит проверку») и ошибка применения («твой SEARCH не найден в
+      // файле») отвечают на разные вопросы, и раунд может застать оба сразу (гейт красный
+      // с попытки N, а на попытке N+1 сама правка не легла). Общая переменная затирала
+      // диагноз гейта диагнозом применения — 2026-09-25 (`d2-devstral-vat-rounding`,
+      // попытка 2): модель верно починила `SyntaxError` по его тексту, правка не легла
+      // из-за одного неоднозначного блока, и СЛЕДУЮЩИЙ ремонт уже не нёс текста
+      // `SyntaxError` — только «фрагмент встречается 3 раз», и починка съехала мимо.
+      let checkProblem: string | null = null;
+      let applyProblem: string | null = null;
       let lastAnswer: string | null = null;
       /** Раунд уже применил правку к диску — «не начат» после этого было бы неверно. */
       let stepApplied = false;
@@ -621,12 +868,16 @@ export class StepExecutor implements StageExecutor {
           messages.push({
             role: 'user',
             content: [
-              '## Проверка после применения не прошла',
-              '',
-              '```',
-              cap(problem ?? '', this.o.maxResultBytes),
-              '```',
-              '',
+              ...(checkProblem === null
+                ? []
+                : ['## Проверка после применения не прошла', '', '```', cap(checkProblem, this.o.maxResultBytes), '```', '']),
+              ...(applyProblem === null
+                ? []
+                : ['## Твоя правка не применилась', '', '```', cap(applyProblem, this.o.maxResultBytes), '```', '']),
+              ...repairGuidance(
+                [checkProblem, applyProblem].filter((value): value is string => value !== null).join('\n'),
+                current,
+              ).flatMap((hint) => ['## Точное ограничение ремонта', '', hint, '']),
               'Ошибки в ДРУГИХ файлах не чини — они закрываются другими шагами.',
               '',
               ...(current === null
@@ -657,10 +908,12 @@ export class StepExecutor implements StageExecutor {
 
         let answer: string;
         let finishReason: FinishReason;
+        let rawLogPath: string | null;
         try {
           const result = await chat(messages);
           answer = result.text;
           finishReason = result.finishReason;
+          rawLogPath = result.rawLogPath;
         } catch (e) {
           if (req.signal.aborted) return stop('этап отменён');
           throw e;
@@ -672,6 +925,12 @@ export class StepExecutor implements StageExecutor {
         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
         if (round > 0 && answer === lastAnswer) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'repeated-answer',
+          });
           hooks.onFriction('repeat');
           status = '❌';
           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
@@ -682,20 +941,44 @@ export class StepExecutor implements StageExecutor {
         const applied = await apply(step, current, answer, finishReason);
 
         if (applied.noChange !== null) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'no-change',
+          });
           status = '⏭';
           note = `без правок: ${applied.noChange}`;
           break;
         }
         if (applied.denied) {
+          // Метрика трения и метка корпуса — рядом, одним местом: см. комментарий у
+          // `hooks.onFriction('denied')`, которого больше НЕТ внутри `apply()`.
+          hooks.onFriction('denied');
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'policy-denied',
+          });
           status = '❌';
           note = applied.text;
           break;
         }
         if (!applied.ok) {
-          problem = applied.text;
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'patch-not-applied',
+          });
+          applyProblem = applied.text;
           note = applied.text.split('\n')[0] ?? applied.text;
           continue;
         }
+        // Применилось — прежняя ошибка применения больше не актуальна (диагноз гейта,
+        // если он был, остаётся: применённая правка ещё не проверена).
+        applyProblem = null;
         stepApplied = true;
 
         // Гейт исполняет ВСТРОЕННУЮ реализацию (`gates/run.ts: runOne`) без своего try/catch
@@ -704,7 +987,7 @@ export class StepExecutor implements StageExecutor {
         // продолжить, как поступает `LoopExecutor` с инструментом.
         let check: StepCheck;
         if (this.o.check === null) {
-          check = { status: 'ok' };
+          check = { status: 'skipped', note: 'в наборе нет включённого build/test-гейта для шага' };
         } else {
           try {
             check = await this.o.check.run(step);
@@ -712,29 +995,78 @@ export class StepExecutor implements StageExecutor {
             check = { status: 'failed', problem: `гейт «${checkName ?? ''}» упал с исключением: ${(e as Error).message}` };
           }
         }
+        if (
+          check.status === 'inapplicable' &&
+          (check.reason.trim() === '' || check.approvedBy.trim() === '' || !signedStepDate(check.approvedAt))
+        ) {
+          check = {
+            status: 'failed',
+            problem: 'неприменимость проверки требует причины, имени утвердившего и даты YYYY-MM-DD',
+            integrity: true,
+          };
+        }
+        // `.split('\n')[0]` режет `applied.text` до первой строки — `partialNote` (какие
+        // блоки правки не легли) сюда бы не попал молча (code-review-all, 2026-09-26).
+        // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
+        const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
         if (check.status === 'ok') {
+          annotateExchange(rawLogPath, {
+            accepted: this.o.check !== null,
+            oracle: this.o.check === null ? 'no-step-check' : `gate:${checkName ?? 'unnamed'}`,
+            target: 'plan-step',
+            reason: this.o.check === null ? 'no-mechanical-oracle' : 'check-passed',
+          });
           status = '✅';
-          note = applied.text.split('\n')[0] ?? 'применено';
+          note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
           break;
         }
         if (check.status === 'skipped') {
-          status = '✅';
-          note = `${applied.text.split('\n')[0] ?? 'применено'}; проверка после шага не состоялась: ${check.note}`;
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-skipped',
+          });
+          status = '⏭';
+          note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
+          break;
+        }
+        if (check.status === 'inapplicable') {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-inapplicable-signed',
+          });
+          status = '⏭';
+          note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка неприменима: ${check.reason} (подтвердил ${check.approvedBy}, ${check.approvedAt})`;
           break;
         }
         // Красная сборка, в которой файл шага не упомянут, — чужая: порядок fallback-шагов
         // не порядок зависимостей, и импорт из ещё не написанного файла краснеет законно.
         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
         // прогон тестов после этапа.
-        if (!mentionsFile(check.problem, step.file)) {
+        if (!check.integrity && !mentionsFile(check.problem, step.file)) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-not-attributable-to-step',
+          });
           status = '✅';
           note =
-            `${applied.text.split('\n')[0] ?? 'применено'}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
+            `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
             `${check.problem.split('\n')[0] ?? ''}`;
           hooks.onWarn(`шаг ${step.n}: ${note}`);
           break;
         }
-        problem = check.problem;
+        annotateExchange(rawLogPath, {
+          accepted: false,
+          oracle: `gate:${checkName ?? 'unnamed'}`,
+          target: 'plan-step',
+          reason: 'check-failed',
+        });
+        checkProblem = check.problem;
         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
       }
 
@@ -746,7 +1078,7 @@ export class StepExecutor implements StageExecutor {
     const bad = outcomes.filter((o) => o.status === '❌').length;
     const done = outcomes.filter((o) => o.status === '✅').length;
     const skipped = outcomes.filter((o) => o.status === '⏭').length;
-    const summary = `шагов ${outcomes.length}: применено ${done}, без правок ${skipped}, красных ${bad}`;
+    const summary = `шагов ${outcomes.length}: применено ${done}, без правок/пропусков ${skipped}, красных ${bad}`;
     // Этап закрыт, если хоть один шаг дал правку — красный шаг его не роняет. Красный шаг
     // (проверка после трёх ремонтов так и не позеленела) — это дерево с красным тестом, и
     // судить его — работа этапа 6: рецензент назовёт причину брифом на следующую попытку. В
@@ -770,6 +1102,7 @@ export class StepExecutor implements StageExecutor {
     planBlock: string,
     factsBlock: string,
     briefBlock: string,
+    stepContext: string,
     content: string | null,
   ): string {
     const card = [
@@ -780,11 +1113,18 @@ export class StepExecutor implements StageExecutor {
       `- действие: ${step.action}`,
       ...(step.claims.length === 0 ? [] : [`- закрывает пункты приёмки: ${step.claims.join(', ')}`]),
       // Команда проверки — справка о том, чем шаг ПОТОМ проверят, а не поручение её запустить.
-      ...(step.check === null ? [] : [`- чем проверяется после этапа: \`${step.check}\`${step.expect === null ? '' : ` · ожидаемо: ${step.expect}`}`]),
+      ...(step.check === null ? [] : [`- заявленная проверка: \`${step.check}\`${step.expect === null ? '' : ` · ожидаемо: ${step.expect}`} (полная попытка; не запускай эту команду сам)`]),
       ...(step.facts === null ? [] : [`- факты человека для этого шага: ${step.facts}`]),
     ];
+    const futureSteps = this.o.steps.filter((candidate) => candidate.n > n);
+    const futureFiles = [...new Set(futureSteps.map((candidate) => candidate.file))];
     const parts = [
       card.join('\n'),
+      ...(futureFiles.length === 0 ? [] : [
+        '',
+        '## Следующие шаги плана',
+        `После этого шага будут изменены: ${futureFiles.map((file) => `\`${file}\``).join(', ')}. Не редактируй их сейчас. Если текущая правка явно зависит от описанного в плане будущего контракта, реализуй свою часть и оставь итоговую проверку до завершения соответствующих шагов; не отказывайся из-за того, что будущий файл ещё не изменён.`,
+      ]),
       '',
       '## План витка (для ориентира — правишь только файл шага)',
       '',
@@ -794,6 +1134,7 @@ export class StepExecutor implements StageExecutor {
     ];
     if (factsBlock !== '') parts.push('', factsBlock);
     if (briefBlock !== '') parts.push('', briefBlock);
+    if (stepContext !== '') parts.push('', stepContext);
     if (content !== null) {
       const truncated = Buffer.byteLength(content, 'utf8') > this.o.maxResultBytes;
       parts.push('', `## Текущее содержимое \`${step.file}\``, '', '```', cap(content, this.o.maxResultBytes), '```');

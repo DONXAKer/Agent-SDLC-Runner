@@ -69,7 +69,9 @@ function sdlcMcpServer(
       // Второй заход сюда давал оператору ДВЕ карточки на один вопрос, и закрытие только
       // одной оставляло вторую висеть неотвеченной.
       const answers = await hooks.onAskHuman(call);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(answers, null, 2) }] };
+      const note = hooks.afterAskHuman?.(call, answers) ?? null;
+      const text = JSON.stringify(answers, null, 2) + (note === null ? '' : `\n\n${note}`);
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
 
@@ -247,6 +249,58 @@ export class SdkExecutor implements StageExecutor {
       ]),
     );
 
+    /**
+     * Решение гейта по вызову — одно на `canUseTool` и на `PreToolUse`. Чтения (`Read`/
+     * `Glob`/`Grep`) харнесс в режиме `default` разрешает сам, и `canUseTool` до них не
+     * доходит: закрытые на чтение отчёты прошлых попыток (`readDenied`, независимость
+     * ревью) и проверка побега через symlink во флоу `sdk` не действовали вовсе, а флоу
+     * `loop` проводит каждое чтение через политику (code-review-all 2026-09-23). Хук
+     * `PreToolUse` вызывается для любого вызова — через него чтения идут тем же гейтом;
+     * решение запоминается, чтобы `canUseTool`, если харнесс его всё же позовёт, не
+     * спросил второй раз.
+     */
+    const decided = new Map<string, { allow: true; updatedInput: Record<string, unknown> | null } | { allow: false; message: string }>();
+    /**
+     * Каталог текущей сессии — из `transcript_path` хука, а не вычислением по корню проекта:
+     * кодирование пути у Claude Code внутреннее (и усекает длинные пути), а открыть на
+     * чтение надо только СВОЮ сессию, не все сессии проекта (code-review-all 2026-09-23).
+     */
+    let sessionDir: string | null = null;
+    const decide = async (
+      toolName: string,
+      input: unknown,
+      toolUseID: string,
+    ): Promise<{ allow: true; updatedInput: Record<string, unknown> | null } | { allow: false; message: string }> => {
+      const known = decided.get(toolUseID);
+      if (known !== undefined) return known;
+      gated.add(toolUseID);
+      const call = normalize(toolName, input as Record<string, unknown>);
+      const started = Date.now();
+      const decision = await hooks.onToolRequest(call, {
+        requestId: toolUseID,
+        toolName,
+        rawInput: input as Record<string, unknown>,
+        // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
+        // вызова здесь нет — правами вызывающего остаются права этапа.
+        callerTools: req.allowedTools,
+        sdk: { sessionDir },
+      });
+      if (!decision.allowed) {
+        hooks.onToolResult({
+          requestId: toolUseID,
+          ok: false,
+          summary: decision.reason,
+          durationMs: Date.now() - started,
+        });
+        const out = { allow: false as const, message: decision.reason };
+        decided.set(toolUseID, out);
+        return out;
+      }
+      const out = { allow: true as const, updatedInput: decision.updatedInput as Record<string, unknown> | null };
+      decided.set(toolUseID, out);
+      return out;
+    };
+
     const response = query({
       prompt: req.prompt.user,
       options: {
@@ -297,34 +351,43 @@ export class SdkExecutor implements StageExecutor {
         ...(req.readOnlyDirs.length > 0 ? { additionalDirectories: [...req.readOnlyDirs] } : {}),
         ...(Object.keys(agents).length > 0 ? { agents } : {}),
         maxTurns: req.maxTurns,
-        ...(req.maxBudgetUsd === null ? {} : { maxBudgetUsd: req.maxBudgetUsd }),
+        // Потолок витка, а не этапа: вычитается уже потраченное (маршруты ансамбля и
+        // прямой прогон рецензента делят ОДИН бюджет) — так же, как считает `LoopExecutor`.
+        // Прежде каждый этап sdk получал весь бюджет заново (code-review-all 2026-09-23).
+        ...(req.maxBudgetUsd === null
+          ? {}
+          : { maxBudgetUsd: Math.max(0.01, req.maxBudgetUsd - (req.spentUsdBefore ?? 0)) }),
 
         canUseTool: async (toolName, input, opts) => {
-          gated.add(opts.toolUseID);
-          const call = normalize(toolName, input);
-          const started = Date.now();
-          const decision = await hooks.onToolRequest(call, {
-            requestId: opts.toolUseID,
-            toolName,
-            rawInput: input as Record<string, unknown>,
-            // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
-            // вызова здесь нет — правами вызывающего остаются права этапа.
-            callerTools: req.allowedTools,
-          });
-
-          if (!decision.allowed) {
-            hooks.onToolResult({
-              requestId: opts.toolUseID,
-              ok: false,
-              summary: decision.reason,
-              durationMs: Date.now() - started,
-            });
-            return { behavior: 'deny', message: decision.reason };
-          }
-
-          return decision.updatedInput === null
-            ? { behavior: 'allow' }
-            : { behavior: 'allow', updatedInput: decision.updatedInput as Record<string, unknown> };
+          const d = await decide(toolName, input, opts.toolUseID);
+          if (!d.allow) return { behavior: 'deny', message: d.message };
+          return d.updatedInput === null ? { behavior: 'allow' } : { behavior: 'allow', updatedInput: d.updatedInput };
+        },
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Read|Glob|Grep',
+              hooks: [
+                async (input, toolUseID) => {
+                  if (input.hook_event_name !== 'PreToolUse') return {};
+                  if (typeof input.transcript_path === 'string' && input.transcript_path !== '') {
+                    sessionDir = input.transcript_path.replace(/\.jsonl$/i, '');
+                  }
+                  const id = toolUseID ?? input.tool_use_id;
+                  const d = await decide(input.tool_name, input.tool_input, id);
+                  return d.allow
+                    ? {}
+                    : {
+                        hookSpecificOutput: {
+                          hookEventName: 'PreToolUse',
+                          permissionDecision: 'deny',
+                          permissionDecisionReason: d.message,
+                        },
+                      };
+                },
+              ],
+            },
+          ],
         },
       },
     });
@@ -393,14 +456,19 @@ export class SdkExecutor implements StageExecutor {
             if (typeof content === 'string') break;
             for (const block of content) {
               if (block.type !== 'tool_result') continue;
+              // Отказ политики уже отчитан в `decide()` — второй `onToolResult` по тому же
+              // вызову удваивал счётчик вызовов и событие в ленте (code-review-all 2026-09-23).
+              if (decided.get(block.tool_use_id)?.allow === false) continue;
               const started = startedAt.get(block.tool_use_id) ?? Date.now();
               const isError = block.is_error === true;
+              const text = toolResultErrorText(block.content);
               hooks.onToolResult({
                 requestId: block.tool_use_id,
                 ok: !isError,
                 summary: attempted.get(block.tool_use_id) ?? 'инструмент отработал',
                 durationMs: Date.now() - started,
-                ...(isError ? { detail: toolResultErrorText(block.content) } : {}),
+                ...(isError ? { detail: text } : {}),
+                resultText: text,
               });
             }
             break;
@@ -437,7 +505,13 @@ export class SdkExecutor implements StageExecutor {
       }
     }
 
-    hooks.onUsage(latestUsage);
+    // `duration_ms` уже приходит в самом результате SDK (`usageFromResult`) — второй
+    // аргумент даёт его `requestDurationsMs` (критерий 2 квалификации рецензента,
+    // `docs/proposals/reviewer-qualification.md`): без него флоу `sdk` (Claude Max —
+    // `claude-sdk:opus`/`sonnet`, обычный маршрут рецензента) не измерялся вовсе, найдено
+    // code-review-all в этой же сессии. `0` (поле не пришло) не передаём — иначе
+    // «мгновенный» фиктивный запрос портил бы p95.
+    hooks.onUsage(latestUsage, latestUsage.durationMs > 0 ? latestUsage.durationMs : undefined);
 
     // Вызовы, исполненные мимо гейта. Остановить их задним числом нельзя, но молчать
     // о них нельзя тем более: «прошло через одобрение» должно означать ровно это.

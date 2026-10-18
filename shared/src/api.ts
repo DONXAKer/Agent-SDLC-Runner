@@ -50,7 +50,16 @@ export interface StageInfo {
    * показывал обрыв заблокированным ровно в том случае, ради которого он и существует.
    */
   abortBlockers: string[] | null;
+  /**
+   * Последний известный провал пробы среды этапа (pre-flight песочницы verify) —
+   * ПРЕДУПРЕЖДЕНИЕ, а не блокер: при запуске проба повторяется. Пока он жил среди
+   * `blockers`, кнопка запуска оставалась выключенной и после починки среды — выйти из
+   * этого можно было только рестартом (code-review-all 2026-09-23). Нет у старых сборок.
+   */
+  envNotes?: string[];
   produces: string[];
+  outputContracts: { path: string; purpose: string; origin: StageId; required: boolean; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
+  runtimeFacts: { id: string; purpose: string; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
   /**
    * Все артефакты из `produces` существуют на диске И БЕЗ плейсхолдеров — факт, а не
    * вывод. Раньше клиент выводил «пройденность» эвристикой «самый дальний этап без
@@ -117,6 +126,8 @@ export interface RunSummary {
   waiting: number;
   /** Момент старта текущего этапа, epoch ms — для «выполняется X мин». `null` — этап не идёт. */
   stageStartedAt: number | null;
+  /** Начало текущего ожидания оператора, epoch ms; null — ожидания нет. */
+  awaitingSince?: number | null;
 }
 
 /**
@@ -220,10 +231,18 @@ export interface ChunkEvidenceMetric {
   /** Дерево изменилось за попытку — `false` означает «правки не было» (`TreeChange`). */
   treeChanged: boolean;
   /**
-   * Хотя бы один из двух Scope-гейтов («файлы вне плана», «пути плана без правок») уже
-   * красный на этом chunk'е — тем же детерминированным кодом, что и на этапе 6, без LLM.
+   * Гейт «Scope: файлы вне плана» уже красный на этом chunk'е — тем же
+   * детерминированным кодом, что и на этапе 6, без LLM. Именно нарушение области:
+   * красный «пути плана без правок» сюда НЕ входит (он краснеет и при нуле применённых
+   * правок — это не нарушение scope, см. `planPathsUntouched`).
    */
   scopeViolation: boolean;
+  /**
+   * Гейт «Scope: пути плана без правок» красный: планные пути не получили правок.
+   * Отдельный сигнал от `scopeViolation`, чтобы «нет правок» не шумело как нарушение
+   * области. Отсутствует в метриках, записанных до появления флага.
+   */
+  planPathsUntouched?: boolean;
 }
 
 /** Трение витка о человека по этапам: сколько раз этап ждал решения или ответа. */
@@ -257,6 +276,16 @@ export interface RunMetrics {
     usage: Usage;
     /** Суммарное время исполнения этапа, мс. */
     durationMs: number;
+    /**
+     * Длительность КАЖДОГО запроса к модели этого этапа, мс, по порядку — не сумма
+     * (`durationMs` уже сумма). Нужна отдельно: `Usage.durationMs` складывается через
+     * `addUsage` и не умеет отвечать на вопрос «а не завис ли ОДИН запрос», который
+     * решает судьбу рецензента иначе, чем сумма (`docs/proposals/reviewer-qualification.md`,
+     * критерий 2: один зависший запрос на 20 минут сжигает получасовой бюджет этапа, а
+     * средняя/суммарная длительность этого не покажет). Старый снапшот `metrics.json` этого
+     * поля не несёт — читается пустым массивом, как и остальные поля этой секции.
+     */
+    requestDurationsMs: number[];
   }[];
   /** Посчитанные вердикты: сколько всего и сколько из них красных. */
   verdicts: { total: number; red: number };
@@ -331,7 +360,36 @@ export interface IterationSummary {
   at: string;
 }
 
+export interface PreparationSummary {
+  version: 2 | 3;
+  canonical?: {
+    requirements?: {
+      documentHash: string;
+      acceptance: { id: string; behavior: string; procedure: string; expected: string }[];
+      basis: { id: string; basis: string; scenario: string; counterexample: string }[];
+      constraints: { inScope: string[]; outOfScope: string[]; invariants: string[]; assumptions: string[]; questions: string[] };
+    };
+    plan?: {
+      documentHash: string;
+      approach: string;
+      filesToTouch: string[];
+      fileRoles: { path: string; roles: ('source' | 'target' | 'forbidden' | 'new')[] }[];
+      steps: { n: number; title: string; file: string; filePaths: string[]; isNew: boolean; symbol: string | null; isNewSymbol: boolean; action: string; claims: string[]; check: string | null; expect: string | null; checkSpecified: boolean; contractChange: string | null; contractSpecified: boolean; dependsOn: number[]; dependenciesSpecified: boolean; facts: string | null; explicit: boolean }[];
+    };
+  };
+  fingerprint: string;
+  revision: number;
+  confirmed: boolean;
+  readyToApprove: boolean;
+  issues: string[];
+  requirements: string;
+  changes: { section: string; before: string; after: string }[];
+}
+
 export interface RunDetail extends RunSummary {
+  executionMode?: import('./guided.ts').ExecutionMode;
+  guided?: import('./guided.ts').GuidedSummary | null;
+  preparation?: PreparationSummary | null;
   projectRoot: string;
   /**
    * Часы сервера в момент ответа (epoch ms). Возраст ожидания решений считается от
@@ -441,4 +499,255 @@ export interface BrowseResult {
 export interface PromptResponse {
   prompt: PreparedPrompt;
   blockers: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: все запуски всех проектов плюс прогоны стенда
+// ---------------------------------------------------------------------------
+
+/**
+ * Откуда виток. `ui` — раннер (живой в памяти, либо на диске есть его лента/служебные
+ * файлы), `terminal` — только канонические артефакты скиллов `/sdlc-*`, `bench` — файл
+ * результата стенда. Признак косвенный: виток, начатый в терминале и продолженный здесь,
+ * честно становится `ui` — «смешанного» источника нет, формат артефактов общий.
+ */
+export const DASHBOARD_SOURCES = ['ui', 'terminal', 'bench'] as const;
+export type DashboardSource = (typeof DASHBOARD_SOURCES)[number];
+
+/** Адрес карточки — один тип на hash клиента и URL ручек. У bench `project` = `results`. */
+export interface DashboardCardRef {
+  source: DashboardSource;
+  project: string;
+  slug: string;
+}
+
+/** Проект-«каталог» стенда в адресе карточки bench. */
+export const DASHBOARD_BENCH_PROJECT = 'results';
+
+/**
+ * Проект архива стенда: `bench/archive/{results,traces}` той же раскладки — старые прогоны,
+ * вытесненные эталоном и новыми (`npm run bench:archive`). На доске скрыт, пока его не
+ * выбрали фильтром проекта: сотни старых карточек заслоняли текущую картину.
+ */
+export const DASHBOARD_BENCH_ARCHIVE = 'archive';
+
+/**
+ * Состояние этапа на карточке — факт с диска (ленты, стенда), а не вывод клиента.
+ * `blocked` — вход этапа не выполнен (есть блокеры), `notStarted` — ни следа этапа.
+ */
+export type DashboardStageState = 'done' | 'running' | 'skipped' | 'blocked' | 'notStarted' | 'failed';
+
+export type ArtifactPresence = 'missing' | 'placeholders' | 'filled';
+
+export interface DashboardArtifact {
+  /** Имя относительно `.sdlc/<slug>/` (`plan.md`, `.runner/iterations.md`) либо `gates.md`. Ключ `…/artifact?name=`. */
+  name: string;
+  presence: ArtifactPresence;
+  placeholders: number;
+  sizeBytes: number | null;
+  /** ISO-момент последней правки; `null` — файла нет. */
+  mtime: string | null;
+  /** Для входов — `StageInput.optional`; для выходов всегда `false`. */
+  optional: boolean;
+  /** Для входов — назначение артефакта в решениях этого этапа. */
+  purpose?: string;
+  /** Provenance for stage I/O contracts. */
+  origin?: StageId | 'operator' | 'project' | 'runtime';
+  freshness?: 'current-run' | 'approved' | 'attempt' | 'live';
+  /** Слот решения человека в этом артефакте (`StageDef.humanGate`); `null` — слота нет. */
+  decision: { label: string; state: 'granted' | 'declined' | 'pending' } | null;
+}
+
+export interface DashboardStage {
+  id: StageId;
+  title: string;
+  state: DashboardStageState;
+  /** Этап-виновник блокировки (`stageProducing` / `blamedStage` стенда). */
+  blamed: StageId | null;
+  /** Короткая причина: пропуск, первый блокер, итог последнего прогона. */
+  note: string | null;
+  /** Артефакты, которые этап производит (`produces`). */
+  outputs: DashboardArtifact[];
+  /** Runtime facts injected by the stage module, with purpose and freshness. */
+  runtimeFacts?: { id: string; purpose: string; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
+}
+
+/** Проект конфига. Несколько имён на один корень сводятся в один ref: витки на диске одни. */
+export interface DashboardProjectRef {
+  /** Первое имя конфига с этим корнем — сегмент адреса карточки. */
+  key: string;
+  /** Все имена конфига с этим корнем. */
+  aliases: string[];
+  projectRoot: string;
+}
+
+export interface DashboardBenchRef {
+  model: string;
+  task: string;
+  mode: { kind: 'all' } | { kind: 'stage'; stage: StageId };
+  /** Модель по этапам, как её записал стенд. */
+  routes: Partial<Record<StageId, string>>;
+  /** Причина остановки драйвера стенда — строкой: словарь стенда сервер не импортирует. */
+  stopped: string;
+  finalVerdict: Verdict | null;
+  startedAt: string;
+  finishedAt: string;
+  hasTrace: boolean;
+  hasReport: boolean;
+  /**
+   * Прогон идёт прямо сейчас: `result.json` стенд пишет только в конце, и идущий прогон
+   * виден лишь по `traces/<slug>/progress.log` и живой рабочей копии во временном каталоге.
+   */
+  inProgress: boolean;
+}
+
+export interface DashboardCard {
+  ref: DashboardCardRef;
+  /** Строка задачи из `intent.md` (витки) либо id задачи стенда. */
+  requirement?: string;
+  status: HistoryStatus;
+  /** ISO-момент последнего изменения. */
+  updatedAt: string;
+  chunk: number;
+  attempt: number;
+  /** Все семь этапов в `STAGE_ORDER`. */
+  stages: DashboardStage[];
+  /** Расход витка; `null` — чисел нет (терминальный виток). */
+  usage: Usage | null;
+  currency?: string;
+  /** Живой прогон в памяти сервера — открывается в `#/run/<runId>`. Только у `ui`. */
+  live: RunSummary | null;
+  bench: DashboardBenchRef | null;
+  /** Сколько раз виток запускался раннером (`run_started` в ленте). 0 — ленты нет. */
+  runCount: number;
+}
+
+export interface DashboardResponse {
+  serverNow: number;
+  cards: DashboardCard[];
+  /** `available: false` — каталога стенда на этой машине нет; `skipped` — неразобранные файлы. */
+  bench: { available: boolean; skipped: number };
+}
+
+export interface DashboardStageRun {
+  runId: string;
+  flow: FlowId | null;
+  provider: string | null;
+  model: string | null;
+  /** Промпт этапа как ушёл в модель; схемы инструментов не отдаются — только имена. */
+  prompt: { system: string; user: string; toolNames: string[]; editedByOperator: boolean } | null;
+  /** Склейка текстов ответа модели за прогон. */
+  assistantText: string;
+  gates: GateRunResult[];
+  verdict: Verdict | null;
+  outcome: { ok: boolean; note: string } | null;
+  warnings: string[];
+  errors: string[];
+  toolCalls: number;
+}
+
+export interface DashboardStageDetail extends DashboardStage {
+  /** Что этап читает на входе (`stageInputs`). */
+  inputs: DashboardArtifact[];
+  blockers: { text: string; blamed: StageId | null }[];
+  /** Блокеры объявленного обрыва — только у handoff. */
+  abortBlockers: { text: string; blamed: StageId | null }[] | null;
+  /** Последний прогон этапа по ленте; `null` — в ленте этапа нет (терминал, стенд без трассы). */
+  lastRun: DashboardStageRun | null;
+  /** Расход этапа из числа витка. */
+  metrics: { runs: number; usage: Usage; durationMs: number } | null;
+  /**
+   * Вердикт рантайма текущей попытки (verify/handoff). `null` — на ЭТОЙ машине вердикта нет:
+   * терминальный виток или состояние рантайма другой машины. Строка `passed:` отчёта не
+   * читается — это копия для человека, её пишет и модель.
+   */
+  storedVerdict: { passed: boolean; action: VerdictAction; reasons: string[]; committedSha: string | null } | null;
+  /** Запись драйвера стенда по этапу (последняя). */
+  benchRecord: {
+    ok: boolean;
+    note: string;
+    timedOut: boolean;
+    skipped: boolean;
+    envFailure: string | null;
+    turns: number | null;
+    modelRequests: number | null;
+    closedBy: 'runtime' | null;
+  } | null;
+}
+
+export interface DashboardDetail {
+  card: DashboardCard;
+  serverNow: number;
+  stages: DashboardStageDetail[];
+  iterations: IterationSummary[];
+  metrics: RunMetrics | null;
+  runIds: string[];
+  /** Всё, что отдаёт `…/artifact?name=`: артефакты витка, служебные отчёты, файлы стенда. */
+  artifacts: DashboardArtifact[];
+}
+
+export interface DashboardArtifactResponse {
+  name: string;
+  text: string;
+  placeholders: number;
+  sizeBytes: number;
+  /** Файл больше потолка чтения — отдан кусок. */
+  truncated: boolean;
+  /** Отдан конец файла, а не начало: у растущих логов важен хвост. */
+  tail: boolean;
+}
+
+/**
+ * Машинное состояние прогона стенда — `bench/traces/<slug>/run-state.json`.
+ *
+ * Пишет стенд (`bench/src/runState.ts`), читает дашборд. Контракт вместо разбора
+ * `progress.log`: тот лог — для человека, его формат меняется без оглядки, путь рабочей
+ * копии в нём виден только в тексте сообщений рантайма, а «процесс жив» по нему выводился
+ * лишь из давности правки. Здесь — pid процесса, путь рабочей копии, отметки этапов и
+ * момент, когда результат уже записан.
+ */
+export const BENCH_RUN_STATE_FILE = 'run-state.json';
+
+/** Период пульса прогона стенда; пульс старше трёх периодов — процесса нет. */
+export const BENCH_HEARTBEAT_MS = 30_000;
+
+export interface BenchRunState {
+  version: 1;
+  slug: string;
+  model: string;
+  task: string;
+  /** Процесс стенда — по нему дашборд отличает идущий прогон от убитого. */
+  pid: number;
+  /**
+   * Машина стенда: pid осмыслен только на ней. Сервер на другой машине или в контейнере
+   * (чужое пространство pid) судит о жизни прогона по `heartbeatAt`.
+   */
+  host: string;
+  /**
+   * Последний «пульс» процесса (раз в `BENCH_HEARTBEAT_MS`). pid на Windows быстро
+   * переиспользуется: убитый прогон, чей pid занял чужой процесс, без пульса выглядел бы
+   * живым вечно. Жив — это pid жив И пульс свежий.
+   */
+  heartbeatAt: string;
+  /** Этап, с которого начал драйвер: после точки снимка либо intent. Этапы раньше — «из снимка». */
+  startStage: StageId;
+  /** Валюта маршрута каждого этапа — стоимость не складывается из рублей и долларов. */
+  currencies: Partial<Record<StageId, string>>;
+  /** Корень рабочей копии (`%TEMP%/sdlc-bench-*`), где живёт `.sdlc/<slug>/`. */
+  workspace: string;
+  startedAt: string;
+  mode: { kind: 'all' } | { kind: 'stage'; stage: StageId };
+  routes: Partial<Record<StageId, string>>;
+  measured: StageId[];
+  /** Отметки этапов по порядку: начат / закрыт успешно / закрыт неуспешно. */
+  stages: { stage: StageId; kind: 'start' | 'ok' | 'fail'; at: string; chunk: number; attempt: number; note?: string }[];
+  /**
+   * Конец прогона. `stopped` — причина остановки драйвера (`handoff`, `blocked`, …) либо
+   * `exception`; `verdict` — действие финального вердикта. `null` — прогон не закончен.
+   */
+  end: { at: string; stopped: string; verdict: string | null; message?: string } | null;
+  /** `result.json` уже на диске: до этого законченный прогон ещё дописывает итоги. */
+  resultWritten: boolean;
+  /** Снимок сохранён (`--make-snapshot`): результата у такого прогона не бывает. */
+  snapshot: string | null;
 }

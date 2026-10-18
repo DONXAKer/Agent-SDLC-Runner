@@ -57,6 +57,7 @@ RUN npm ci --omit=dev --workspace server --workspace shared --include-workspace-
 
 COPY shared/ shared/
 COPY server/src/ server/src/
+COPY server/methodology/ server/methodology/
 COPY --from=web-build /app/web/dist/ web/dist/
 
 # Внутри контейнера петля видна только изнутри — слушаем все интерфейсы. Границей служит

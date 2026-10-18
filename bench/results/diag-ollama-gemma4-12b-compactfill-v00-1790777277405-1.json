@@ -1,0 +1,425 @@
+{
+  "run": {
+    "slug": "diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-30T14:07:58.778Z",
+    "finishedAt": "2026-09-30T14:10:39.212Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается его записями, добором по пунктам приёмки и дозаполнением по полям, без второго свободного прохода по тому же diff'у — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 21, осталось на диске 0 полей модели; ответ на поле гейты ранних этапов отклонён: поле «гейты ранних этапов»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 22
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 2 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 453609,
+          "outputTokens": 1505,
+          "cacheReadTokens": 371280,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 263222
+        },
+        "durationMs": 159482,
+        "requestDurationsMs": [
+          3544,
+          6365,
+          10456,
+          3672,
+          23202,
+          26942,
+          12144,
+          20032,
+          21755,
+          23340,
+          1969,
+          3826,
+          10201,
+          2205,
+          3382,
+          5223,
+          6607,
+          8599,
+          10558,
+          1676,
+          2706,
+          4249,
+          1510,
+          3263,
+          6483,
+          11085,
+          14750,
+          4598,
+          8897
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 161
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 330
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 585
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 435
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 291
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 151
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 69
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 70
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 17
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 3
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 2 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-kt8IgI\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:ffc09412-e4b4-4b3b-ac57-79ed81ee0422",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:1f8113ec-067a-411e-bbdd-bf962d8e1562",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-gemma4-12b-compactfill-v00-1790777277405-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11936,
+        "userChars": 37248,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "none",
+    "klass": "без посева — проверка ложных срабатываний",
+    "expected": null,
+    "caught": true,
+    "where": [
+      "report"
+    ],
+    "note": "найдены возможные проблемы, нужна ручная сверка с исходной задачей и снимком: подтверждённых расхождений из ревью: 2 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+    "measured": true,
+    "reviewRequired": true
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "4561f2984870066ef7c8ae31ccc9d62c3a55ac4362557d8779b9bb4efd3a74a3",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+      "snapshotName": "oversize-axes3-diagnostic-v4",
+      "snapshotAuthor": "claude-sdk:sonnet",
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 480000
+    },
+    "workspaceHash": "82c7ff8258aa44d923fb11267bda326a5600371cfa13c2cf2d938ee6230239fe",
+    "state": "finished",
+    "capturedAt": "2026-09-30T14:10:39.246Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "verify",
+      "at": "2026-09-30T14:10:39.209Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "8975a2ffe2dea8f533c382105e4f8051bc8770f81538c4530798bc20e00e6484",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "b4b4287cafe81f04b8cd99d523e16e4e437916ab3d7709cb2d43569bdeae3068",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "774a7fb94461411260bc75b9ae31c846c9052aa926bb64b53630c0c05e7b4bb2",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c4ac8161a302b8095fbee180f657c45184b6a638ed9994f60a65e6741b12c1bc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "42addf5ddd88ac5252935e0bb1ecf605abbea007f01b497165aba73be8fa0274",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "6ba36be0e1e0e3af2987bb1260708943ab57efb90022cf7ab70430881bbe2ffb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "fbdd1855e8205d399e0c0224b0217936bb9010592d7446f45cae001867fb2528",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "self-review-1-attempt-1.md",
+        "sha256": "b7d5b0adc9602d58a5f70169db4408cd92a76a40d2dcf45a4bfba07e7fe5a483",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "4ead99906395667120bb2974edf67589b5434561cda5e3dabf31c85cfb0997a3",
+        "placeholders": 3,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

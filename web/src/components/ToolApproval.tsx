@@ -33,6 +33,7 @@ function title(call: NormalizedCall): string {
 
 const POLICY_LABEL: Record<string, string> = {
   pathScope: 'за пределами проекта',
+  readScope: 'закрыто на чтение по устройству этапа',
   denyList: 'запрещённая категория',
   planScope: 'вне files_to_touch плана',
   stageTools: 'инструмент не разрешён на этапе',
@@ -120,6 +121,14 @@ export function ToolApproval({
       {pending.repaired !== undefined ? (
         <div className="mb-3 rounded border border-sky-700 bg-sky-950/40 p-2 text-xs text-sky-200">
           {pending.repaired}
+        </div>
+      ) : null}
+
+      {/* Перенаправленный адрес — та же природа: дифф показывает канонический файл, а модель
+          называла другой; без пометки оператор решал бы по пути, которого модель не писала. */}
+      {pending.readdressed !== undefined ? (
+        <div className="mb-3 rounded border border-sky-700 bg-sky-950/40 p-2 text-xs text-sky-200">
+          {pending.readdressed}
         </div>
       ) : null}
 

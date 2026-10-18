@@ -1,0 +1,241 @@
+{
+  "run": {
+    "slug": "granite-verify-vat-c01-v1",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill-selfreview",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "verify": "ollama:granite4.2-8b-ctx32k-compactfill-selfreview",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-10-03T05:44:29.832Z",
+    "finishedAt": "2026-10-03T05:52:30.478Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 22577,
+          "outputTokens": 10260,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 383190
+        },
+        "durationMs": 479853,
+        "requestDurationsMs": [
+          383190
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11820,
+        "userChars": 37470,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "none",
+    "klass": "без посева — проверка ложных срабатываний",
+    "expected": null,
+    "caught": true,
+    "where": [
+      "gate"
+    ],
+    "note": "измерение не состоялось; ложные срабатывания не оценены",
+    "measured": false,
+    "reviewRequired": false
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "706b7806a2bc67c1042331905afd204046a58ac66a753e5b3f86624523b24293",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "a351d968528a9eff893581dce8d0da9900847a1eee40ba4b2c87f1b11452e187",
+      "snapshotName": "diag-ollama-granite4-2-8b-ctx32k-compactfill-c01-1790774240207-1-after-chunk-c1-a1",
+      "snapshotAuthor": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1200000
+    },
+    "workspaceHash": "2c6b17c80a3ef7e9b24ed81a6aa4e8099d749b814e6aeab399bb92425b9a1974",
+    "state": "finished",
+    "capturedAt": "2026-10-03T05:52:30.503Z",
+    "lastEvent": {
+      "type": "error",
+      "stage": "verify",
+      "at": "2026-10-03T05:52:30.474Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "de1c27d9ffd6fc0237e4c044b368281c9cfc8f3385488a0236c46ba125c1e43e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "52325bf4023933010222aa7c021fbe3b2874f3892c8e8a5a439912f24198f87b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "181f1d0e8e4a38990b7af6a1941e868d05b16085fa46778bf8a5921f8aa98a0f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "230b5aca4252a0c33231679b93caac009cce3227230cf32d0e3c975fbc1cc30e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "457877f0b810c59bd2971cd9c28262001a0c13a3f4942c2e89603ca5375f1256",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "97a0e3e95e200de3327939c7bb3c8da68af2d5338f9d263bf38d92535e2ef9d1",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "142ab3ad6d26cdad7b0f7dddb038d06ae6105dd84223ac1691427ab691ef911b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "c16c1b5062b56e0e7667db62cc8b4ea9b5b1dfc82699a14fdde6427012b82265",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "e69eb919f5e763c2e3a2c79cef89f5688b0e255d4457118ab4c7940d6baaa577",
+        "placeholders": 27,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

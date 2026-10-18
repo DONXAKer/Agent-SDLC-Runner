@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import type { NormalizedCall, PolicyContext, ToolName } from '@sdlc-runner/shared';
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
+import { checkBash } from '../src/policy/denyList.ts';
 import { evaluate } from '../src/policy/index.ts';
 import { normalizePlanPath, resolveUserPath } from '../src/policy/paths.ts';
 import { expandedRedirectTargets, redirectTargets } from '../src/policy/shellRedirects.ts';
@@ -321,6 +322,13 @@ describe('PlanScope', () => {
       const root = 'D:/Проекты/App';
       strictEqual(resolveUserPath(root, 'Проекты/App/src/x.ts'), 'D:/Проекты/App/src/x.ts');
     });
+
+    // Модели часто дают `/src/foo.ts` как «от корня проекта»; на Windows это уходило за pathScope.
+    it('сводит ложный абсолютный /src/… к пути внутри проекта', () => {
+      const root = 'D:/Проекты/App';
+      strictEqual(resolveUserPath(root, '/src/validate.ts'), 'D:/Проекты/App/src/validate.ts');
+      ok(evaluate({ kind: 'read', path: '/src/validate.ts', range: null }, ctx(null, { projectRoot: root })).ok);
+    });
   });
 });
 
@@ -392,6 +400,40 @@ describe('права на шаг', () => {
     ok(v.reason.includes('не объявлен'), v.reason);
   });
 
+  /**
+   * gpt-oss-20b (bench, vat-rounding, 2026-09-24) звала `patch` в стиле `apply_patch`:
+   * получала «инструмент не объявлен», тратила ход и лишь ПОСЛЕ него делала ту же правку
+   * через `Edit`. Отказ обязан сразу называть инструмент, которым правка здесь делается.
+   */
+  it('patch/apply_patch: отказ называет Edit, а не только отсутствие инструмента', () => {
+    for (const name of ['patch', 'apply_patch', 'Apply-Patch']) {
+      const v = evaluate({ kind: 'unknown', toolName: name, raw: { patch: '*** Begin Patch' } }, ctx(null));
+      ok(!v.ok);
+      ok(v.reason.includes('не объявлен'), v.reason);
+      ok(v.reason.includes('`Edit`') && v.reason.includes('old_string'), v.reason);
+    }
+    // Контроль: прочим незнакомым инструментам подсказка про Edit не приписывается.
+    const other = evaluate({ kind: 'unknown', toolName: 'NotebookEdit', raw: {} }, ctx(null));
+    ok(!other.ok);
+    ok(!other.reason.includes('формата patch'), other.reason);
+  });
+
+  it('ремонт с дельтой: отказ называет ключи, которые модель реально прислала', () => {
+    const v = evaluate({ kind: 'unknown', toolName: 'Task', raw: { task: 'сходи разведай', extra: 1 } }, ctx(null));
+    ok(!v.ok);
+    ok(v.reason.includes('Ты прислал поля'), v.reason);
+    ok(v.reason.includes('`task`') && v.reason.includes('`extra`'), v.reason);
+  });
+
+  it('ремонт с дельтой: пустые/не-объектные аргументы называются явно, не молчат', () => {
+    const empty = evaluate({ kind: 'unknown', toolName: 'Task', raw: {} }, ctx(null));
+    ok(!empty.ok);
+    ok(empty.reason.includes('пусты'), empty.reason);
+    const notObject = evaluate({ kind: 'unknown', toolName: 'Task', raw: 'сходи разведай' }, ctx(null));
+    ok(!notObject.ok);
+    ok(notObject.reason.includes('не объект'), notObject.reason);
+  });
+
   it('субагент разрешён там, где этап его объявил', () => {
     const call: NormalizedCall = { kind: 'subagent', agent: 'sdlc-locator', prompt: 'смотри план' };
     ok(evaluate(call, ctx(null)).ok);
@@ -443,5 +485,88 @@ describe('files_to_touch', () => {
       ['src/a.ts'],
     );
     deepStrictEqual(extractFilesToTouch('## files_to_touch\n\nсписок совпал с разведкой\n'), []);
+  });
+});
+
+describe('волна 2 code-review-all 2026-09-23: интерпретаторы Windows и поиск по отчётам прошлых попыток', () => {
+  it('cmd /c, PowerShell и рекурсивное удаление Windows — отказ пола', () => {
+    for (const c of ['cmd /c "echo x > src\\a.ts"', 'CMD.EXE /C dir', 'powershell -c "Set-Content .env x"', 'pwsh -Command ls', 'rd /s /q src', 'rmdir /q /s build', 'del /f /s /q *', 'rd build /s', 'echo ok && powershell -c ls', 'sh -c "pwsh -c ls"', 'C:/Windows/System32/cmd.exe /c dir']) {
+      const v = evaluate(bash(c), ctx(['src/a.ts']));
+      strictEqual(v.ok, false, c);
+    }
+    strictEqual(evaluate(bash('npm test'), ctx(['src/a.ts'])).ok, true);
+  });
+
+  it('обёртки, перевод строки и ввод в cmd не обходят запрет; пол один для модели и гейтов', () => {
+    for (const c of [
+      'echo src | xargs pwsh -c "Remove-Item -Recurse src"',
+      'env powershell -c ls',
+      'nohup pwsh -c ls',
+      'ls\npowershell -c x',
+      'if true; then powershell -c x; fi',
+      'find . -exec cmd /c del {} ;',
+      'cmd //c "del /f /q *.*"',
+      'cmd /q /c del x',
+      'echo del /f /q *.* | cmd',
+      '"cmd" /c del /q *',
+      "'cmd.exe' /c dir",
+      'C:/Windows/System32/cmd.exe /c dir',
+      'C:\\Windows\\System32\\cmd.exe /c dir',
+      'cmd < a.bat',
+      '"powershell" -c x',
+    ]) {
+      strictEqual(checkBash(c).ok, false, c);
+    }
+  });
+
+  it('имя cmd/pwsh как путь или часть имени — не вызов', () => {
+    for (const c of [
+      'go test ./cmd',
+      'ls cmd',
+      'mvn -pl cmd',
+      'npm run build:cmd',
+      'npm run test:pwsh',
+      'cat docs/pwsh.md',
+      'git add -- "docs/powershell.md" && git commit -m x',
+      'grep -rn Remove-Item scripts/',
+      'grep -rn command src',
+      'git commit -m "fix cmd parser"',
+      'cmd | tee src/Foo.java',
+    ]) {
+      strictEqual(checkBash(c).ok, true, c);
+    }
+  });
+
+  it('команды гейтов пишутся под платформу оператора: запрет на cmd/PowerShell — только модели', () => {
+    strictEqual(checkBash('powershell -File test.ps1', 'gate').ok, true);
+    strictEqual(checkBash('powershell -File test.ps1').ok, false);
+    // Рекурсивное удаление не снимается и для гейта.
+    strictEqual(checkBash('rd /s /q build', 'gate').ok, false);
+  });
+
+  const withDenied = ctx(null, { stage: 'verify', readDenied: ['.sdlc/demo/verification-report-1-attempt-1.md'] });
+
+  it('Grep/Glob по каталогу с закрытыми отчётами — отказ; поиск по коду — нет', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim', path: '.sdlc/demo' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim', path: '.sdlc' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'glob', pattern: '*.md', path: '.sdlc/demo' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'glob', pattern: '**/verification-report-*', path: null }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: 'src' }, withDenied).ok, true);
+  });
+
+  it('Grep от корня задевает закрытый отчёт без фильтра имён; с фильтром по коду — нет', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-', path: null }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-', path: null, glob: '*.md' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null, glob: '*.ts' }, withDenied).ok, true);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null, glob: 'src/**/*.ts' }, withDenied).ok, true);
+    // Артефакт задачи по самому файлу читается, закрытый отчёт — нет.
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-3', path: '.sdlc/demo/intent.md' }, withDenied).ok, true);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'x', path: '.sdlc/demo/verification-report-1-attempt-1.md' }, withDenied).ok, false);
+    // Glob отсчитывается от каталога поиска: `*.md` в корне отчёт не находит.
+    strictEqual(evaluate({ kind: 'glob', pattern: '*.md', path: null }, withDenied).ok, true);
+  });
+
+  it('без закрытых отчётов поиск по .sdlc не ограничивается', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'x', path: '.sdlc/demo' }, ctx(null)).ok, true);
   });
 });

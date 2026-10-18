@@ -1,0 +1,584 @@
+{
+  "run": {
+    "slug": "six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "migration-compat",
+    "fixtureDir": "fixtures/catalog",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T22:19:39.269Z",
+    "finishedAt": "2026-10-02T22:28:45.697Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 16
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "files_to_touch разошёлся с «Что придётся тронуть» разведки без объяснения — в files_to_touch есть, а в «Что придётся тронуть» и в «Добавлено сверх разведки» — нет: test/serialize.test.ts.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 59
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 23802,
+          "outputTokens": 2678,
+          "cacheReadTokens": 18698,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 169549
+        },
+        "durationMs": 102022,
+        "requestDurationsMs": [
+          2458,
+          3068,
+          3944,
+          13214,
+          19363,
+          24277,
+          11103,
+          18700,
+          38001,
+          14517,
+          17916,
+          3001
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 99644,
+          "outputTokens": 4501,
+          "cacheReadTokens": 81101,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 218505
+        },
+        "durationMs": 185164,
+        "requestDurationsMs": [
+          41752,
+          13653,
+          588,
+          13716,
+          1484,
+          7467,
+          3982,
+          4175,
+          28244,
+          504,
+          5984,
+          7104,
+          36735,
+          3141,
+          11507,
+          17233,
+          21251
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 434465,
+          "outputTokens": 6014,
+          "cacheReadTokens": 415743,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 521095
+        },
+        "durationMs": 258495,
+        "requestDurationsMs": [
+          8869,
+          17052,
+          17942,
+          804,
+          15061,
+          16368,
+          3051,
+          8788,
+          9869,
+          3896,
+          5012,
+          5978,
+          3146,
+          9722,
+          12571,
+          1055,
+          1997,
+          8120,
+          1510,
+          4519,
+          9749,
+          7982,
+          8962,
+          9958,
+          833,
+          12560,
+          13786,
+          15618,
+          9804,
+          1237,
+          26370,
+          27662,
+          40591,
+          49531,
+          51157,
+          1017,
+          1982,
+          16161,
+          1949,
+          5210,
+          10993,
+          1509,
+          3039,
+          5893,
+          765,
+          2739,
+          4618,
+          777,
+          1484,
+          2263,
+          964,
+          2873,
+          3644,
+          941,
+          1908,
+          2687,
+          1172,
+          2212,
+          3211
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 19
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:f51cad30-2f27-47b0-87ab-528b95b2319a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:514b7411-044c-496b-aef4-3f7424623dd5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:618ee407-b725-4465-ab7e-f81b9b2841f6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:be4a541b-40fd-45b9-8fad-21c89923a09a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:5fe3489c-98b9-44a4-b915-bb96b9c14ff6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:7e8f127b-f050-4364-b043-5f4910c5662e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:dbb0fb16-4a5b-4c03-9d64-697672f91873",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-011558-ollama-ministral3-14b-instruct-ctx32k-compactfill-migration-compat\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Каким должно быть значение ставки НДС по умолчанию, если оно не указано явно?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Как совместить условие сохранения существующих тестов без их правки с добавлением нового поля в запись о товаре (если формат выходных строк и чтение старых записей не меняются)?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat-default"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11536,
+        "userChars": 4267,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9757,
+        "userChars": 15623,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 19253,
+        "userChars": 19839,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-8970006e-baa9-4919-8a8b-803aa8cda9d5-1",
+        "questionId": "intent-open-0",
+        "text": "Каким должно быть значение ставки НДС по умолчанию, если оно не указано явно?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-8970006e-baa9-4919-8a8b-803aa8cda9d5-1",
+        "questionId": "intent-open-1",
+        "text": "Как совместить условие сохранения существующих тестов без их правки с добавлением нового поля в запись о товаре (если формат выходных строк и чтение старых записей не меняются)?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e9f3bb01ef3223ae728b7d4a7b9d5da7e0b3cf7f99807b180ec9021afe4eda3d",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "6e6974ef27c4b1770302e6b113305ddf9505e9c4b36e9d86852e31e83a096163",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "0148ffe6e98b997d352bd304cfb395bc76f0197eec61e7c0d02158382bcceada",
+    "state": "finished",
+    "capturedAt": "2026-10-02T22:28:45.723Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-02T22:28:45.695Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "6b351801e0940e903cd363a4aa0b76769829d8ce6778616ab6c3fdc2f894b8f5",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "60188eab527bacb6ea2e0f2d497fc83c94700c6242473f519061ae5024fb9c32",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "1df733adcd6a064614e22bd6f712c9fcd9b9263b0e8d637c9242a65e99020d99",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "964a9c3e14cda06129c5e0775fd252989b626e56cab4b88567f40200c5839975",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "e2403c44340dd95b581ef5e50e384c2cb2bb1d1866b7120822ac7be82d2ed322",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "cc8c9a340c0e508756b5cfb7e8b5eae8734456951d04c8590a673e1d4a68711d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

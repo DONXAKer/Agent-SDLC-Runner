@@ -1,0 +1,79 @@
+export const protocolVersion = 1;
+
+export const mergeRanges = (ranges) => {
+  if (!Array.isArray(ranges)) {
+    throw new TypeError("Input must be an array");
+  }
+
+  if (ranges.length === 0) {
+    return [];
+  }
+
+  /* Validate ranges */
+  for (const range of ranges) {
+    if (!Array.isArray(range) || range.length !== 2) {
+      throw new TypeError('Each range must be an array of two finite numbers');
+    }
+    const [start, end] = range;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      throw new TypeError('Range must have finite numbers with start <= end');
+    }
+  }
+
+  /* Sort by start value */
+  const sortedRanges = [...ranges].sort((a, b) => a[0] - b[0]);
+
+  /* Merge overlapping or touching ranges */
+  const merged = [sortedRanges[0]];
+  for (let i = 1; i < sortedRanges.length; i++) {
+    const [lastStart, lastEnd] = merged[merged.length - 1];
+    const [currentStart, currentEnd] = sortedRanges[i];
+    
+    if (currentStart <= lastEnd) {
+      //Merge overlapping AND touching ranges
+      merged[merged.length - 1] = [lastStart, Math.max(lastEnd, currentEnd)];
+    } else {
+      merged.push(sortedRanges[i]);
+    }
+  }
+  return merged;
+}
+export const mergeRanges = (ranges) => {
+    if (!Array.isArray(ranges)) {
+        throw new TypeError('Input must be an array');
+    }
+    
+    if (ranges.length === 0) {
+        return [];
+    }
+    
+    /* Validate ranges */
+    for (const range of ranges) {
+        if (!Array.isArray(range) || range.length !== 2) {
+            throw new TypeError('Each range must be an array of two finite numbers');
+        }
+        
+        const [start, end] = range;
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+            throw new TypeError('Range must have finite numbers with start <= end');
+        }
+    }
+    
+    /* Sort by start value */
+    const sortedRanges = [...ranges].sort((a, b) => a[0] - b[0]);
+    
+    /* Merge overlapping or touching ranges */
+    const merged = [sortedRanges[0]];
+    for (let i = 1; i < sortedRanges.length; i++) {
+        const [lastEnd] = merged[merged.length - 1];
+        const [currentStart, currentEnd] = sortedRanges[i];
+        
+        if (currentStart <= lastEnd) {
+            merged[merged.length - 1] = [merged[merged.length - 1][0], Math.max(lastEnd, currentEnd)];
+        } else {
+            merged.push(sortedRanges[i]);
+        }
+    }
+    
+    return merged;
+};

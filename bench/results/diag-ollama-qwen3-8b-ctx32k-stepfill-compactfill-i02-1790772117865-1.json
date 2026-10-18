@@ -1,0 +1,265 @@
+{
+  "run": {
+    "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790772117865-1",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T12:41:59.590Z",
+    "finishedAt": "2026-09-30T12:42:31.528Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 64290,
+          "outputTokens": 1159,
+          "cacheReadTokens": 58694,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 54595
+        },
+        "durationMs": 31182,
+        "requestDurationsMs": [
+          2689,
+          3309,
+          4175,
+          950,
+          5019,
+          9579,
+          5676,
+          6188,
+          10152,
+          6004,
+          862
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:fe4cdf0c-e1dc-4eb0-b154-e2847b07a0ab",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790772117865-1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какое количество товара считается допустимым для резерва приоритетного заказа?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.priority"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11106,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-bbc1ad56-22a2-4681-80ed-22d7283b051e-1",
+        "questionId": "intent-open-0",
+        "text": "Какое количество товара считается допустимым для резерва приоритетного заказа?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9920d48371208770ee12da414ec4af9bd64ef41f",
+      "sourceHash": "9d25cabadbcdc435e4b54aaa8e68106f0218bb7daeba317c180bb3d116ed66fd",
+      "configHash": "411233cbd0805984e3390e08d9acac31e217473759c550865985e991e0bac21e",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "14f8db6dd4683aed9c8be692c530c53d8c1ea80c235068951444b1551bab65fa",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 480000
+    },
+    "workspaceHash": "1d5893c531dde98f6d66d62a441126c85e8b4f6bf24a6172cc8e02bddd26bd2f",
+    "state": "finished",
+    "capturedAt": "2026-09-30T12:42:31.547Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T12:42:31.523Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "94b05860a1e4b1f7084ce1aa4b4b2707dac4c358a28e844a7f539997de026c74",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "a9e85204d68532967da4c9de5c7a9ddf3e70ca3b3aff5005a157df9a1b04ba7b",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d6836e978146e726dee004376d2754d80b0bc18872dc68a6e57883c5a9218492",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "905d92b84f284326833d0427d1efec5a6e8b76335d4610a8b78857b2997fe3e4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

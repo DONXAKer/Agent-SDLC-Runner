@@ -62,6 +62,7 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     skipTurnAfterReviewFill: false,
     planAxisFill: false,
     stepFill: false,
+    stepContext: false,
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
@@ -267,7 +268,7 @@ describe('восстановление метрик из metrics.json', () => {
     // записанный до появления поля — сам тест и проверяет, что рестор не ломается на его
     // отсутствии (тот же принцип, что уже проверен для gates/human/artifactGaps).
     const snapshot: Omit<RunMetrics, 'chunkEvidence'> = {
-      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000 }],
+      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000, requestDurationsMs: [] }],
       verdicts: { total: 2, red: 1 },
       redByCause: [{ kind: 'gate', count: 1 }],
       attemptsByChunk: [{ chunk: 1, attempts: 2 }],
@@ -430,7 +431,7 @@ async function runIntentWithStub(root: string, events: RunEvent[]): Promise<{ ok
     const run = makeRun(root, events, {
       providerDef: { flow: 'loop', kind: 'openai-compat', baseUrl: `http://127.0.0.1:${port}` },
     });
-    const outcome = await run.runStage('intent');
+    const outcome = await run.runStage('intent', { preparationVersion: 1 });
     return { ok: outcome.ok };
   } finally {
     stub.close();
@@ -442,7 +443,7 @@ describe('запись снапшота метрик не роняет этап'
     const root = tempRoot();
     // `metrics.json` — каталог: запись обязана упасть, но исход этапа считает этап, а не
     // наблюдаемость. Ревью: `catch` в `writeMetricsSnapshot` не был покрыт ничем.
-    mkdirSync(join(root, '.sdlc', 'demo', 'metrics.json'), { recursive: true });
+    mkdirSync(join(root, '.sdlc', 'demo', '.runner', 'metrics.json'), { recursive: true });
 
     const events: RunEvent[] = [];
     const outcome = await runIntentWithStub(root, events);
@@ -491,11 +492,12 @@ describe('сквозной: runStage пишет metrics.json и metrics.md', () 
         providerDef: { flow: 'loop', kind: 'openai-compat', baseUrl: `http://127.0.0.1:${port}` },
       });
 
-      const outcome = await run.runStage('intent');
+      const outcome = await run.runStage('intent', { preparationVersion: 1 });
       // Модель-заглушка не заполнила бланк — этап честно падает; это ожидаемо.
       strictEqual(outcome.ok, false);
 
-      const dir = join(root, '.sdlc', 'demo');
+      // Служебные файлы раннера — в `.runner/`: методология считает `.sdlc/<slug>/*.md` своими.
+      const dir = join(root, '.sdlc', 'demo', '.runner');
       const jsonPath = join(dir, 'metrics.json');
       const mdPath = join(dir, 'metrics.md');
       ok(existsSync(jsonPath), 'metrics.json записан в finally этапа');

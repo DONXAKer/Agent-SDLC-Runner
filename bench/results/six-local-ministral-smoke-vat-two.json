@@ -1,0 +1,297 @@
+{
+  "run": {
+    "slug": "six-local-ministral-smoke-vat-two",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T22:03:26.866Z",
+    "finishedAt": "2026-10-02T22:06:08.733Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (3 пунктов, 2 [edge]); процедуры проверки ✅; инварианты ❌; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 24715,
+          "outputTokens": 3798,
+          "cacheReadTokens": 19038,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 266432
+        },
+        "durationMs": 161235,
+        "requestDurationsMs": [
+          19802,
+          20417,
+          21137,
+          4131,
+          17992,
+          30841,
+          11363,
+          31872,
+          45806,
+          26349,
+          24061,
+          12673
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 4,
+        "approvals": 1,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:a7e33b47-e823-4123-916e-dc08be2ce567",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-ministral-smoke-vat-two\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как узнать, где определены условия применения льготной ставки НДС и её значение, если они не записаны в репозитории и их нельзя \"вывести\" из существующих данных? Входные артефакты и описание текущей политики не содержат этой информации?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "В требовании указано, что `total` для необлагаемого счёта (\"`none`\") не должен меняться и оставаться \"подытогом без учёта НДС\", но при этом не уточнено, как расчитывается или какого порядка будет \"подытог\" при расчёте обложенного счёта — подразумевается ли его пересчёт или это логическое разделение `subtotal` и `total` (с отдельным расчётом `vat`)?"
+          },
+          {
+            "id": "intent-open-2",
+            "question": "В условии не указаны конкретные входные параметры в `config` и/или `opts`: как они соотносятся между собой и как в них передаются данные о льготной ставке НДС (на уровне позиций `lines`)? Пункты 1 и 3 конфликтуют в плане упущения этой информации."
+          },
+          {
+            "id": "intent-open-3",
+            "question": "Каково точное требование для текущего значения `total` на выходе в `Invoice` — это *общая стоимость*, *включая* `vat`, или только *сумма* по товарам? Несоответствие этих пунктов вызывает неясность."
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11241,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-d4aa843f-2818-4d54-9f8c-cb6c43614ed0-1",
+        "questionId": "intent-open-0",
+        "text": "Как узнать, где определены условия применения льготной ставки НДС и её значение, если они не записаны в репозитории и их нельзя \"вывести\" из существующих данных? Входные артефакты и описание текущей политики не содержат этой информации?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-d4aa843f-2818-4d54-9f8c-cb6c43614ed0-1",
+        "questionId": "intent-open-1",
+        "text": "В требовании указано, что `total` для необлагаемого счёта (\"`none`\") не должен меняться и оставаться \"подытогом без учёта НДС\", но при этом не уточнено, как расчитывается или какого порядка будет \"подытог\" при расчёте обложенного счёта — подразумевается ли его пересчёт или это логическое разделение `subtotal` и `total` (с отдельным расчётом `vat`)?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-d4aa843f-2818-4d54-9f8c-cb6c43614ed0-1",
+        "questionId": "intent-open-2",
+        "text": "В условии не указаны конкретные входные параметры в `config` и/или `opts`: как они соотносятся между собой и как в них передаются данные о льготной ставке НДС (на уровне позиций `lines`)? Пункты 1 и 3 конфликтуют в плане упущения этой информации."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-d4aa843f-2818-4d54-9f8c-cb6c43614ed0-1",
+        "questionId": "intent-open-3",
+        "text": "Каково точное требование для текущего значения `total` на выходе в `Invoice` — это *общая стоимость*, *включая* `vat`, или только *сумма* по товарам? Несоответствие этих пунктов вызывает неясность."
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e9f3bb01ef3223ae728b7d4a7b9d5da7e0b3cf7f99807b180ec9021afe4eda3d",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "ca9692ce8af9ed0238aa92504eb9156494fbaafef3896f48c24b08f90f522bd0",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "ac3641cd50ebd29f9b93fe57c2c0395bdbc2c2c7f95ef0b70a30317ffa72b573",
+    "state": "finished",
+    "capturedAt": "2026-10-02T22:06:08.751Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-02T22:06:08.730Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "ac2a82da554561e0775387aa8b21316a21e05a617dd59a369608ce8d41188997",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "ab935184b7bfe51053f3a3130ecaf389bd6efa9d73ae6286fe0fa406d1b4d442",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "622b8535d7de784d188fd59596d6bd474e015c2bd79a7283132a9a8f483e51ed",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "92ee8bee79a1063d731b21da8fac93f2c2d265c5d1e2355f00c2e26db75b0793",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

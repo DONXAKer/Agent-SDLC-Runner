@@ -1,0 +1,278 @@
+{
+  "run": {
+    "slug": "pair-base-ollama-ministral3-14b-instruct-ctx32k-compactfill",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T15:12:49.521Z",
+    "finishedAt": "2026-09-29T15:15:38.747Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 20
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-X7SbsE\\.sdlc\\pair-base-ollama-ministral3-14b-instruct-ctx32k-compactfill\\readiness.md)",
+        "blockers": [
+          "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-X7SbsE\\.sdlc\\pair-base-ollama-ministral3-14b-instruct-ctx32k-compactfill\\readiness.md)"
+        ],
+        "timedOut": false,
+        "skipped": false,
+        "blamedStage": "intent"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 113729,
+          "outputTokens": 3831,
+          "cacheReadTokens": 103249,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 334360
+        },
+        "durationMs": 168681,
+        "requestDurationsMs": [
+          22640,
+          28346,
+          29559,
+          13541,
+          21571,
+          55579,
+          10532,
+          18744,
+          23174,
+          4793,
+          9796,
+          18239,
+          5076,
+          13794,
+          20501,
+          1758,
+          9248,
+          11912,
+          6206,
+          9367
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:7ecdf372-85c1-4466-88db-84a6b2ba7eaa",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-ministral3-14b-instruct-ctx32k-compactfill\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:ed3ee98b-d119-4732-9bef-916bf848f0e2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-ministral3-14b-instruct-ctx32k-compactfill\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11061,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "543f66891f73e8a6871b7bf2b9ff8804d112b4a59691bb0093342287deeac004",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "0f6ccb73adb516aa3ca209c9ecc246235c77a93fcfd8976b66ad3089b205ab32",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "cbc42170afe6c74becf1bc3d166fea34898d07cb1eb68c49e38bddd494f0afdc",
+    "state": "finished",
+    "capturedAt": "2026-09-29T15:15:38.763Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T15:15:38.740Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "fd4155d67160a1855dbe090ff16c02d967c083829d35f5856e1a87ac9d6f920f",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "30b981b11d943288b6f546f2374a842454a6b7d9c02e298ea5a86fe5dc95de2f",
+        "placeholders": 2,
+        "uncheckedQuestions": 4,
+        "blockingQuestions": 4
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "cc38b1fda3785884542c745a02b15bbf27c1e407e1435530a51f6c1d84db0cc2",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -20,7 +20,7 @@ import { rankFiles, reuseCandidates } from '../src/explore/rank.ts';
 import { renderIndexBlock } from '../src/explore/render.ts';
 import { callersOf, declaredSymbols, enclosingSymbol } from '../src/explore/symbols.ts';
 import { readTree } from '../src/explore/tree.ts';
-import { buildView } from '../src/explore/view.ts';
+import { buildView, includeExplicitRequestPaths } from '../src/explore/view.ts';
 import { symlinkSkip } from './platform.ts';
 
 const FIXTURE = join(import.meta.dirname, '..', '..', 'bench', 'fixture');
@@ -74,6 +74,23 @@ describe('ключевые слова задачи', () => {
     ok(k.paths.includes('src/a.ts'));
     ok(k.symbols.includes('helperOne'));
     ok(!k.paths.includes('src/secret.ts'), 'секция вне списка прочитана');
+  });
+
+  it('оригинальный запрос добавляет явно названные пути для проверки в разведке', () => {
+    const k = intentKeywords('# Task\n\n## Коротко\n\nработаем с `src/hold.ts`', 'Изменить `src/hold.ts` и экспортировать из `src/index.ts`');
+    ok(k.paths.includes('src/hold.ts'));
+    ok(k.paths.includes('src/index.ts'));
+  });
+
+  it('не ранжирует пути, упомянутые только как запрет на изменение', () => {
+    const k = intentKeywords(
+      '# Task\n\n## Коротко\n\nПеренести бронь в `src/hold.ts` и экспортировать из `src/index.ts`\n\n## Чего не делаем\n\nНе трогаем `src/slots.ts` и `src/warehouse.ts`.',
+      'Нужен перенос через `src/hold.ts`, экспорт из `src/index.ts`. В этом витке `src/slots.ts`, `src/warehouse.ts` и существующие тесты не трогаются.',
+    );
+    ok(k.paths.includes('src/hold.ts'));
+    ok(k.paths.includes('src/index.ts'));
+    ok(!k.paths.includes('src/slots.ts'));
+    ok(!k.paths.includes('src/warehouse.ts'));
   });
 
   it('«Приёмочный лист» не источник слов — утечка в слепой блок индекса', () => {
@@ -131,6 +148,14 @@ describe('кандидаты по осям', () => {
 
 describe('блок индекса и карточки', () => {
   const eco = [{ dir: '.', label: 'Node.js', build: null, test: 'node --test' }];
+
+  it('adds exact request paths even when keyword ranking would omit them', () => {
+    const built = buildView(index, eco, { words: [], paths: [], symbols: [] }, false);
+    const next = includeExplicitRequestPaths(index, built, ['src/index.ts']);
+    strictEqual(next.ranked[0]?.file.path, 'src/index.ts');
+    ok(next.view.candidates.some((candidate) => candidate.path === 'src/index.ts'));
+    strictEqual(includeExplicitRequestPaths(index, next, ['src/index.ts']).ranked.filter((entry) => entry.file.path === 'src/index.ts').length, 1);
+  });
 
   it('режется по байтам, кандидаты держатся раньше дерева', () => {
     const { view } = buildView(index, eco, kw, true);

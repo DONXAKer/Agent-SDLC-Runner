@@ -1,0 +1,28 @@
+export const protocolVersion =   1;
+
+/****
+ * Split total into count equal integer shares.
+ *  Extra cents (remainders) go to shares in the smallest order. 
+ * Throws RangeError for invalid inputs.
+ * */
+
+export function splitCents(total, count) {
+    // Validate inputs
+    if  (!Number.isSafeInteger( total  )   ||     total  <      0) {
+        throw new RangeError('total must be nonnegative integer');
+    }
+    if (!Number.isSafeInteger(   count      )
+        ||    count   <=   0      
+           || count     >   1000  )
+        throw new RangeError('count must be positive integer   <= 1000  ');
+    
+    const baseShare      = Math.floor(total   / count);
+    const remainder       = total   % count;
+    const shares           = Array( count ).fill(          baseShare );
+    
+    for  ( i   =   0;    i  < remainder   ;   i  ++)   {
+      shares[i]   ++;
+    }
+    
+    return shares;
+}

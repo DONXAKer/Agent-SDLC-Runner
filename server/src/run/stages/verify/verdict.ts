@@ -14,6 +14,7 @@ import { claimTextCell, type RetryDetail } from '../../../verdict/retryBrief.ts'
 import { computeVerdict } from '../../../verdict/verdict.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE, gateResultsForVerdict } from './gates.ts';
+import { checkInvariants } from '../../guidedInvariants.ts';
 
 /**
  * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
@@ -26,10 +27,12 @@ export function retryDetail(host: StageHost): RetryDetail {
   for (const [id, r] of host.verifyState.claimRecords) {
     if (r.whatToFix !== null && r.whatToFix.trim() !== '') whatToFix.set(id.toLowerCase(), r.whatToFix);
   }
+  const instruction = host.verifyState.reviewJson?.retry_instruction ?? '';
   return {
     claimTexts,
     whatToFix,
     findings: host.verifyState.findingRecords.map((f) => ({ text: f.text, evidence: f.evidence, anchored: f.anchored })),
+    ...(instruction === '' ? {} : { retryInstruction: instruction }),
   };
 }
 
@@ -71,6 +74,10 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
     // Критическое условие вердикта не может висеть на формулировке модели, когда
     // рантайм в состоянии посчитать его механически.
     diffMatchesTreeFact: verify.diffFactMatchesTree,
+    // Свидетельства попытки: та же логика факта — `evidence.json` и хэши сверяет рантайм.
+    evidenceFact: verify.evidenceFact,
+    // Задача против снимка секций: переписанная задача роняет вердикт (восьмое условие).
+    intentTamperFact: verify.intentTamperFact,
     // Ручные пункты приходят из ЗАДАЧИ, а не из отчёта: освобождение от автоматической
     // проверки — решение человека, написавшего приёмочный лист.
     manualClaims: manualClaimIds(readArtifact(host.paths.intent).text),
@@ -78,13 +85,15 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
     // видел вовсе и считал отчёт по тем строкам, которые модель соизволила написать.
     expectedClaims: [...host.intentClaimLines().keys()],
     reports,
-    // Попытки, сгоревшие на среде, из счёта вычитаются: бюджет итераций тратится на
-    // работу, а не на машину. Номер попытки при этом растёт всегда — см. nextAttempt.
-    attempt: Math.max(1, host.attempt() - host.envBlockedAttempts()),
+    // Попытка, сгоревшая на среде, номера не занимает (`Run.nextAttempt`): бюджет итераций
+    // тратится на работу, а не на машину, и номер K после `blocked_env` тот же.
+    attempt: host.attempt(),
     attemptBudget: host.attemptBudget(),
     noProgress,
   });
 
+  const invariants = checkInvariants(host.paths, host.projectRoot);
+  if (!invariants.passed) input.brokenInvariants.push(invariants.result);
   const verdict = computeVerdict(input, disagreements);
   // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
   // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —

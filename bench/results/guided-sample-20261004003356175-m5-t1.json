@@ -1,0 +1,298 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 151771,
+    "remainingMs": 1648229,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261004003356175-m5-t1",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "already-done",
+    "fixtureDir": "fixtures/feature-present",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-04T01:17:28.827Z",
+    "finishedAt": "2026-10-04T01:20:01.609Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/index.ts не подготовлено: Исправь формат предыдущего ответа: Unexpected non-whitespace character after JSON at position 744 (line 1 column 745)\n{\"fact\":\"This file only re‑exports public names from other modules: from money.ts the functions add, formatRub, percent, rub, subtract and the type Kopeck; from loyalty.ts the functions loyaltyDiscount, loyaltyRate and the type Account; from order.ts the function orderTotal; and from report.ts the constants and functions REPORT_HEADER, monthlyReport, reportLine. It contains no business logic of its own.\",\"impact\":\"Any logic regarding loyalty discounts, thresholds or rate calculations lives in ./loyalty.ts. Therefore, to add or modify discount policies only that module must be touched; this index file remains unchanged.\",\"change\":null,\"reuse\":\"Use the re‑exported symbols as provided; no new code needed here.\",\"risks\":[],\"questions\":[]}}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 17904,
+          "outputTokens": 7910,
+          "cacheReadTokens": 11522,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 229873
+        },
+        "durationMs": 135931,
+        "requestDurationsMs": [
+          5430,
+          9343,
+          20908,
+          11825,
+          67678,
+          90354,
+          24344
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 2450,
+          "outputTokens": 905,
+          "cacheReadTokens": 599,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 15797
+        },
+        "durationMs": 15864,
+        "requestDurationsMs": [
+          11882,
+          3916
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:d95d428c-06b9-493c-b925-aa95e27899e0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261004003356175-m5-t1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4588,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 8295,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "a7495224a8fda9113a05c3a15dd3a3ffb43b460f3092031187e87302e3925be4",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "17a01e344ee5ef7efd19131e3f560cbd02094425792859c0a8b148cfb43ca856",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "fcc3f450b4de54e25581d80074b526e378cc5794f84da9168bb28b6d704b5f91",
+    "state": "finished",
+    "capturedAt": "2026-10-04T01:20:01.625Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-04T01:20:01.607Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "11b34f13d281556bab81243b9ba55b8db6f6832346bc5990630b07e42e227307",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "8777648cfcfbff588db16c4f00bc72759c9e1844382ab0191efc38bf1fdc618e",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "8057d6da4b7c5939f24c7a4467f14bcfc0d598c1602abb6c3de18c642e05ea6e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "7fe36620a4d0da2e2b7ea161a37f23ff15c48a8880baae89371aabd97fd2e75b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

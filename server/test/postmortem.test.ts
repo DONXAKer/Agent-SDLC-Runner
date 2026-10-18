@@ -15,7 +15,7 @@ import { postmortemBlock } from '../src/run/postmortem.ts';
 
 const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   stages: [
-    { stage: 'chunk', runs: 2, usage: { ...emptyUsage(), inputTokens: 100, outputTokens: 50, costUsd: 0.12 }, durationMs: 65_000 },
+    { stage: 'chunk', runs: 2, usage: { ...emptyUsage(), inputTokens: 100, outputTokens: 50, costUsd: 0.12 }, durationMs: 65_000, requestDurationsMs: [] },
   ],
   verdicts: { total: 2, red: 1 },
   redByCause: [{ kind: 'gate', count: 1 }],
@@ -52,7 +52,7 @@ describe('пост-виток отчёт', () => {
   it('локальный маршрут не превращается в $0', () => {
     const b = postmortemBlock(
       metrics({
-        stages: [{ stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10 }],
+        stages: [{ stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10, requestDurationsMs: [] }],
       }),
     );
     ok(b?.includes('без стоимости'));

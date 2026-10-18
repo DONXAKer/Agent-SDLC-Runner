@@ -2,7 +2,6 @@ import { useState } from 'react';
 
 import type { ConfigInfo, StageId } from '@sdlc-runner/shared';
 
-import { evaluateReviewerRule } from '../lib/reviewerRule.ts';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 
 /**
@@ -12,34 +11,21 @@ import { STAGE_ORDER } from '@sdlc-runner/shared';
  * сохраняется в `config/projects/*.json`. Писать конфиг из интерфейса — отдельное решение
  * с отдельными рисками (файл правят и руками, и параллельно), и делать это молча нельзя.
  *
- * Правило рецензента считается здесь же, во время правки. Это дублирование серверной
- * проверки — осознанное: клиент ничего не разрешает, он только предупреждает раньше.
- * Местом, где виток не стартует, остаётся сервер.
+ * Ранг модели не используется как порог допуска: назначение этапов остаётся решением
+ * оператора, а качество подтверждается диагностикой и результатами работы.
  */
 export function ProfileEditor({
   models,
   stages,
-  base,
   onChange,
 }: {
   models: ConfigInfo['models'];
   /** Текущий выбор: этап → модель. Пусто — берётся профиль как есть. */
   stages: Partial<Record<StageId, string>>;
-  /**
-   * Модели выбранного профиля — то, что действует на нетронутых этапах.
-   *
-   * Без них правило рецензента считалось только когда оператор трогал ОБА этапа, то есть
-   * молчало в самом частом случае: подняли один `chunk` до уровня базового `verify` —
-   * клиент ничего не сказал, а сервер отказал в старте.
-   */
-  base: Record<StageId, string[]>;
   onChange: (next: Partial<Record<StageId, string>>) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  // Правило считается чистой функцией из `lib/reviewerRule.ts`: внутри компонента его
-  // нечем было проверить, и оно уже расходилось с серверным.
-  const { chunkRank, verifyRank, broken: ruleBroken } = evaluateReviewerRule({ models, stages, base });
 
   return (
     <div className="rounded border border-neutral-800 p-3">
@@ -55,8 +41,7 @@ export function ProfileEditor({
         <div className="mt-2 space-y-1.5">
           <p className="text-xs text-neutral-500">
             Правка применяется к создаваемому витку и <b>не сохраняется</b> в конфиг проекта.
-            Ранг проставлен человеком в <code className="font-mono">config/models.json</code> и
-            не измерен — он нужен только для правила «рецензент строго сильнее исполнителя».
+            Назначайте модели по результатам диагностик и задач, которые им предстоит выполнять.
           </p>
 
           {STAGE_ORDER.map((stage) => (
@@ -75,19 +60,13 @@ export function ProfileEditor({
                 <option value="">— как в профиле —</option>
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.id} (rank {m.rank})
+                    {m.id}
                   </option>
                 ))}
               </select>
             </label>
           ))}
 
-          {ruleBroken ? (
-            <p className="text-xs text-red-300">
-              verify не строго сильнее chunk (rank {verifyRank} против {chunkRank}) — сервер
-              такой виток не запустит: ревью слабее исполнителя это декорация.
-            </p>
-          ) : null}
         </div>
       ) : null}
     </div>

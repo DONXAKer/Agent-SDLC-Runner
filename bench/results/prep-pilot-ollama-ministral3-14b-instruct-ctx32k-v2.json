@@ -1,0 +1,839 @@
+{
+  "run": {
+    "slug": "prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T09:31:51.500Z",
+    "finishedAt": "2026-10-01T10:03:55.658Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 4,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 10,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "нет сценариев приёмки",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 7
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 28132,
+          "outputTokens": 3280,
+          "cacheReadTokens": 13070,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 447502
+        },
+        "durationMs": 447873,
+        "requestDurationsMs": [
+          5417,
+          374910,
+          57741,
+          9436
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 155680,
+          "outputTokens": 7634,
+          "cacheReadTokens": 116232,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 531765
+        },
+        "durationMs": 531860,
+        "requestDurationsMs": [
+          13163,
+          4316,
+          164104,
+          96647,
+          74567,
+          27049,
+          21091,
+          96520,
+          26368,
+          7942
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 125514,
+          "outputTokens": 7990,
+          "cacheReadTokens": 57267,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 943196
+        },
+        "durationMs": 943491,
+        "requestDurationsMs": [
+          10882,
+          413866,
+          61416,
+          37893,
+          209720,
+          166775,
+          42649
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 8,
+        "reminders": 1
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 15,
+        "reminders": 4
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 9,
+        "toolCalls": 15,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 7,
+        "waitMs": 20
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 5,
+        "waitMs": 18
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 14,
+        "waitMs": 49
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "plan.md",
+        "placeholders": 26
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:2dd66cba-1d8a-4f05-896e-9827d5751696",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:4657993f-e046-442a-aa6b-5af2e94cdbde",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:be81e98b-b668-4282-8040-5e5dfa08b7f6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:c60b4959-7cd8-4a40-aedf-800893a1879d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:10906835-5738-4905-90b3-e929e9793762",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:f99baa26-bc7b-4724-8628-87fdada56087",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:f0e420cb-2e90-4e1e-ba06-1d2f66cf0a26",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:59eb4c76-67a9-4da3-bd6a-1d683ba113c7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e96e19fb-de65-41a0-a06d-9583931156f0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0c32e259-3e9d-4d4f-85ff-48b7fbaa3a62",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b7ca2fdc-7e39-4f4b-ab5d-882b73da572f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d13a09ed-7ff9-479b-bb0c-07ed3e86c023",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:834e9731-7056-4b67-9b14-38031cdf4d8f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:e7880e22-b1d9-4c77-b253-77eec0e89331",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:83bcf836-4a0d-4ac3-9789-91095646c693",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:f8e9a734-62e3-4491-8fb5-dc3a54e745fd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:59cf3476-7a33-442f-8b0b-72b24aba0cbe",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:2682c948-8ac1-4b80-a915-685a357087f6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:c9c19b6f-f276-4023-84c0-74213a067374",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:1fa929b0-9c4d-435e-82eb-618103d160ee",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:3a0fbe9d-3304-44f5-953a-a1ad2e760bde",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:709c81b6-ff90-4f13-8b30-1b41f4c65a3a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:4a61e386-8ea1-47fd-9de2-3d38377cb275",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:fa838f0c-6f52-4cf5-8d15-fdbda4878f0b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:06f4d2ec-7d2d-45e9-a15c-f38335f3a260",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "loop:f10ebfa8-d778-4301-af20-ceffd67161a1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ministral3-14b-instruct-ctx32k-v2/plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:8c763d69-431a-4154-bab7-aac1ffea9163",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 5177,
+        "userChars": 6974,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 5863,
+        "userChars": 10626,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 6161,
+        "userChars": 15194,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:8c763d69-431a-4154-bab7-aac1ffea9163",
+        "toolName": "Edit",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «Edit» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори. Ты прислал поля: `file_path`, `arguments`."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "0f1add205669bb999bc26beec819404a64e6dfa27b66f9cbc071ea5ac5519d6f",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "4ae255c9c75ac30c0ec3c5b13d51c0cedcdf6f05c72dcd6d86e0b50cca442d62",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "e4bd4494c2cb50a5e5f2d33e7d9c02b5cf5e4c72bb0bdf603666aed528ae9c5e",
+    "state": "finished",
+    "capturedAt": "2026-10-01T10:03:55.682Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-01T10:03:55.656Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "af415bb50e82b0f0d6743f89e356b38858f9e064a0a70908d53c6733e8624df3",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "744d372bba2d42b7a3ba5b4cd0b381d0b9b9bd6085d801e205abf1bce0c9b073",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "f9e552dbfa63342d3f23e7a3997d0b8b474f8790ac0de27404d648a5191d71ef",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "2c1dbab9bd9f0ab50cc99d87b60c37c5dfee6f132741c63eec029c9682bf4d50",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "8698fd8c86c3da7b5819ccbc4dac859c5084c47c667936123bda4947ce581e34",
+        "placeholders": 26,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "94174a8e0aef10360d0160f979799fcc7a5821b20f1059c908d6fb7dec91c816",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

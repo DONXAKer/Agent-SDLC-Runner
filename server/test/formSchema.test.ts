@@ -335,12 +335,12 @@ describe('deriveSchema: реальные шаблоны эталона', { skip:
     }
   });
 
-  it('readiness: чек-лист прогонов — ячейки, без records; ни один ключ меню не начинается с ‹', () => {
+  it('readiness: runtime-computed fields are excluded from model filling', () => {
     const text = readFileSync(join(templatesDir, 'readiness.template.md'), 'utf8');
-    const model = deriveSchema(text, 'readiness.template.md').fields.filter((f) => f.owner === 'model');
-    const records = model.filter((f) => f.kind === 'records');
-    deepStrictEqual(records.map((f) => f.id), [], 'records в чек-листе readiness');
-    ok(!model.some((f) => (f.options ?? []).some((o) => o.key.startsWith('‹'))), 'ключ меню начинается с ‹');
+    const schema = deriveSchema(text, 'readiness.template.md');
+    ok(schema.fields.length > 0);
+    ok(schema.fields.every((field) => field.owner === 'runtime'));
+    strictEqual(modelFields(schema).length, 0);
   });
 
   it('план: пункты приёмки — records с минимумом, колонка id — mechanical', () => {
@@ -360,6 +360,13 @@ describe('deriveSchema: реальные шаблоны эталона', { skip:
     ok(decisionRows.length > 0);
   });
 
+  it('handoff: «Действие» записи о дефекте — поле решения человека, модели не отдаётся', () => {
+    const text = readFileSync(join(templatesDir, 'handoff.template.md'), 'utf8');
+    const action = deriveSchema(text, 'handoff.template.md').fields.filter((f) => /действие/i.test(f.id));
+    ok(action.length > 0, 'поле «Действие» не нашлось в схеме');
+    for (const f of action) strictEqual(f.kind, 'decision', `${f.id}: ${f.kind}`);
+  });
+
   it('handoff: yaml-блок вида "### Запись N" даёт группу и подполя', () => {
     const text = readFileSync(join(templatesDir, 'handoff.template.md'), 'utf8');
     const schema = deriveSchema(text, 'handoff.template.md');
@@ -367,9 +374,5 @@ describe('deriveSchema: реальные шаблоны эталона', { skip:
     ok(schema.fields.some((f) => f.shape === 'yaml'));
   });
 
-  it('readiness: таблицы прогонов — фиксированные строки с полем на ячейку', () => {
-    const text = readFileSync(join(templatesDir, 'readiness.template.md'), 'utf8');
-    const schema = deriveSchema(text, 'readiness.template.md');
-    ok(schema.fields.some((f) => f.shape === 'cell'));
-  });
+
 });

@@ -11,6 +11,8 @@ import { GATE_TONE } from '../lib/gateTone.ts';
 import { groupEvents, type EventItem } from '../lib/eventGroups.ts';
 import { verdictTextTone, verdictTone } from '../lib/tones.ts';
 import { useToggleSet } from '../lib/useToggleSet.ts';
+import { MarkedText } from './dashboard/ArtifactViewer.tsx';
+import { MarkdownOrSource } from './Markdown.tsx';
 
 /**
  * Вызов инструмента одной строкой: запрос, решение и результат вместе.
@@ -94,7 +96,9 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
   switch (e.type) {
     case 'assistant_text':
       return (
-        <div className="whitespace-pre-wrap font-sans text-sm text-neutral-200">{e.text}</div>
+        <div className="font-sans text-neutral-200">
+          <MarkdownOrSource text={e.text} source={<MarkedText text={e.text} />} topLevel={false} />
+        </div>
       );
 
     case 'thinking':
@@ -111,6 +115,11 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
           <div className="whitespace-pre-wrap font-sans text-sm text-neutral-200">{e.answer}</div>
         </div>
       );
+
+    case 'question_validation':
+      return <div className={e.accepted ? 'text-neutral-400' : 'text-red-400'}>
+        {e.accepted ? '✓ JSON' : '✗ JSON'} {e.questionId}: {e.reason}
+      </div>;
 
     // `tool_request` сюда не попадает: `groupEvents` заворачивает КАЖДЫЙ запрос в
     // группу `kind: 'tool'` (множество `requests` строится из тех же событий) — здесь

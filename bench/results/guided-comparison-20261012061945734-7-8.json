@@ -1,0 +1,257 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 23159,
+    "remainingMs": 3576841,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T06:54:40.088Z",
+        "inputRevision": "eec369bd19d8d650749fd23c3b3277150881426baf3516340495674e30255fc4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова"
+          },
+          {
+            "source": "stage-input",
+            "quote": "              \"виток не стартует._\",\n              \"Последнее изменение набора: 2026-09-01\","
+          }
+        ],
+        "uncertainties": [
+          "Требует проверки корректности существующей реализации поля `dueDays` в классе `Invoice` и его источников."
+        ],
+        "action": "read",
+        "reason": "Требует проверки корректности существующей реализации поля `dueDays` в классе `Invoice` и его источников.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T06:54:55.116Z",
+        "inputRevision": "eec369bd19d8d650749fd23c3b3277150881426baf3516340495674e30255fc4",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Сбор данных не добавил нового входа"
+        ],
+        "action": "blocked",
+        "reason": "Сбор данных не добавил нового входа",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012061945734-7-8",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T06:54:30.518Z",
+    "finishedAt": "2026-10-12T06:54:55.131Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Сбор данных не добавил нового входа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 10806,
+          "outputTokens": 459,
+          "cacheReadTokens": 570,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 23824
+        },
+        "durationMs": 24112,
+        "requestDurationsMs": [
+          8817,
+          15007
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "3732328e4bb534f93f3010e5b2896e670d8c40dcfd7eacb3e5eb197b48ead8b8",
+      "configHash": "928ac82479bb24c9945fb2e1a5147f32ab323f7be01456ba3e3f887e72952fc5",
+      "localEndpoints": {},
+      "inputHash": "fa5f5448a55f778fc6fb4304edfeb72ce6a3236aae5bcfe46a9e5f1f5a5fc986",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "31e15a075642dc8a7a0a144d45da2397721e40fa29e1b10ace200ee4e89b8d1a",
+    "state": "finished",
+    "capturedAt": "2026-10-12T06:54:55.148Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T06:54:55.119Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "15fc59212fa70b256960eb533c36adb661786a54ddd271438db65ee3868a7012",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "987f22c364bc12a260236838994d113668c1077114246e273f53d3e2e4884bdf",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

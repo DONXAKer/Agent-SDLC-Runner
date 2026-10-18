@@ -7,7 +7,7 @@
  * считается по шагам, а не по числу запросов; лимит ходов этапа действует.
  */
 
-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, match, ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,9 +19,12 @@ import type { PlanStep } from '../src/artifacts/planSteps.ts';
 import {
   StepExecutor,
   type StepCheck,
+  mentionsFile,
   noChangeReason,
   parseFileContent,
   parseSearchReplace,
+  plannedFunctionAddition,
+  repairGuidance,
 } from '../src/exec/StepExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
@@ -37,12 +40,19 @@ function step(over: Partial<PlanStep>): PlanStep {
     n: 1,
     title: 'шаг',
     file: 'src/a.ts',
+    filePaths: ['src/a.ts'],
     isNew: false,
     symbol: null,
+    isNewSymbol: false,
     action: 'сделать',
     claims: [],
     check: null,
+    checkSpecified: false,
     expect: null,
+    contractChange: null,
+    contractSpecified: false,
+    dependsOn: [],
+    dependenciesSpecified: false,
     facts: null,
     explicit: true,
     ...over,
@@ -115,12 +125,19 @@ function setup(content = A_TS): string {
 }
 
 type Check = ((s: PlanStep) => Promise<StepCheck>) | null;
-const exec = (provider: ChatProvider, steps: PlanStep[], check: Check = null, retryBrief: string | null = null): StepExecutor =>
+const exec = (
+  provider: ChatProvider,
+  steps: PlanStep[],
+  check: Check = async () => ({ status: 'ok' }),
+  retryBrief: string | null = null,
+  stepContext = false,
+): StepExecutor =>
   new StepExecutor({
     provider,
     maxResultBytes: 12_000,
     readRangeRequiredAboveBytes: 120_000,
     bashTimeoutMs: 1000,
+    stepContext,
     steps,
     planText: '# План\n\n## Шаги\n1. …',
     humanFacts: '## Факты от человека\n- ставка 90 %',
@@ -180,6 +197,60 @@ describe('разбор ответов шага', () => {
     const text = 'SEARCH: `  return a + b;`\nREPLACE: `  return a + b + 1;`\n\nПояснение вокруг.';
     deepStrictEqual(parseSearchReplace(text), []);
   });
+
+  it('вложенные и незакрытые маркеры никогда не попадают в содержимое замены', () => {
+    const nested = [
+      '<<<<<<< SEARCH',
+      'outer old',
+      '=======',
+      'outer new',
+      '<<<<<<< SEARCH',
+      'inner old',
+      '=======',
+      'inner new',
+      '>>>>>>> REPLACE',
+    ].join('\n');
+    deepStrictEqual(parseSearchReplace(nested), [{ oldStr: 'inner old', newStr: 'inner new' }]);
+    deepStrictEqual(parseSearchReplace('<<<<<<< SEARCH\nold\n=======\nnew'), []);
+  });
+
+  it('принимает только полный многострочный fenced-вариант SEARCH/REPLACE', () => {
+    const answer = ['SEARCH:', '```ts', 'const old = 1;', '```', '', 'REPLACE:', '```ts', 'const next = 2;', '```'].join('\n');
+    deepStrictEqual(parseSearchReplace(answer), [{ oldStr: 'const old = 1;', newStr: 'const next = 2;' }]);
+    deepStrictEqual(parseSearchReplace('SEARCH: `const old = 1;`\nREPLACE: `const next = 2;`'), []);
+  });
+});
+
+describe('planned function addition recovery', () => {
+  it('converts a single planned function code block into a minimal append edit', () => {
+    const current = 'export function isActive() {\n  return true;\n}\n';
+    const answer = [
+      '```typescript',
+      '// src/hold.ts',
+      'export function moveHold(hold: Hold, newSlot: Slot): Hold { return { ...hold, slot: newSlot }; }',
+      '```',
+      '',
+      '```typescript',
+      '// test/moveHold.test.ts',
+      "describe('moveHold', () => {});",
+      '```',
+    ].join('\n');
+    deepStrictEqual(plannedFunctionAddition(step({
+      title: 'Implement moveHold', symbol: 'moveHold', isNewSymbol: true,
+      action: 'Add function moveHold',
+    }), current, answer), {
+      oldStr: '}',
+      newStr: '}\n\nexport function moveHold(hold: Hold, newSlot: Slot): Hold { return { ...hold, slot: newSlot }; }',
+    });
+  });
+
+  it('rejects unplanned, already implemented, and ambiguous function output', () => {
+    const current = 'export function isActive() {\n  return true;\n}\n';
+    const answer = '```ts\nexport function moveHold() { return {}; }\n```';
+    strictEqual(plannedFunctionAddition(step({ symbol: 'moveHold' }), current, answer), null);
+    strictEqual(plannedFunctionAddition(step({ symbol: 'isActive', isNewSymbol: true, action: 'Add isActive' }), current, answer), null);
+    strictEqual(plannedFunctionAddition(step({ symbol: 'moveHold', isNewSymbol: true, action: 'Add moveHold' }), current, `${answer}\n${answer}`), null);
+  });
 });
 
 describe('исполнение по шагам', () => {
@@ -197,6 +268,8 @@ describe('исполнение по шагам', () => {
     deepStrictEqual(seen.calls.map((c) => c.kind), ['write', 'edit']);
     ok(r.finalText.includes('✅ 1) src/k.ts'), r.finalText);
     ok(provider.asked[0]!.includes('ставка 90 %'));
+    ok(provider.asked[0]!.includes('После этого шага будут изменены: `src/a.ts`'));
+    ok(provider.asked[0]!.includes('не отказывайся из-за того, что будущий файл ещё не изменён'));
     ok(provider.asked[1]!.includes('<<<<<<< SEARCH'));
   });
 
@@ -221,6 +294,60 @@ describe('исполнение по шагам', () => {
     ok(!provider.asked[0]!.includes('уже сделано'), provider.asked[0]);
   });
 
+  it('один неоднозначный блок не топит остальные — применяются все однозначные, ремонт не нужен', async () => {
+    // 2026-09-25 (`d2-devstral-vat-rounding`, попытка 2, запрос `00021`): модель верно
+    // убрала импорт типа и три аннотации блоками SEARCH/REPLACE, но один из шести блоков
+    // совпадал в файле трижды — раньше это отклоняло ВСЕ шесть правок разом.
+    const root = setup('const x = 1;\nconst dup = 1;\nconst dup = 1;\nconst y = 2;\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const answer = [
+      SR('const x = 1;', 'const x = 10;'),
+      SR('const dup = 1;', 'const dup = 9;'), // встречается дважды — неоднозначно, пропускается
+      SR('const y = 2;', 'const y = 20;'),
+    ].join('\n');
+    const provider = scripted([answer]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(r.ok, r.note);
+    strictEqual(provider.asked.length, 1, 'однозначных блоков хватило — ремонтный раунд не понадобился');
+    strictEqual(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'const x = 10;\nconst dup = 1;\nconst dup = 1;\nconst y = 20;\n');
+  });
+
+  it('ни один блок не применился чисто — прежнее поведение: реальный Edit решает сам (с мягким совпадением)', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    // Оба блока — не найденные фрагменты: keep пуст, значит уходят ВСЕ блоки как раньше,
+    // и настоящий текст ошибки Edit'а (не моя грубая прикидка) доходит до модели.
+    const answer = [SR('такого текста нет', 'x'), SR('и этого тоже нет', 'y')].join('\n');
+    const provider = scripted([answer, 'БЕЗ ПРАВОК: не нашла место правки']);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(provider.asked[1]!.includes('фрагмент не найден'), provider.asked[1]);
+  });
+
+  it('диагноз гейта не теряется, когда следующая правка не применяется (checkProblem и applyProblem — раздельные блоки)', async () => {
+    // 2026-09-25: модель починила SyntaxError по его тексту верно на первом ремонте, но
+    // правка не легла из-за неоднозначного блока — следующий ремонт уже не нёс текста
+    // исходной ошибки (общая переменная затирала диагноз гейта диагнозом применения), и
+    // починка съехала мимо.
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([
+      SR('  return a + b;', '  return a + b + 1;'), // раунд 0: применяется, гейт краснеет
+      SR('текста, которого нет в файле', 'неважно'), // раунд 1: не применяется
+      'БЕЗ ПРАВОК: нужный фрагмент вне показанной части файла', // раунд 2
+    ]);
+    let checks = 0;
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => {
+      checks++;
+      return { status: 'failed', problem: 'src/a.ts: ОРИГИНАЛЬНАЯ_ПРИЧИНА гейт «Тесты» красный на SyntaxError' };
+    }).run(request(root), hooks(seen));
+    strictEqual(checks, 1, 'check зовётся только после успешного apply — во втором раунде apply не удался');
+    ok(provider.asked[1]!.includes('ОРИГИНАЛЬНАЯ_ПРИЧИНА'), provider.asked[1]);
+    ok(!provider.asked[1]!.includes('Твоя правка не применилась'), provider.asked[1]);
+    ok(provider.asked[2]!.includes('ОРИГИНАЛЬНАЯ_ПРИЧИНА'), provider.asked[2]);
+    ok(provider.asked[2]!.includes('фрагмент не найден'), provider.asked[2]);
+    ok(provider.asked[2]!.includes('Твоя правка не применилась'), provider.asked[2]);
+  });
+
   it('промах SEARCH даёт ремонтный запрос с содержимым файла; второй ответ применяется', async () => {
     const root = setup();
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
@@ -233,6 +360,37 @@ describe('исполнение по шагам', () => {
     strictEqual(r.turns, undefined);
     ok(provider.asked[1]!.includes('фрагмент не найден'), provider.asked[1]);
     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
+  });
+
+  it('пишет положительную метку корпуса только после механической проверки шага', async () => {
+    const root = setup();
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-with-raw-log',
+      async chat() {
+        return {
+          text: SR('  return a + b;', '  return a + b + 1;'),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn',
+          rawLogPath: rawPath,
+        };
+      },
+    };
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const result = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'ok' })).run(
+      request(root),
+      hooks(seen),
+    );
+
+    ok(result.ok, result.note);
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, {
+      accepted: true,
+      oracle: 'gate:Сборка',
+      target: 'plan-step',
+      reason: 'check-passed',
+    });
   });
 
   it('новый файл с красной проверкой чинится блоками замены, а не файлом целиком', async () => {
@@ -344,8 +502,53 @@ describe('исполнение по шагам', () => {
       request(root),
       hooks(seen),
     );
-    ok(r.ok);
+    strictEqual(r.ok, false, 'применённая, но непроверенная правка не закрывает шаг');
     ok(r.finalText.includes('проверка после шага не состоялась: нет tsc'), r.finalText);
+    ok(r.finalText.includes('⏭'), r.finalText);
+  });
+
+  it('отсутствие проверки получает ⏭ и не закрывает шаг', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], null).run(request(root), hooks(seen));
+    strictEqual(r.ok, false);
+    ok(r.finalText.includes('⏭'), r.finalText);
+    ok(r.finalText.includes('нет включённого build/test-гейта'), r.finalText);
+  });
+
+  it('подписанная неприменимость прозрачна и не считается зелёной проверкой', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({
+      status: 'inapplicable',
+      reason: 'шаг меняет только документацию',
+      approvedBy: 'Иванов',
+      approvedAt: '2026-09-30',
+    })).run(request(root), hooks(seen));
+    strictEqual(r.ok, false, 'неприменимость записана, но проверка не дала зелёного результата');
+    ok(r.finalText.includes('⏭'), r.finalText);
+    ok(r.finalText.includes('подтвердил Иванов, 2026-09-30'), r.finalText);
+  });
+
+  it('неполная подпись неприменимости превращает шаг в красный', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([
+      SR('  return a + b;', '  return a + b + 1;'),
+      SR('  return a + b + 1;', '  return a + b + 2;'),
+      SR('  return a + b + 2;', '  return a + b + 3;'),
+    ]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({
+      status: 'inapplicable',
+      reason: '  ',
+      approvedBy: '',
+      approvedAt: 'вчера',
+    })).run(request(root), hooks(seen));
+    strictEqual(r.ok, false);
+    ok(r.finalText.includes('❌'), r.finalText);
+    ok(r.finalText.includes('требует причины, имени утвердившего и даты YYYY-MM-DD'), r.finalText);
   });
 
   it('отказ гейта окончателен: ремонта нет, шаг ❌', async () => {
@@ -454,5 +657,104 @@ describe('исполнение по шагам', () => {
     await exec(provider, [step({ file: '../outside.ts' })]).run(request(root), hooks(seen, false));
     ok(provider.asked[0]!.includes('(новый)'));
     ok(!provider.asked[0]!.includes('Текущее содержимое'));
+  });
+});
+
+describe('stepContext (ModelDef.stepContext)', () => {
+  it('явный opt-out: `buildStepContext` не подмешивается в промпт шага', async () => {
+    const root = setup();
+    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
+    await exec(provider, [step({ file: 'src/a.ts' })], null, null, false).run(request(root), hooks(seen));
+    ok(!provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
+  });
+
+  it('включён явно: карта экспортов проекта попадает в промпт шага', async () => {
+    const root = setup();
+    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
+    await exec(provider, [step({ file: 'src/a.ts' })], null, null, true).run(request(root), hooks(seen));
+    ok(provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
+    ok(provider.asked[0]!.includes('src/b.ts'), provider.asked[0]);
+  });
+});
+
+describe('mentionsFile', () => {
+  it('явное место падения побеждает — своя строка возвращает true сразу, без substring-фолбэка', () => {
+    // Живой текст (сокращённый) d2-devstral-vat-rounding, попытка 3: ошибка называет и
+    // файл, где падает (test/vat.test.ts:4), и модуль, на который ссылается импорт
+    // ('../src/lines.ts').
+    const problem = [
+      'гейт «Тесты» (node --test, код 1): 1 fail',
+      'file:///C:/ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '✖ test\\vat.test.ts (166.0493ms)',
+    ].join('\n');
+    ok(mentionsFile(problem, 'test/vat.test.ts'));
+  });
+
+  it('места падения нашлись, но НЕ про этот файл — substring-фолбэк всё равно проверяется (code-review-all, 2026-09-26)', () => {
+    // Прежняя версия при locations.length>0 возвращала false сразу, не пробуя substring —
+    // и легитимный кадр file:/// из ЧУЖОГО места (например зависимости) гасил substring-
+    // совпадение реального своего пути в тексте. Здесь `src/lines.ts` в местах падения не
+    // числится (только `test/vat.test.ts`), но упомянут подстрокой в тексте импорта —
+    // теперь тоже true: лучше лишний ремонт-раунд не туда, чем полная слепота своего файла.
+    const problem = [
+      'гейт «Тесты» (node --test, код 1): 1 fail',
+      'file:///C:/ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '✖ test\\vat.test.ts (166.0493ms)',
+    ].join('\n');
+    ok(mentionsFile(problem, 'src/lines.ts'));
+  });
+
+  it('мест падения нет — прежнее правило: полный путь, иначе basename со своим каталогом', () => {
+    ok(mentionsFile('src/other.ts(3,1): нет экспорта', 'src/other.ts'));
+    // basename совпадает, но каталог перед ним — чужой (два разных index.ts).
+    strictEqual(mentionsFile('server/src/tools/index.ts(5,1): ошибка', 'server/src/exec/index.ts'), false);
+    // basename без всякого пути перед ним — второго кандидата в тексте нет, считается своим.
+    ok(mentionsFile('index.ts(5,1): ошибка', 'server/src/exec/index.ts'));
+  });
+});
+
+describe('repairGuidance', () => {
+  it('объясняет необъявленный параметр и необъявленный импорт', () => {
+    for (const name of ['opts', 'calculateVat']) {
+      const hints = repairGuidance(`ReferenceError: ${name} is not defined`, '');
+      ok(hints.join('\n').includes(name));
+      ok(hints.join('\n').includes('параметр функции'));
+      ok(hints.join('\n').includes('импорт'));
+    }
+  });
+  it('показывает все текущие объявления повторённого идентификатора', () => {
+    const hints = repairGuidance(
+      "SyntaxError: Identifier 'sub' has already been declared",
+      'const sub = subtotal(lines);\nconst invoice = {};\nconst sub = subtotal(lines);\n',
+    );
+    strictEqual(hints.length, 1);
+    match(hints[0]!, /не добавляй ещё одно/);
+    match(hints[0]!, /1: const sub/);
+    match(hints[0]!, /3: const sub/);
+  });
+
+  it('даёт отдельные ограничения для ESM и отсутствующего экспорта', () => {
+    const hints = repairGuidance(
+      "require is not defined; module does not provide an export named 'Money'",
+      null,
+    );
+    ok(hints.some((hint) => hint.includes('ESM')));
+    ok(hints.some((hint) => hint.includes('Money')));
+  });
+
+  it('показывает строки вокруг позиции синтаксической ошибки', () => {
+    const hints = repairGuidance(
+      'file:///C:/work/src/a.ts:3\nSyntaxError: Expression expected',
+      'export function a() {\n  return 1;\n}\n}\n',
+    );
+    ok(hints.some((hint) => hint.includes('строки 3') && hint.includes('4: }')));
   });
 });

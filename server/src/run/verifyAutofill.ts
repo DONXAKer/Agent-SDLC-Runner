@@ -14,7 +14,7 @@
  * ещё не запускался, и вписать туда пред-стартовый статус значило бы солгать в обе стороны.
  */
 
-import type { GateRunResult } from '@sdlc-runner/shared';
+import type { GateRunResult, Verdict } from '@sdlc-runner/shared';
 
 import { gateKey } from '../gates/gatesFile.ts';
 import { escapeCell, splitRow } from '../md/table.ts';
@@ -48,6 +48,9 @@ export interface VerifyReportFacts {
   attempt: number;
   slug: string;
   attemptBudget: number;
+  planApprovedOn?: string | null;
+  baseSha?: string | null;
+  headSha?: string | null;
   /**
    * Статус гейтов РАННИХ этапов, которые рантайм посчитал сам (сегодня — «Разбор
    * последствий» этапа 4). Имя гейта → статус и адрес артефакта, где он виден.
@@ -69,6 +72,19 @@ export interface VerifyReportFacts {
    * прогоном на наборе с двумя ранними гейтами).
    */
   earlyGatesForModel?: readonly string[];
+  /**
+   * Включённые гейты этапа 6, статус которых рантайм на момент автозаполнения не знает
+   * (сегодня — «Ревью независимым агентом»: рецензент ещё не запускался). При
+   * развороте строки-образца для них остаётся строка с плейсхолдерами — модели.
+   */
+  gatesForModel?: readonly string[];
+  /** Гейты, статус которых ставит рантайм без прогона команды (сверка отчёта с набором). */
+  runtimeGateRows?: readonly { name: string; status: string; result: string }[];
+}
+
+/** Первая ячейка строки — целиком место формы (`‹имя из набора›`): строка-образец. */
+function isSampleNameCell(name: string): boolean {
+  return /^‹[^‹›]*›$/.test(name.trim());
 }
 
 /** Однострочная ячейка таблицы: переносы и вертикальные черты в ней жить не могут. */
@@ -125,7 +141,7 @@ export function autofillVerificationReport(
     for (let j = tableStart; j < tableEnd; j++) {
       const line = lines[j]!;
       const name = firstCell(line);
-      if (name === null || !line.includes('‹')) continue;
+      if (name === null || !line.includes('‹') || isSampleNameCell(name)) continue;
       const r = byKey.get(gateKey(name));
       if (r === undefined) continue;
       // Черта в имени экранируется обратно: splitRow её разэкранировал, и пересборка без
@@ -134,18 +150,31 @@ export function autofillVerificationReport(
       used.add(gateKey(name));
       filled++;
     }
-    // Строка-образец «прочий включённый гейт» разворачивается в фактические строки
-    // оставшихся прогнанных гейтов — либо убирается: образец не отчёт.
-    const otherIdx = lines.findIndex(
-      (l, k) => k >= tableStart && k < tableEnd && l.includes('‹прочий включённый гейт'),
-    );
+    // Строка-образец разворачивается в фактические строки оставшихся прогнанных гейтов —
+    // либо убирается: образец не отчёт. Образец узнаётся по первой ячейке-плейсхолдеру, а
+    // не по тексту шаблона: актуальная форма эталона — одна строка `‹имя из набора›`, а
+    // код ждал старую `‹прочий включённый гейт…›` и на актуальном шаблоне не заполнял
+    // таблицу вовсе (code-review-all 2026-09-23). Гейтам, статуса которых у рантайма ещё
+    // нет (ревью), остаётся строка модели.
+    const otherIdx = lines.findIndex((l, k) => {
+      if (k < tableStart || k >= tableEnd) return false;
+      const name = firstCell(l);
+      return name !== null && (isSampleNameCell(name) || l.includes('‹прочий включённый гейт'));
+    });
     if (otherIdx >= 0) {
       const rest = gates.filter((g) => !used.has(gateKey(g.name)));
+      const forModel = (f.gatesForModel ?? []).filter(
+        (n) => !used.has(gateKey(n)) && !gates.some((g) => gateKey(g.name) === gateKey(n)),
+      );
       lines.splice(
         otherIdx,
         1,
         // Черта в имени экранируется и здесь — та же страховка, что у именованных строк.
         ...rest.map((r) => `| ${escapeCell(r.name)} | ${r.status} | ${resultCell(r)} |`),
+        ...(f.runtimeGateRows ?? [])
+          .filter((g) => !used.has(gateKey(g.name)) && !gates.some((r) => gateKey(r.name) === gateKey(g.name)))
+          .map((g) => `| ${escapeCell(g.name)} | ${g.status} | ${cellSafe(g.result)} |`),
+        ...forModel.map((n) => `| ${escapeCell(n)} | ‹✅/❌/⏭› | ‹фактический результат› |`),
       );
       filled += rest.length > 0 ? rest.length : 1;
     }
@@ -191,8 +220,10 @@ export function autofillVerificationReport(
 
   // Шаг 2: механические плейсхолдеры шапки и вердикта — общей механикой (та же, что у
   // журнала chunk'а: с конца, строки решений человека не трогаются).
-  const mech = fillMechanicalPlaceholders(lines.join('\n'), (inner) =>
-    inner === 'N'
+  const mech = fillMechanicalPlaceholders(lines.join('\n'), (inner, line) =>
+    inner === 'дата' && line.includes('**План:**')
+      ? f.planApprovedOn ?? null
+      : inner === 'N'
       ? String(f.chunk)
       : inner === 'K'
         ? String(f.attempt)
@@ -200,8 +231,142 @@ export function autofillVerificationReport(
           ? f.slug
           : inner === 'бюджет'
             ? String(f.attemptBudget)
+            : inner === 'base_sha' ? f.baseSha ?? null
+            : inner === 'head_sha' ? f.headSha ?? null
             : null,
   );
+  // These numbers are inside the canonical diff filename, where the general
+  // placeholder scanner deliberately ignores inline code examples.
+  let output = mech.text;
+  output = output.replace(/^(\s*-\s*\*\*Diff:\*\*[^\r\n]*)/gmu, (line) => {
+    const changed = line.replaceAll('chunk-‹N›-attempt-‹K›-diff.patch', `chunk-${f.chunk}-attempt-${f.attempt}-diff.patch`);
+    if (changed !== line) filled++;
+    return changed;
+  });
+  return { text: output, filled: filled + mech.filled };
+}
 
-  return { text: mech.text, filled: filled + mech.filled };
+/**
+ * Строки шапки «Сверка с деревом» и «Свидетельства попытки» — фактами рантайма.
+ *
+ * Форма предлагает выбор из двух вариантов («да / нет — passed=false», «произведены
+ * инструментом / написаны исполнителем»), и без этой записи выбор делала модель — а
+ * вердикт по обоим условиям считает рантайм. `null`/`undefined` у факта — строка не
+ * трогается: сверки не было, и писать «да» было бы ложью в ту же сторону.
+ */
+export function writeEvidenceLines(
+  text: string,
+  facts: { diffMatchesTree: boolean | null | undefined; evidenceProblem: string | null | undefined },
+): { text: string; changed: boolean } {
+  const lines = text.split('\n');
+  let changed = false;
+  const put = (label: RegExp, value: string): void => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const cr = line.endsWith('\r') ? '\r' : '';
+      const bare = cr === '' ? line : line.slice(0, -1);
+      const m = label.exec(bare);
+      if (m === null) continue;
+      const next = `${m[1]!}${value}${cr}`;
+      if (next !== line) {
+        lines[i] = next;
+        changed = true;
+      }
+      return;
+    }
+  };
+  if (facts.diffMatchesTree !== null && facts.diffMatchesTree !== undefined) {
+    put(
+      /^(\s*[-*]\s*\*\*Сверка с деревом:\*\*\s*)(.*)$/i,
+      facts.diffMatchesTree
+        ? 'перегенерированный `git diff` совпал с патчем: да (сверил рантайм побайтово)'
+        : 'перегенерированный `git diff` совпал с патчем: **нет — passed=false** (сверил рантайм побайтово)',
+    );
+  }
+  if (facts.evidenceProblem !== undefined) {
+    put(
+      /^(\s*[-*]\s*\*\*Свидетельства попытки:\*\*\s*)(.*)$/i,
+      facts.evidenceProblem === null
+        ? 'произведены инструментом (`evidence.json` на месте, хэши сошлись — сверил рантайм)'
+        : `**написаны исполнителем — свидетельством не считаются** (${facts.evidenceProblem})`,
+    );
+  }
+  return { text: lines.join('\n'), changed };
+}
+
+/**
+ * Статус и результат ОДНОЙ строки таблицы «Гейты» по имени гейта (ключ `gateKey`) —
+ * фактом рантайма, посчитанным после автозаполнения (сверка отчёта с набором — условие
+ * вердикта, а её строка стояла зелёной до расчёта). Строки нет — ничего не меняется.
+ */
+export function writeGateRowStatus(text: string, gateName: string, status: string, result: string): { text: string; changed: boolean } {
+  const lines = text.split('\n');
+  const key = gateKey(gateName);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!line.trimStart().startsWith('|')) continue;
+    const cells = splitRow(line.trim());
+    if (cells.length < 3 || gateKey(cells[0] ?? '') !== key) continue;
+    const cr = line.endsWith('\r') ? '\r' : '';
+    const next = `| ${escapeCell(cells[0]!)} | ${status} | ${escapeCell(result.replace(/\s*\r?\n\s*/g, ' '))} |${cr}`;
+    if (next === line) return { text, changed: false };
+    lines[i] = next;
+    return { text: lines.join('\n'), changed: true };
+  }
+  return { text, changed: false };
+}
+
+/** Строка поля секции «Вердикт»: `- **passed:** …` — маркер списка и жирность прощаются. */
+function verdictFieldRe(label: string): RegExp {
+  return new RegExp(`^(\\s*[-*]\\s*[*_]*${label}[*_]*\\s*:\\s*[*_]*\\s*)(.*)$`, 'i');
+}
+
+/**
+ * Вердикт, посчитанный рантаймом, — в секцию «Вердикт» отчёта приёмки: копия для человека
+ * и терминальных скиллов. Решений по ней рантайм не принимает: отчёт пишет и модель
+ * этапа 6, и её `- passed: true`, записанный до отмены этапа, прежде открывал handoff с
+ * коммитом (code-review-all 2026-09-23). Источник решений — служебный файл попытки
+ * (`verdictStore.ts`).
+ *
+ * `found` — нашлась ли секция с полем `passed`: `changed: false` при `found: true` значит
+ * «уже записано», при `found: false` копия не легла, и об этом надо сказать оператору.
+ */
+export function writeVerdictSection(text: string, verdict: Verdict): { text: string; changed: boolean; found: boolean } {
+  const lines = text.split('\n');
+  const head = lines.findIndex((l) => /^##\s+(\d+\.\s*)?Вердикт\s*$/i.test(l.trim()));
+  if (head === -1) return { text, changed: false, found: false };
+  let end = lines.length;
+  for (let i = head + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  const passedRe = verdictFieldRe('passed');
+  const values: [RegExp, string][] = [
+    [passedRe, verdict.passed ? 'true' : 'false'],
+    [verdictFieldRe('action'), verdict.passed ? 'continue' : verdict.action],
+    // Зелёный вердикт не «упал» ни по чему: заметки (калибровка гейтов и т.п.) идут в
+    // `reasons` при любом исходе, и под `passed: true` читались бы как провал.
+    [verdictFieldRe('По каким условиям упал'), verdict.passed || verdict.reasons.length === 0 ? 'н/п' : verdict.reasons.join('; ')],
+  ];
+  let changed = false;
+  let found = false;
+  for (let i = head + 1; i < end; i++) {
+    const line = lines[i]!;
+    const cr = line.endsWith('\r') ? '\r' : '';
+    const bare = cr === '' ? line : line.slice(0, -1);
+    for (const [re, value] of values) {
+      const m = re.exec(bare);
+      if (m === null) continue;
+      if (re === passedRe) found = true;
+      const next = `${m[1]!}${value}${cr}`;
+      if (next !== line) {
+        lines[i] = next;
+        changed = true;
+      }
+      break;
+    }
+  }
+  return { text: lines.join('\n'), changed, found };
 }

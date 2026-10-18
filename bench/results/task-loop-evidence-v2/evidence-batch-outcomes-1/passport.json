@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "batch-outcomes",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-exu9qt",
+  "baseCommit": "f5e154bfad506e1c00c9fee81efc6b3a4d84b0eb",
+  "contract": {
+    "task": "Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": true,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/batch-outcomes.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T18:01:11.483Z"
+}

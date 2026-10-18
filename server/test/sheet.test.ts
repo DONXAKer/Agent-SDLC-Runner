@@ -147,6 +147,17 @@ describe('matchChoice', () => {
     deepStrictEqual(matchChoice(opts, 'мелкий'), { key: 'мелкий', comment: '' });
   });
 
+  it('ключ меню — целое слово внутри ответа (кириллица без \\b)', () => {
+    const opts = [
+      { key: 'полный', text: 'полный', commentSlot: false, free: false },
+      { key: 'мелкий', text: 'мелкий', commentSlot: false, free: false },
+    ];
+    deepStrictEqual(matchChoice(opts, 'мелкий контур'), { key: 'мелкий', comment: 'контур' });
+    deepStrictEqual(matchChoice(opts, 'выбрать полный'), { key: 'полный', comment: 'выбрать' });
+    strictEqual(matchChoice(opts, 'контур'), null);
+    strictEqual(matchChoice(opts, 'полный или мелкий'), null);
+  });
+
   it('свободный вариант — весь ответ становится значением', () => {
     const opts = [
       { key: 'имя дата', text: '‹имя› · ‹дата›', commentSlot: false, free: true },
@@ -186,6 +197,36 @@ describe('parseListItems', () => {
 });
 
 describe('parseRecordRows', () => {
+  it('смешанная запись: пункт без метки и процедура на продолжении остаются одним критерием', () => {
+    const columns = [
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- [edge] Проверка лимита\n  как проверить: node --test test/limit.test.ts — резерв отклонён', columns), [
+      { пункт: '[edge] Проверка лимита', 'как проверить': 'node --test test/limit.test.ts — резерв отклонён' },
+    ]);
+  });
+
+  it('строка с inline pipe не теряет проверку и критерий из дополнительных ячеек', () => {
+    const columns = [
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- Форма Quote сохраняется | Проверка: вызвать priceFor() | критерий: surcharge отсутствует', columns), [
+      { пункт: 'Форма Quote сохраняется', 'как проверить': 'Проверка: вызвать priceFor() | критерий: surcharge отсутствует' },
+    ]);
+  });
+  it('inline pipe распределяет известные колонки и сохраняет остаток в последней', () => {
+    const columns = [
+      { id: 'claim', header: 'Номер пункта', kind: 'mechanical' },
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+      { id: 'ожидаемо', header: 'Ожидаемо', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- **claim-2** | VAT для reduced | вызвать calculateVat() | итог округлён до копеек', columns), [
+      { пункт: 'VAT для reduced', 'как проверить': 'вызвать calculateVat()', ожидаемо: 'итог округлён до копеек' },
+    ]);
+  });
   const columns = [
     { id: 'путь', header: 'path/to/file', kind: 'scalar' },
     { id: 'что здесь меняем', header: 'что здесь меняем', kind: 'scalar' },

@@ -1,0 +1,407 @@
+{
+  "run": {
+    "slug": "d4-granite-vat-rounding",
+    "model": "ollama:granite4.2-8b-ctx32k",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k",
+      "explore": "ollama:granite4.2-8b-ctx32k",
+      "ask": "ollama:granite4.2-8b-ctx32k",
+      "plan": "ollama:granite4.2-8b-ctx32k",
+      "chunk": "ollama:granite4.2-8b-ctx32k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:granite4.2-8b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-25T22:14:17.712Z",
+    "finishedAt": "2026-09-26T02:04:45.797Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 23
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "turns": 10,
+        "modelRequests": 6
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап закрыт: код и содержание — работа модели, оформление добрано рантаймом (исполнитель упал только на лимите/оформлении при полных артефактах)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 12,
+        "modelRequests": 8,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "envFailure": "ollama: ответ не получен за 1200000 мс — таймаут запроса",
+        "modelRequests": 15
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 160255,
+          "outputTokens": 91568,
+          "cacheReadTokens": 148146,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 6137870
+        },
+        "durationMs": 3600046
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 262401,
+          "outputTokens": 77201,
+          "cacheReadTokens": 227326,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 4670727
+        },
+        "durationMs": 3600102
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 306961,
+          "outputTokens": 68864,
+          "cacheReadTokens": 265119,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 4244140
+        },
+        "durationMs": 3027778
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 192792,
+          "outputTokens": 75967,
+          "cacheReadTokens": 171558,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 5687574
+        },
+        "durationMs": 3599945
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 13,
+        "reminders": 1
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 12,
+        "reminders": 1
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 10
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 0
+      },
+      {
+        "stage": "ask",
+        "questions": 3,
+        "approvals": 1,
+        "waitMs": 14
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 32
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 28
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 40
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:515cf94e-f9a2-4631-9905-6d3735b089fa",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\d4-granite-vat-rounding\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:aae2ec8c-405e-48ab-8b66-76e0923c0632",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "ask",
+        "requestId": "form:286f7411-d744-44ad-96e0-aa5fc5cbf136",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\d4-granite-vat-rounding\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "open-0",
+            "question": "Как определяется облагаемый счёт ('std') — через `opts.vat='std'` или через свойство позиции/товара? (Для 'none' объект счёта не должен получать `vat:0`)"
+          },
+          {
+            "id": "open-1",
+            "question": "Как определяется 'облагаемый' vs 'необлагаемый' счёт: только через `opts.vat` (по умолчанию `'none'`, `'std'` для облагаемого), или есть другие критерии (например, по товару)?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Определяется ли облагаемый счёт только через `opts.vat='std'`, или есть другие критерии (например, по товару/позиции)?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10738,
+        "userChars": 4383,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10590,
+        "userChars": 11850,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6975,
+        "userChars": 12480,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 15867,
+        "userChars": 18154,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-c045b65b-a377-4a08-a558-ea6d3bdb954b-1",
+        "questionId": "open-0",
+        "text": "Как определяется облагаемый счёт ('std') — через `opts.vat='std'` или через свойство позиции/товара? (Для 'none' объект счёта не должен получать `vat:0`)"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-c045b65b-a377-4a08-a558-ea6d3bdb954b-1",
+        "questionId": "open-1",
+        "text": "Как определяется 'облагаемый' vs 'необлагаемый' счёт: только через `opts.vat` (по умолчанию `'none'`, `'std'` для облагаемого), или есть другие критерии (например, по товару)?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-c045b65b-a377-4a08-a558-ea6d3bdb954b-2",
+        "questionId": "q1",
+        "text": "Определяется ли облагаемый счёт только через `opts.vat='std'`, или есть другие критерии (например, по товару/позиции)?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

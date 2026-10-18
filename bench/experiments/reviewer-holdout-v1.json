@@ -1,0 +1,50 @@
+[
+  {
+    "id":"expiry-boundary", "request":"A cache entry is fresh strictly before expiresAt. At expiresAt or later return undefined. Value can be any JavaScript value, including false and zero.",
+    "file":"cache/fresh.js", "before":"function fresh(entry, now) { return entry.value; }",
+    "candidates":["function fresh(entry, now) { return now <= entry.expiresAt ? entry.value : undefined; }","function fresh(entry, now) { return now < entry.expiresAt ? entry.value : undefined; }"],
+    "expectedOutcome":"select", "acceptable":[1], "checks":"return fresh({value:false,expiresAt:10},9)===false && fresh({value:0,expiresAt:10},10)===undefined && fresh({value:7,expiresAt:10},11)===undefined;"
+  },
+  {
+    "id":"zero-config-consumer", "request":"Configuration uses maxRetries, default 3 only when the field is undefined. Zero is valid and means one initial attempt with no retries. Preserve send's return shape {attempts}. Shown modules are the complete relevant implementation.",
+    "sources":{"./config.js":"module.exports.read = c => ({ retries: c.maxRetries || 3 });","./send.js":"const {read}=require('./config.js'); module.exports.send=c=>({attempts:read(c).retries+1});"},
+    "candidates":[{"./config.js":"module.exports.read = c => ({ retries: c.maxRetries === undefined ? 3 : c.maxRetries });"},{"./config.js":"module.exports.read = c => ({ maxRetries: c.maxRetries === undefined ? 3 : c.maxRetries });"}],
+    "expectedOutcome":"select", "acceptable":[0], "checks":"const {send}=require('./send.js'); return send({maxRetries:0}).attempts===1 && send({}).attempts===4 && send({maxRetries:2}).attempts===3;"
+  },
+  {
+    "id":"api-rename-compatibility", "request":"Introduce decode as a new export while preserving existing parse callers and their behavior. The application should switch to decode. Both supplied files form the complete relevant code. parse/decode accept JSON strings.",
+    "sources":{"./codec.js":"module.exports.parse = text => JSON.parse(text);","./app.js":"const {parse}=require('./codec.js'); module.exports.run=text=>parse(text).value;"},
+    "candidates":[{"./codec.js":"const decode=text=>JSON.parse(text); module.exports={decode,parse:decode};","./app.js":"const {decode}=require('./codec.js'); module.exports.run=text=>decode(text).value;"},{"./codec.js":"module.exports.decode=text=>JSON.parse(text);","./app.js":"const {decode}=require('./codec.js'); module.exports.run=text=>decode(text).value;"}],
+    "expectedOutcome":"select", "acceptable":[0], "checks":"const c=require('./codec.js'); return typeof c.parse==='function' && c.parse('{\"value\":2}').value===2 && c.decode('{\"value\":3}').value===3 && require('./app.js').run('{\"value\":4}')===4;"
+  },
+  {
+    "id":"own-property-only", "request":"Return true exactly when the object has an own property named key. Inherited properties must not count. Support null-prototype objects and objects whose hasOwnProperty is a nonfunction own property.",
+    "file":"objects/owns.js", "before":"function owns(o,key) { return false; }",
+    "candidates":["function owns(o,key) { return key in o; }","function owns(o,key) { return o.hasOwnProperty(key); }"],
+    "expectedOutcome":"reject_all", "acceptable":[], "checks":"const p=Object.create({a:1}); if(owns(p,'a')) return false; const n=Object.create(null); n.x=1; if(!owns(n,'x')) return false; return owns({hasOwnProperty:0,x:1},'x');"
+  },
+  {
+    "id":"null-preserving-default", "request":"Return options.mode unless it is undefined, in which case return 'auto'. Preserve null, false, zero, and the empty string. No validation or coercion is requested.",
+    "file":"options/mode.js", "before":"function mode(options) { return 'auto'; }",
+    "candidates":["function mode(options) { return options.mode === undefined ? 'auto' : options.mode; }","function mode(options) { const value=options.mode; if(value === undefined) return 'auto'; return value; }"],
+    "expectedOutcome":"select", "acceptable":[0,1], "checks":"return mode({})==='auto' && mode({mode:null})===null && mode({mode:false})===false && mode({mode:0})===0 && mode({mode:''})==='';"
+  },
+  {
+    "id":"callback-contract", "request":"For an empty batch, invoke done synchronously exactly once with (null, []), then return undefined. Inputs here are always empty arrays and done is always callable. Preserve this callback API.",
+    "file":"batch/empty.js", "before":"function batch(xs,done) { done(null,[]); }",
+    "candidates":["function batch(xs,done) { return Promise.resolve([]); }","function batch(xs,done) { done(null,[]); done(null,[]); }"],
+    "expectedOutcome":"reject_all", "acceptable":[], "checks":"let count=0; let valid=false; const result=batch([], (err,rows)=>{count++; valid=err===null && Array.isArray(rows) && rows.length===0;}); return result===undefined && count===1 && valid;"
+  },
+  {
+    "id":"unseen-transform-contract", "request":"Make the adapter return a canonical customer key according to the existing normalize helper's documented behavior. Its implementation and documentation are not included, and whether it returns a string or an object is unknown. No other output contract is supplied.",
+    "sources":{"./adapter.js":"const {normalize}=require('./normalize.js'); module.exports.key=input=>normalize(input);"},
+    "candidates":[{"./adapter.js":"const {normalize}=require('./normalize.js'); module.exports.key=input=>normalize(input).id;"},{"./adapter.js":"const {normalize}=require('./normalize.js'); module.exports.key=input=>String(normalize(input));"}],
+    "expectedOutcome":"insufficient_evidence", "acceptable":[]
+  },
+  {
+    "id":"pagination-unit-unknown", "request":"Correct the client's next-page parameter to comply with the remote service API. The remote API documentation, server implementation, and request/response examples are unavailable. It is unknown whether the parameter represents a row offset or page number.",
+    "file":"client/pagination.js", "before":"function next(current, size) { throw new Error('API contract unknown'); }",
+    "candidates":["function next(current,size) { return current+size; }","function next(current,size) { return current+1; }"],
+    "expectedOutcome":"insufficient_evidence", "acceptable":[]
+  }
+]

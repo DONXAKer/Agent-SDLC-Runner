@@ -1,0 +1,225 @@
+{
+  "run": {
+    "slug": "diag-i01-granite-paired-v2",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill-selfreview",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-compactfill-selfreview",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-28T20:49:54.648Z",
+    "finishedAt": "2026-09-28T20:54:55.243Z",
+    "maxTurns": 15,
+    "maxTurnsExplicit": true,
+    "maxIterationsByStage": {}
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 6
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 29681,
+          "outputTokens": 9129,
+          "cacheReadTokens": 21640,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 363054
+        },
+        "durationMs": 300020,
+        "requestDurationsMs": [
+          37660,
+          78687,
+          154232,
+          92478
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 6
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 11
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 33
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:b851992d-0bf0-4c14-b49e-a7bfcbe6946c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-i01-granite-paired-v2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10896,
+        "userChars": 4754,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7e35bece59e31eceb2b540308675d46846ed1227",
+      "sourceHash": "13d44d9d4349418fff92966a9d2eef7cb349e4a485d1a3da1a873459e88808bf",
+      "configHash": "3009b4cd0c1f47f013fff33c4f8a7e538cf7a643eb38c2c011f7392109ae3966",
+      "inputHash": "ec8bca2c9eed2d1bd8b8f663b65a5d90911232077e732e93e461462088a0290a",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 300000,
+      "runTimeoutMs": 300000
+    },
+    "workspaceHash": "b821f46d5f9269598dde59ccadd14aa26e13de869961efc806da165a556e6131",
+    "state": "finished",
+    "capturedAt": "2026-09-28T20:54:55.257Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-28T20:54:55.239Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "55b22a33fed1a96df743203468c5aa6c6755a50cce1efbf12a3025731a1e62cc",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "5aab7f11a146f1080a66f672ff0b85d5ff8666f14a631c01e01553f7cea0608c",
+        "placeholders": 11,
+        "uncheckedQuestions": 2,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "5997d22fd5d5d2b721feecf16736c69b6fa5f02ed56ea933fa7ad6e191f6927e",
+        "placeholders": 33,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

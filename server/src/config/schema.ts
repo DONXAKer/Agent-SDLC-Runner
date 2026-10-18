@@ -26,6 +26,18 @@ export interface RunnerLimits {
    */
   chatTimeoutMs: number;
   /**
+   * Потолок на ОДИН запрос к модели этапа `explore` (разведка конвейером и слепой вывод
+   * листа) — отдельная от `chatTimeoutMs` настройка, не выше него (`config/limits.ts`).
+   *
+   * Заведено по разбору прогона 2026-10-05 (`bench/results/guided-sample-20261005140516192-*`):
+   * два запроса разведки шли по ~293 и ~306 с при общем потолке 600 с и съели 664 с из
+   * 12-минутного бюджета этапа. Запрос разведки ограничен по объёму (карточка файла,
+   * `max_tokens` до ~1600–4096) — минутами он идти не должен; обрыв по таймауту с
+   * диагностикой честнее тихого сгорания бюджета этапа. Бюджеты прогона (active/stage)
+   * эта ручка не трогает. Не задано — 120 000 мс (`config/load.ts`, `LIMIT_DEFAULTS`).
+   */
+  exploreRequestTimeoutMs?: number;
+  /**
    * Свой, более жёсткий потолок результата инструмента для флоу `loop`.
    *
    * Общий `maxToolResultBytes` рассчитан на модель с большим окном. У локального контура
@@ -67,6 +79,31 @@ export interface RunnerConfig {
   skillsDir: string;
   agentsDir: string;
   methodologyDir: string;
+  /**
+   * Каталог стенда (`bench/`): оттуда дашборд читает `results/*.json` и `traces/`. Не задан —
+   * `bench/` рядом с сервером; каталога нет (образ без стенда) — дашборд просто без карточек
+   * стенда. Машинное значение: `runner.local.json` или `SDLC_BENCH_DIR`.
+   */
+  benchDir?: string;
+  /**
+   * Отдельный маршрут рецензента этапа 6 — id модели из `config/models.json`.
+   *
+   * Семантика нормы verify (`server/methodology/guided.md`, редизайн 2026-10-05/06):
+   * модельное ревью той же моделью, что исполнитель (маршрут этапа chunk), уровнем
+   * вердикта не является. Если `reviewModel` задан и его `provider:model` ОТЛИЧАЕТСЯ от
+   * исполнителя — независимый скан этапа 6 идёт по этому маршруту, и его подтверждённые
+   * находки блокирующие (роняют вердикт, как раньше). Если не задан или совпадает с
+   * исполнителем — скан идёт маршрутом этапа verify, как сейчас, но его находки
+   * помечаются advisory: видны в отчёте приёмки отдельным разделом, вердикт не роняют.
+   * Тот же маршрут обслуживает и независимое ревью проработки на этапе 4
+   * (`run/preparationReview.ts`) — это внутренний фильтр качества плана, не вердикт.
+   *
+   * Это ЕДИНСТВЕННОЕ исключение из инварианта «одна локальная модель в guided»
+   * (`Run.runStage`): маршрут резолвится вне профиля, поэтому проверки
+   * provider:model/localhost его не видят, и удалённый рецензент допустим.
+   * Машинное значение: `runner.local.json` или `SDLC_REVIEW_MODEL`.
+   */
+  reviewModel?: string;
   limits: RunnerLimits;
 }
 
@@ -98,10 +135,7 @@ export interface ModelDef {
   id: string;
   provider: string;
   model: string;
-  /**
-   * Проставляется руками. Нужен ровно для одного: правила методологии «рецензент этапа 6
-   * строго сильнее исполнителя этапа 5».
-   */
+  /** Manually assigned approximate capability rank; used to order escalation candidates. */
   rank: number;
   /**
    * Сырые поля тела запроса `chat/completions` для этой модели: temperature, max_tokens,
@@ -145,8 +179,11 @@ export interface ModelDef {
   /**
    * Этап 6 по хункам (`run/reviewFill.ts`): вместо одного свободного хода рецензента
    * рантайм режет diff на фрагменты и задаёт по ОДНОМУ закрытому вопросу на фрагмент
-   * (фиксированный список классов дефектов) и на каждую ось плана, объявленную не
-   * затронутой. Ответы идут тем же `normalize`/`acceptRecord`, что записи модели.
+   * (фиксированный список классов дефектов) и на КАЖДУЮ из шести осей плана — не только
+   * объявленные не затронутыми (трек 1а, 2026-09-08: план может сослаться на claim,
+   * который покрывает совсем другое изменение под тем же ярлыком оси — посев
+   * `axis-config-blind` пропущен именно так). Ответы идут тем же `normalize`/
+   * `acceptRecord`, что записи модели.
    *
    * Та же природа, что у `stepFill` для этапа 5: локальный рецензент на 40–80 КБ входа
    * либо упирается в лимит длины, либо печатает зелёный бланк, не читая («оформитель»,
@@ -188,8 +225,16 @@ export interface ModelDef {
    * несуществующий claim/гейт) — только те, о которых она промолчала. `finishGuard`/
    * `axisProblems()` остаются работать как раньше и ловят то, что топ-ап не смог закрыть.
    * Только flow `loop`. Умолчание — выключено: ручка заведена под замер, не для всех.
+   *
+   * Форма добора: `'stepwise'` — пошаговый (`run/planAxisStepwise.ts`: «затронута?» по всем
+   * осям, причины, «что именно», исход по одной оси одним ключом из конкретных адресатов,
+   * поля риска — одна степень свободы на вопрос); `true`/`'combined'` — комбинированный,
+   * одна строка из 3–6 полей на ось одним ответом. `true` оставлен за комбинированным
+   * намеренно: под ним записи замерены (test29), и смена смысла под тем же id смешала бы
+   * в матрице два механизма — правило «одна ручка на замер». Пошаговый включается явным
+   * `'stepwise'` и живой серией пока не замерен. Иное значение — ошибка профиля.
    */
-  planAxisFill?: boolean;
+  planAxisFill?: boolean | 'combined' | 'stepwise';
   /**
    * Этап 5 по шагам плана (`exec/StepExecutor.ts`): рантайм ведёт цикл сам — по одному
    * шагу плана за запрос, обычным completion'ом без tool-use, с содержимым ровно ОДНОГО
@@ -207,6 +252,23 @@ export interface ModelDef {
    * Умолчание — выключено: ручка заведена под замер серией, не для всех.
    */
   stepFill?: boolean;
+  /**
+   * Лексический контекст шага для `stepFill` (`exec/stepContext.ts::buildStepContext`):
+   * карта экспортов проекта («используй эти реальные имена; не выдумывай»), выдержки
+   * объявлений из связанных по импортам/терминам файлов, соглашение об импортах
+   * (`.ts` или без расширения), ближайший пример теста — без модели и без векторного
+   * хранилища, бюджет 6000 байт. Действует только при `stepFill: true`.
+   *
+   * Заведено против класса дефекта из живого прогона 2026-09-27
+   * (`docs/model-runs.md`, серия «v2»): `ministral3-14b-…-compactfill` на `rename-field`
+   * удалила поле интерфейса вместо переименования — карта экспортов должна была
+   * показать модели текущую форму типа. До этой записи файл был подключён БЕЗУСЛОВНО,
+   * без ручки (правку не проверял ни один контролируемый прогон) — правило «одна ручка
+   * на замер» этого не пережило. Умолчание — выключено: ручка заведена под замер, не
+   * для всех.
+   */
+  /** Defaults on when stepFill is enabled; set false for controlled comparisons. */
+  stepContext?: boolean;
   /**
    * Схема формы вместо сплошного текста бланка — три независимых эффекта под одной
    * ручкой, потому что журнал замеров требует «одна ручка на прогон», а разводить их на
@@ -306,6 +368,11 @@ export interface ModelsConfig {
 }
 
 export interface ProfileDef {
+  /** Experimental selection of independently validated guided plans. */
+  planSelection?: { candidates: 1 | 2 | 3; judgeModel?: string };
+  chunkSelection?: { candidates: 2 | 3; judgeModel?: string; candidateTimeoutMs?: number };
+  /** Independent guided v4 experiments; omitted means the established behavior. */
+  guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
   label: string;
   /**
    * Модель этапа. Список — ансамбль: несколько независимых прогонов одного этапа.
@@ -434,10 +501,12 @@ export interface ResolvedRoute {
   reviewFill: boolean;
   /** Пропуск хода после полного конвейера — см. `ModelDef.skipTurnAfterReviewFill`. */
   skipTurnAfterReviewFill: boolean;
-  /** Топ-ап осей плана по образцу claimFill — см. `ModelDef.planAxisFill`. */
-  planAxisFill: boolean;
+  /** Топ-ап осей плана по образцу claimFill — см. `ModelDef.planAxisFill`; `false` — выключен. */
+  planAxisFill: false | 'combined' | 'stepwise';
   /** Этап 5 по шагам плана без tool-use — см. `ModelDef.stepFill`. */
   stepFill: boolean;
+  /** Лексический контекст шага для `stepFill` — см. `ModelDef.stepContext`. */
+  stepContext: boolean;
   /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */
   compactForms: 'off' | 'fill' | 'inputs' | 'all';
   /** Заявленное окно контекста записи — см. `ModelDef.contextWindow`. */
@@ -451,6 +520,9 @@ export interface ResolvedRoute {
 }
 
 export interface ResolvedProfile {
+  chunkSelection?: { candidates: 2 | 3; judge: ResolvedRoute; candidateTimeoutMs?: number };
+  guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
+  planSelection?: { candidates: 1 | 2 | 3; judge: ResolvedRoute };
   name: string;
   label: string;
   /**

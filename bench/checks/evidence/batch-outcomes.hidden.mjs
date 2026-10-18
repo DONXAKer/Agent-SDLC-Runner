@@ -1,0 +1,5 @@
+import {test} from 'node:test'; import assert from 'node:assert/strict'; import {pathToFileURL} from 'node:url'; import {resolve} from 'node:path';
+const mod=await import(pathToFileURL(resolve(process.env.BENCH_TARGET_DIR,"src/batch.mjs")).href);
+const fn=mod["settleSequentially"];
+test('H1 [contract] public module contract',()=>{assert.equal(mod.protocolVersion,1);assert.equal(typeof fn,'function');});
+test('H2 [behavior] independent boundary and sequence cases',async()=>{const err=new Error('x'),seen=[];let active=0; const xs=[0,1,2,3];const out=await fn(xs,async(x,i)=>{assert.equal(active++,0); seen.push(i); await new Promise(r=>setTimeout(r,2)); active--;if(x===1)throw err;return x*2;}); assert.deepEqual(seen,[0,1,2,3]);assert.deepEqual(out,[{ok:true,value:0},{ok:false,error:err},{ok:true,value:4},{ok:true,value:6}]); assert.equal(out[1].error,err); assert.deepEqual(await fn([1,2],()=>{throw err;}),[{ok:false,error:err},{ok:false,error:err}]);assert.deepEqual(await fn([],()=>{throw err;}),[]);assert.deepEqual(xs,[0,1,2,3]);});

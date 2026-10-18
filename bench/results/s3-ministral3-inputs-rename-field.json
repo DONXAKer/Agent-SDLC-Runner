@@ -1,0 +1,1536 @@
+{
+  "run": {
+    "slug": "s3-ministral3-inputs-rename-field",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-inputs",
+    "task": "rename-field",
+    "fixtureDir": "fixtures/catalog",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-inputs",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-25T12:40:14.225Z",
+    "finishedAt": "2026-09-25T13:15:56.122Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап закрыт: код и содержание — работа модели, оформление добрано рантаймом (исполнитель упал только на лимите/оформлении при полных артефактах)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 19,
+        "modelRequests": 3,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап завершён за 39 ход(ов)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 39
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": true,
+        "note": "этап закрыт: код и содержание — работа модели, оформление добрано рантаймом (исполнитель упал только на лимите/оформлении при полных артефактах)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 8,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-2.md, C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-2.md (строка пункта claim-1 содержит незаполненное место; нет строки пункта claim-2; нет строки пункта claim-3; нет строки пункта claim-4; нет строки пункта claim-5; нет строки пункта claim-6; нет строки пункта claim-7). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 9
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Сборка» провалился (❌)",
+        "гейт «Тесты» провалился (❌)",
+        "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "пункт приёмки claim-2 не проверяем (⚠)",
+        "пункт приёмки claim-3 не проверяем (⚠)",
+        "пункт приёмки claim-4 не проверяем (⚠)",
+        "пункт приёмки claim-5 не проверяем (⚠)",
+        "пункт приёмки claim-6 не проверяем (⚠)",
+        "пункт приёмки claim-7 не проверяем (⚠)",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "в отчёте нет строк по пунктам задачи: claim-2, claim-3, claim-4, claim-5, claim-6, claim-7 — каждый считается ⚠",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 566146,
+          "outputTokens": 10942,
+          "cacheReadTokens": 504565,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 880152
+        },
+        "durationMs": 859154
+      },
+      {
+        "stage": "verify",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 68,
+          "outputTokens": 56998,
+          "cacheReadTokens": 1704520,
+          "cacheWriteTokens": 157736,
+          "costUsd": 5.0679415,
+          "durationMs": 688900
+        },
+        "durationMs": 1282109
+      }
+    ],
+    "verdicts": {
+      "total": 2,
+      "red": 2
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 2
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 3,
+        "truncated": 0,
+        "toolCalls": 36,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 73,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 2,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 479
+      },
+      {
+        "gate": "Тесты",
+        "runs": 2,
+        "red": 2,
+        "skippedWhileEnabled": 0,
+        "durationMs": 500
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 381
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 563
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 1,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 375
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 179
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 86
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 86
+      }
+    ],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 1,
+        "approvals": 28,
+        "waitMs": 93
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 34,
+        "waitMs": 76
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-2.md",
+        "placeholders": 30
+      }
+    ],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "❌",
+        "treeChanged": true,
+        "scopeViolation": false
+      },
+      {
+        "chunk": 1,
+        "attempt": 2,
+        "testsStatus": "❌",
+        "treeChanged": true,
+        "scopeViolation": false
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Сборка» провалился (❌)",
+      "гейт «Тесты» провалился (❌)",
+      "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+      "пункт приёмки claim-1 не проверяем (⚠)",
+      "пункт приёмки claim-2 не проверяем (⚠)",
+      "пункт приёмки claim-3 не проверяем (⚠)",
+      "пункт приёмки claim-4 не проверяем (⚠)",
+      "пункт приёмки claim-5 не проверяем (⚠)",
+      "пункт приёмки claim-6 не проверяем (⚠)",
+      "пункт приёмки claim-7 не проверяем (⚠)",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "в отчёте нет строк по пунктам задачи: claim-2, claim-3, claim-4, claim-5, claim-6, claim-7 — каждый считается ⚠",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:6c22efc0-e3fc-4b31-8ebb-944f90fbcb7f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:8caca0c6-0e0e-4904-9453-f44bbdd4103f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:ded2f471-a702-46c6-aabf-3244ae662926",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:a6297453-3eb1-4486-bcbf-875f4086e431",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3bb68321-bcbb-4dba-81ca-706fe5b13cb6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:c3299ed3-d622-422c-a363-66cc3eb6b6b8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:773059dc-60c3-42d5-9112-af67da44e946",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:a77d2d0a-6e6b-4e59-b9cf-be0e2a085ccc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:af6340a4-e44a-4ee6-9c8a-c784044c76a7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:2e6b1b33-10f8-436e-a911-529a71ce36c5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:34f4d437-626f-47c0-9091-5a8819690840",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:465a7cac-ada0-4589-a48d-acdab67936aa",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:8e07263c-5bfc-4451-b645-4424e1e52edc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "README.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:fd7837a6-b242-4bcd-bbe8-5cd9f9a4e500",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "./test/store.compat.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:1962c5a3-34d1-4037-8393-1db9640d53a3",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:254c42f7-a697-45b6-a5bb-a8990750b2f1",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:4547bd9e-4be5-476b-9e27-e46d1c672ea5",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:b20017ef-761c-4e4b-ad06-57fb577a526e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:c2d1f70c-31aa-4421-814a-8059f7fe0223",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:35821b87-8bfa-4041-ad11-bcaa01fd2b76",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:e2d01ff5-8fd5-4657-a9d9-fd3df51eb67b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\s3-ministral3-inputs-rename-field\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01HSLHRzTja38iSvfSj8cB4f",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01JKZweQEQ7w3ckc3jBYV5RR",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01S5mm5Dpc3VVguuuQcDT3f4",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DiB4h1DGZkAMg85q4GtPrV",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_015JfU7ibFRrUhQ7ZgW7tDWA",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DmwduV4R3Wak9wn3dHbEp3",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_017qqWs8CWGSM9EpLcsG1pfJ",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014KMffpJXaKREuVRP25Lkhu",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Hkou7JKETJggKC9PDrtwuJ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UGguQEGvPT1fuJPJ7kSEhZ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019z4Kn2DcwUYhDFVqfLpqXm",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01GBhd4AYpc4JmHhH2wXP2oH",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01C13Lc254A2BhJjob2Rwmf4",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_016XrC8gEReZ2xUY9fvWFYU2",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01V5DTvAjTHCrhRKrqv9j8ak",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01VCfbVWmoRJWLGjDKqfCxUA",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013wiAxE8AErbj7An4pHgSgU",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01JcXhmWyNykgx8xUeQuPPC4",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01C9mJpWDFnSN2Rhm6zaGvRG",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01HBo8TvUak2M2msdraBrxbA",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014MskeEgG7eNiNMJGtxZG1F",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01KEjwoGhRYKDCsJ5xpy5e2H",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_012Nmuf3a6YRjQYKMJ2s8Y5o",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01AiSwZ5SzCucnuY4CCa4Hy5",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01AHubM4yVNWwxbsSRoV3bG6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01SQNuroBSJQCYyzAb2ZTz4Y",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01AEYsvDo163E9TRHNFq5M3g",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01SeR73SgVAC1JD3MTpEgR8y",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Qng6nkZc4M52iTdsoPbLcv",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_018aG9yHwowKHYcoiaHg58S6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_0132wzm7UcQzhf2YtFhUdLav",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014DUJFAu8UCDEnbrge2WUFN",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013TUHsZ5EQQ1eRKd3T43agh",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-LjkVeb\\.sdlc\\s3-ministral3-inputs-rename-field\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:608f907f-a120-4b10-be3c-022ae1b5de1c",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:bc297aa1-c532-413b-922b-be0fa7dac608",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:29eda29d-6273-4e22-b812-3d37a19f117c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:83f81f4a-a108-481b-a0c5-615ab24d70e6",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:e4319f50-b3c7-4099-96a4-b8ce4f434a5c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:86c93003-4949-41ce-9736-254c5285d4e0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:36b64608-10d1-4610-a563-788616195dc6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтверждаете ли выполнение изменений в следующих точках:\n1) В файле `src/product.ts` переименовать поле интерфейса Product с `code` на `sku` и обновить параметр функции product\n2) В файле `src/store.ts` обновить метод serialize для вывода `sku` и метод parse для чтения обоих полей (`sku` приоритетнее `code`)\n3) В файле README.md обновить таблицу и абзац о совместимости (управление полем `code` для чтения), \nИначе — уточнение."
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.both"
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:6f9f0e4f-90cd-47bd-8fb2-269365360c0d",
+        "reason": "policy"
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:b702c729-8fb9-41a1-a638-9ffee01dd319",
+        "reason": "policy"
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:ff5cd015-5ef9-4d89-aa8d-4f7bf4152884",
+        "reason": "policy"
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UyXYgKUkH8u9ePzAtZrGjF",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Read",
+        "kind": "read"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12533,
+        "userChars": 16937,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11244,
+        "userChars": 40628,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 11864,
+        "userChars": 34649,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11244,
+        "userChars": 36922,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-e99afc1c-ca86-4a0a-851d-448acc6f973d-1",
+        "questionId": "q1",
+        "text": "Подтверждаете ли выполнение изменений в следующих точках:\n1) В файле `src/product.ts` переименовать поле интерфейса Product с `code` на `sku` и обновить параметр функции product\n2) В файле `src/store.ts` обновить метод serialize для вывода `sku` и метод parse для чтения обоих полей (`sku` приоритетнее `code`)\n3) В файле README.md обновить таблицу и абзац о совместимости (управление полем `code` для чтения), \nИначе — уточнение."
+      }
+    ],
+    "denials": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:6f9f0e4f-90cd-47bd-8fb2-269365360c0d",
+        "toolName": "Bash",
+        "kind": "bash",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись отклонена: «chunk-1-attempt-1-diff.patch» не входит в files_to_touch одобренного плана.\nФайлы плана:\n  src/product.ts\n  src/store.ts\n  README.md\n  test/store.compat.test.ts\n  test/\nПравь один из них. Если файл действительно относится к задаче, его сначала надо добавить в план — не создавай его побочным эффектом (отчёты о статусе, .bak-копии и тестовые леса это обычные нарушители, и здесь они не нужны никогда)."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:b702c729-8fb9-41a1-a638-9ffee01dd319",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": "planScope",
+        "destructive": null,
+        "ownArtifactMisaddressed": true,
+        "by": "policy",
+        "reason": "[planScope] запись отклонена: «./chunk-1-attempt-1-diff.patch» не входит в files_to_touch одобренного плана.\nФайлы плана:\n  src/product.ts\n  src/store.ts\n  README.md\n  test/store.compat.test.ts\n  test/\nПравь один из них. Если файл действительно относится к задаче, его сначала надо добавить в план — не создавай его побочным эффектом (отчёты о статусе, .bak-копии и тестовые леса это обычные нарушители, и здесь они не нужны никогда)."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:ff5cd015-5ef9-4d89-aa8d-4f7bf4152884",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": "planScope",
+        "destructive": null,
+        "ownArtifactMisaddressed": true,
+        "by": "policy",
+        "reason": "[planScope] запись отклонена: «./chunk-1-attempt-1-diff.patch» не входит в files_to_touch одобренного плана.\nФайлы плана:\n  src/product.ts\n  src/store.ts\n  README.md\n  test/store.compat.test.ts\n  test/\nПравь один из них. Если файл действительно относится к задаче, его сначала надо добавить в план — не создавай его побочным эффектом (отчёты о статусе, .bak-копии и тестовые леса это обычные нарушители, и здесь они не нужны никогда)."
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UyXYgKUkH8u9ePzAtZrGjF",
+        "toolName": "Read",
+        "kind": "read",
+        "policy": "readScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[readScope] чтение «.sdlc/s3-ministral3-inputs-rename-field/verification-report-1-attempt-1.md» на этапе verify закрыто этому вызывающему: отчёт другой попытки (независимость ревью) либо авторский лист задачи (слепой вывод claims). Связь между попытками несут retry_instruction и carry_forward, которые подаёт машина витка; второму агенту разведки задача приходит только выдержкой в его задании."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [],
+    "errorText": "скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/run_main:107\n#     triggerUncaughtException(\n#     ^\n# file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-LjkVeb/src/store.ts:56\n#   return product(finalCode, title, priceK);\n# }\n# ^\n# SyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Expression expected\n#     at parseTypeScript (node:internal/modules/typescript:72:36)\n#     at processTypeScriptCode (node:internal/modules/typescript:146:42)\n#     at stripTypeScriptModuleTypes (node:internal/modules/typescript:209:22)\n#     at ModuleLoader.<anonymous> (node:internal/modules/esm/translators:680:29)\n#     at \\#translate (node:internal/modules/esm/loader:434:20)\n#     at afterLoad (node:internal/modules/esm/loader:502:29)\n#     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:507:12)\n#     at \\#getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:560:36)\n#     at afterResolve (node:internal/modules/esm/loader:607:52)\n#     at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:613:12) {\n#   code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n# }\n# Node.js v24.18.0\n# Subtest: D:\\\\Проекты\\\\Agent-SDLC-Runner\\\\bench\\\\checks\\\\hidden\\\\rename-field.hidden.mjs"
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": false,
+      "detail": "скрытые тесты упали до единого теста: скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/run_main:107\n#     triggerUncaughtException(\n#     ^\n# file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-LjkVeb/src/store.ts:56\n#   return product(finalCode, title, priceK);\n# }\n# ^\n# SyntaxError [ERR_INVALID_TYPE"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 3"
+    }
+  ]
+}

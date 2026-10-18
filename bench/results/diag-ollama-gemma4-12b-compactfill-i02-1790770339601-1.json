@@ -1,0 +1,284 @@
+{
+  "run": {
+    "slug": "diag-ollama-gemma4-12b-compactfill-i02-1790770339601-1",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T12:12:21.385Z",
+    "finishedAt": "2026-09-30T12:13:25.147Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: 2 — задача не готова. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 57731,
+          "outputTokens": 1451,
+          "cacheReadTokens": 50077,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 108942
+        },
+        "durationMs": 63095,
+        "requestDurationsMs": [
+          6610,
+          8757,
+          9890,
+          3839,
+          8846,
+          16166,
+          4459,
+          13781,
+          17372,
+          4424,
+          14805
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 3,
+        "approvals": 1,
+        "waitMs": 17
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 4
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:6e3a4d22-3c7b-4091-8adf-aff47a655c3b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-gemma4-12b-compactfill-i02-1790770339601-1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 11
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "При каком именно количестве (включая границу 120%) тест должен признать резерв допустимым?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Какие именно три условия или сценария мы будем проверять в тестовом наборе, чтобы подтвердить работу правила 120%?"
+          },
+          {
+            "id": "intent-open-2",
+            "question": "Как именно в `ReserveResult` должна отображаться ошибка, если резерв превышает 100% для обычного заказа, но в пределах 120% для приоритетного?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.priority"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11036,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-55a8a1de-363f-4d11-a24c-b9722f96ff23-1",
+        "questionId": "intent-open-0",
+        "text": "При каком именно количестве (включая границу 120%) тест должен признать резерв допустимым?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-55a8a1de-363f-4d11-a24c-b9722f96ff23-1",
+        "questionId": "intent-open-1",
+        "text": "Какие именно три условия или сценария мы будем проверять в тестовом наборе, чтобы подтвердить работу правила 120%?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-55a8a1de-363f-4d11-a24c-b9722f96ff23-1",
+        "questionId": "intent-open-2",
+        "text": "Как именно в `ReserveResult` должна отображаться ошибка, если резерв превышает 100% для обычного заказа, но в пределах 120% для приоритетного?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+      "sourceHash": "93cf55c7e0a93e1847e41cacf36c7b958daf7d13d0b8bfddcd42ebcc914d2688",
+      "configHash": "5b39b4dc23e4d2e1256f2250f87242dd44a100f9dd34822fa1c7b9efdfe3fc93",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "c010f179ce1a3ce9073db81eff98df5dd1554429218fddf634ff2d33c4a0533a",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 360000
+    },
+    "workspaceHash": "bd2e06c4b8f6dc7c4382ebf2727eaef0bb695269120f6e1c4b27303c59e836b1",
+    "state": "finished",
+    "capturedAt": "2026-09-30T12:13:25.169Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T12:13:25.141Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "382e75ea3fbe4037cafd33851d808660c355e892780e9e9fad4b04781a4486f7",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "ab2298544bf9b1474c88c3b4a1ef80f91611d0211a11423376617cff585f4b95",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "0fe428544ccf593ca25489ad9fc06b59b86dd813e62c7a84912b4e309807f58e",
+        "placeholders": 4,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "b440d50eccad8c2e40e0981276b62d5f75e6fc0cdf08a239bfdff679025b0ef6",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

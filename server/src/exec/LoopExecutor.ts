@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Флоу `loop`: собственный цикл tool-use для локальных и OpenAI-совместимых моделей.
  *
  * Отличается от `SdkExecutor` ровно двумя вещами — кто крутит цикл и кто исполняет
@@ -26,20 +26,22 @@ import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { normalize } from './normalize.ts';
 import type {
   ExecHooks,
   ExecRequest,
+  FrictionKind,
   StageExecutor,
   StageResult,
   SubagentDef,
 } from './StageExecutor.ts';
 import { REVIEWER_AGENTS } from './StageExecutor.ts';
-import { trimHistory } from './history.ts';
+import { HISTORY_KEEP_LAST, trimHistory } from './history.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
-import { budgetParams, estimateMessageTokens, marginFor } from './contextBudget.ts';
+import { budgetParams, estimateMessageTokens, historyKeepLastFor, marginFor } from './contextBudget.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -116,12 +118,18 @@ const BASH_STREAK_LIMIT = 4;
 const BASH_STREAK_REMINDERS = 2;
 
 /**
- * Сколько напоминаний даём, прежде чем закрыть готовый этап по диску — см.
- * `closeOnFinalizeReady` в `StageExecutor.ts`. Первый ход «готово» напоминания не получает
- * (модель вправе позвать `FinalizeArtifact` и закончить сама следующим ходом), поэтому
- * реальный запас — три хода готовности подряд, а не два.
+ * Сколько ходов «готов по диску, а заявки нет» терпим после ОДНОГО напоминания, прежде
+ * чем закрыть этап по диску — см. `closeOnFinalizeReady` в `StageExecutor.ts`.
+ *
+ * Три — по числу соседних порогов серий (`FINALIZE_STALL_LIMIT`, `REPEAT_LIMIT`): суммарно
+ * этап живёт четыре готовых хода (напоминание на первом + три хода форы), столько же,
+ * сколько давала прежняя конструкция с двумя напоминаниями, но напоминание одно — модель,
+ * не позвавшая `FinalizeArtifact` после явного «артефакт готов», вторым таким же
+ * напоминанием не лечится, а ходы стоят полного промпта.
  */
-const READY_STREAK_REMINDERS = 2;
+const READY_STALL_TURNS = 3;
+/** Сколько напоминаний «артефакт готов» получает этап за всю жизнь (по одному на серию). */
+const READY_NUDGES_PER_STAGE = 2;
 
 /**
  * Доля бюджета ходов, после которой нулевой прогресс (`req.progressSignal`, у `chunk` —
@@ -214,6 +222,24 @@ export class LoopExecutor implements StageExecutor {
     return { ...result, turns: meter.turns };
   }
 
+  /**
+   * Трение цикла — рантайм-хук для метрик (`hooks.onFriction`) плюс метка на сыром дампе
+   * для корпуса (`docs/model-tuning.md`), одним вызовом: два места, знающие о трении хода,
+   * расходились бы при первой же новой причине.
+   *
+   * `frictions` — МАССИВ, не скаляр: `rawLogPath` — путь ПОСЛЕДНЕГО запроса к модели, а не
+   * этого конкретного вызова инструмента, и несколько вызовов одного хода (пакет
+   * `Promise.all` параллельных субагентов, серия вызовов одного хода) делят один и тот же
+   * обмен. `annotateExchange` мержит массивы между вызовами — без этого вторая разметка
+   * того же пути стирала бы первую причину трения молча (code-review-all, 2026-09-27).
+   * `loop` не входит в `TRAINABLE_MODES` корпуса — метка здесь чисто диагностическая, не
+   * влияет на выборку обучающих пар.
+   */
+  private friction(hooks: ExecHooks, kind: FrictionKind, rawLogPath: string | null): void {
+    hooks.onFriction(kind);
+    annotateExchange(rawLogPath, { frictions: [kind] });
+  }
+
   private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
     const toolCtx: ToolContext = {
       projectRoot: req.cwd,
@@ -245,6 +271,13 @@ export class LoopExecutor implements StageExecutor {
 
     let usage: Usage = emptyUsage();
     let finalText = '';
+    /**
+     * Путь сырого дампа (`provider/rawLog.ts`) ПОСЛЕДНЕГО запроса к модели — не только
+     * этого хода: `friction()` ниже размечает по нему трение, случившееся уже ПОСЛЕ
+     * ответа (серия чтений, повтор вызова внутри `handleCall`), а точного второго
+     * запроса к этому моменту ещё не было. `null` — дампа не было вовсе либо он выключен.
+     */
+    let lastRawLogPath: string | null = null;
     /**
      * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
      * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
@@ -279,7 +312,15 @@ export class LoopExecutor implements StageExecutor {
     let readNudges = 0;
     let bashStreak = 0;
     let bashNudges = 0;
+    /** Ходов подряд «артефакт готов по диску, а FinalizeArtifact так и не позван». */
     let readyStreak = 0;
+    /** Напоминание «артефакт готов» — одно на НЕПРЕРЫВНУЮ серию готовности, не на ход. */
+    let readyNudged = false;
+    // Общий потолок напоминаний на этап: без него модель, чередующая «правка открыла
+    // место / правка закрыла», получала напоминание на каждой новой серии. Исчерпав
+    // потолок, счётчик готовых ходов уже не сбрасывается потерей готовности — иначе при
+    // чередовании серия ни разу не доживала до закрытия по диску, и этап горел до
+    // `maxTurns` (code-review-all 2026-09-23).
     let readyNudges = 0;
     /** Напоминание про нулевой прогресс — один раз за ход этапа, не серия. */
     let noProgressNudged = false;
@@ -369,7 +410,7 @@ export class LoopExecutor implements StageExecutor {
         req.progressSignal() === 0
       ) {
         noProgressNudged = true;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
           `Пройдено ${turnsDone} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
@@ -385,13 +426,18 @@ export class LoopExecutor implements StageExecutor {
       const outgoing =
         this.o.historyBudgetBytes === undefined
           ? messages
-          : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) => {
-              historyOverBudget = true;
-              hooks.onWarn(
-                `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
-                  `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
-              );
-            });
+          : trimHistory(
+              messages,
+              this.o.historyBudgetBytes,
+              historyKeepLastFor(this.o.historyBudgetBytes, this.o.maxResultBytes, HISTORY_KEEP_LAST),
+              (total, budget) => {
+                historyOverBudget = true;
+                hooks.onWarn(
+                  `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
+                    `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
+                );
+              },
+            );
       const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
@@ -404,6 +450,7 @@ export class LoopExecutor implements StageExecutor {
         }),
       });
 
+      lastRawLogPath = answer.rawLogPath ?? null;
       usage = addUsage(usage, answer.usage);
       // `0` входных токенов от сервера — признак того, что сервер вовсе не прислал usage
       // (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что окно опустело:
@@ -484,7 +531,7 @@ export class LoopExecutor implements StageExecutor {
 
           if (complaint !== null && reminders < FINISH_REMINDERS) {
             reminders++;
-            hooks.onFriction('reminder');
+            this.friction(hooks, 'reminder', lastRawLogPath);
             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
             messages.push({ role: 'user', content: complaint });
@@ -599,7 +646,7 @@ export class LoopExecutor implements StageExecutor {
         repeats = isNewTurnFingerprint ? 0 : repeats + 1;
         lastFingerprint = turnFingerprint;
         if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
-        if (repeats > 0) hooks.onFriction('repeat');
+        if (repeats > 0) this.friction(hooks, 'repeat', lastRawLogPath);
 
         if (repeats + 1 >= REPEAT_LIMIT) {
           const doneAnyway = finishedByDisk();
@@ -629,7 +676,16 @@ export class LoopExecutor implements StageExecutor {
         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
         const results = await Promise.all(
           answer.toolCalls.map((call) =>
-            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
+            this.handleCall(
+              call,
+              normalize(call.name, call.arguments ?? {}),
+              0,
+              req,
+              hooks,
+              toolCtx,
+              spentNow,
+              lastRawLogPath,
+            ),
           ),
         );
         answer.toolCalls.forEach((call, idx) => {
@@ -643,6 +699,11 @@ export class LoopExecutor implements StageExecutor {
         continue;
       }
 
+      // Успешная заявка при готовом этапе закрывает его — но ПОСЛЕ всего пакета вызовов
+      // хода: ранний выход посреди пакета молча терял вызовы, стоящие за FinalizeArtifact
+      // (на verify — `RecordFinding`, и вердикт считался без находки; code-review-all
+      // 2026-09-23).
+      let finalizedReady = false;
       for (const call of answer.toolCalls) {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
@@ -653,7 +714,7 @@ export class LoopExecutor implements StageExecutor {
         const firstOfStreak = repeats === 0;
         if (firstOfStreak) noProgressWarnedFor = null;
 
-        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
+        if (repeats > 0 && !isPolling(call.name, req)) this.friction(hooks, 'repeat', lastRawLogPath);
 
         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
           const doneAnyway = finishedByDisk();
@@ -728,6 +789,7 @@ export class LoopExecutor implements StageExecutor {
           hooks,
           toolCtx,
           (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
+          lastRawLogPath,
         );
         messages.push({
           role: 'tool',
@@ -742,6 +804,23 @@ export class LoopExecutor implements StageExecutor {
         // только собирает число мест для детектора застревания выше.
         if (normalized !== null && normalized.kind === 'finalize_artifact') {
           const rejection = finalizeRejection(normalized.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+
+          // «Финализация прошла, модель продолжает» (docs/proposals/model-flow-improvements.md
+          // §1.3/§2.1 п.1): заявка принята и артефакт полон по диску — этап закрывает
+          // рантайм СРАЗУ, тем же исходом `closedBy: 'runtime'`, что анти-цикл через
+          // `finishedByDisk`, но проактивно. Живой случай — qwen3-coder-30b на ask: ответ
+          // записан, FinalizeArtifact прошёл, дальше 25 ходов цикла «начать план?». Только
+          // на этапах-документах (`closeOnFinalizeReady`): на chunk журнал может стать
+          // готовым раньше кода, и закрытие обрубило бы дописывание правок.
+          if (
+            rejection === null &&
+            req.closeOnFinalizeReady === true &&
+            req.finishGuard !== null &&
+            stageReady()
+          ) {
+            finalizedReady = true;
+          }
+
           if (rejection?.placeholders === undefined) {
             // Финализация удалась, либо отказ не про плейсхолдеры (не тот артефакт /
             // не существует) — серия по этому пути больше не показательна.
@@ -775,6 +854,15 @@ export class LoopExecutor implements StageExecutor {
         }
       }
 
+      // Готовность перепроверяется: вызовы пакета после заявки могли снова открыть места.
+      if (finalizedReady && stageReady()) {
+        const note =
+          'FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску ' +
+          'сразу, без лишних ходов цикла';
+        hooks.onWarn(note);
+        return { ok: true, finalText, usage, note, closedBy: 'runtime' };
+      }
+
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
       // assistant-ходом и его tool-результатами часть серверов отвергает как нарушение
       // протокола. Только для этапов с артефактом: субагенту-читателю (locator, reviewer
@@ -787,13 +875,13 @@ export class LoopExecutor implements StageExecutor {
         const streak = readStreak;
         readNudges++;
         readStreak = 0;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
-          `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+          req.progressHint ?? (`Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
             'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
             'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
-            'читать только то, без чего правку не сделать.',
+            'читать только то, без чего правку не сделать.'),
         );
       }
 
@@ -806,7 +894,7 @@ export class LoopExecutor implements StageExecutor {
         const streak = bashStreak;
         bashNudges++;
         bashStreak = 0;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
           `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
@@ -815,31 +903,37 @@ export class LoopExecutor implements StageExecutor {
         );
       }
 
-      // Артефакт готов к финализации, а ход не кончается — по любой из двух причин
-      // (`StageExecutor.ts`, `closeOnFinalizeReady`): успешный `FinalizeArtifact` не
-      // остановил модель, либо правки уже готовы, а вызова не было вовсе. Первый ход
-      // «готово» — без напоминания: модель вправе позвать `FinalizeArtifact` СЛЕДУЮЩИМ
-      // ходом и закончить сама. Дальше — тот же ритм, что у серий чтения/Bash: два
-      // напоминания, и если готовность держится, этап закрывает рантайм.
+      // «Правки есть, заявки нет» (docs/proposals/model-flow-improvements.md §1.3/§2.1
+      // п.1): правки сделали артефакт годным, а FinalizeArtifact не позван — живой случай
+      // qwen3-coder-30b, 40 ходов без единой заявки: серия отказов финализации тут не
+      // считается, потому что самих вызовов не было. Счётчик — не «N ходов подряд», а
+      // «готов по диску, а заявки нет»: потеря готовности (новая правка снова открыла
+      // места) сбрасывает серию вместе с кредитом напоминания — пока напоминания не
+      // исчерпаны. Успешная заявка сюда не доходит — её этап закрывает выше, после пакета
+      // вызовов хода. Напоминание ОДНО на серию, после него — READY_STALL_TURNS хода форы
+      // и закрытие по диску.
       if (req.closeOnFinalizeReady === true && req.finishGuard !== null) {
-        readyStreak = stageReady() ? readyStreak + 1 : 0;
-        if (readyStreak > 1) {
-          if (readyNudges < READY_STREAK_REMINDERS) {
+        if (stageReady()) {
+          readyStreak++;
+          if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
+            readyNudged = true;
             readyNudges++;
-            hooks.onFriction('reminder');
+            this.friction(hooks, 'reminder', lastRawLogPath);
             pushUserNote(
               messages,
               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
-                'FinalizeArtifact (если ещё не вызывал) и заверши ход, не открывая новых правок ' +
-                `(напоминание ${readyNudges} из ${READY_STREAK_REMINDERS}).`,
+                'FinalizeArtifact и заверши ход, не открывая новых правок.',
             );
-          } else {
+          } else if (readyStreak > READY_STALL_TURNS) {
             const note =
-              'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не ' +
-              'завершён — этап закрыт по диску';
+              'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ' +
+              'FinalizeArtifact так и не вызван — этап закрыт по диску';
             hooks.onWarn(note);
             return { ok: true, finalText, usage, note, closedBy: 'runtime' };
           }
+        } else if (readyNudges < READY_NUDGES_PER_STAGE) {
+          readyStreak = 0;
+          readyNudged = false;
         }
       }
     }
@@ -930,6 +1024,8 @@ export class LoopExecutor implements StageExecutor {
     toolCtx: ToolContext,
     /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
     spentUsd: number,
+    /** Путь дампа хода, которому принадлежит этот вызов — см. `lastRawLogPath` в `runTurns`. */
+    rawLogPath: string | null,
   ): Promise<string> {
     const started = Date.now();
     const requestId = `loop:${randomUUID()}`;
@@ -938,7 +1034,7 @@ export class LoopExecutor implements StageExecutor {
       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
       // без подробностей, повторяет ту же строку.
       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
-      hooks.onFriction('badJson');
+      this.friction(hooks, 'badJson', rawLogPath);
       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
       return text;
     }
@@ -961,9 +1057,10 @@ export class LoopExecutor implements StageExecutor {
       // Права текущего вызывающего, а не этапа: во вложенном прогоне субагента здесь
       // уже суженный список, и политика решает по нему.
       callerTools: req.allowedTools,
+      ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
     });
     if (!decision.allowed) {
-      hooks.onFriction('denied');
+      this.friction(hooks, 'denied', rawLogPath);
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
       return `вызов отклонён: ${decision.reason}`;
     }
@@ -978,8 +1075,10 @@ export class LoopExecutor implements StageExecutor {
         : normalize(call.name, decision.updatedInput as Record<string, unknown>);
 
     let text: string;
+    let toolOk: boolean;
+    let full: string | undefined;
     try {
-      text = await this.execute(effective, req, hooks, toolCtx, spentUsd);
+      ({ ok: toolOk, text, full } = await this.execute(effective, req, hooks, toolCtx, spentUsd));
     } catch (e) {
       // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
       // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
@@ -996,13 +1095,19 @@ export class LoopExecutor implements StageExecutor {
 
     // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
-    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
+    if (text.includes('[рантайм обрезал:')) this.friction(hooks, 'truncated', rawLogPath);
 
+    // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
+    // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
+    // засчитывал их принятыми правками (прогресс анти-цикла, «код изменён»), а
+    // `repeatFailure` в этом флоу не срабатывал вовсе — флоу `sdk` получает `is_error`
+    // от харнесса честно (code-review-all 2026-09-23).
     hooks.onToolResult({
       requestId,
-      ok: true,
+      ok: toolOk,
       summary: text.split('\n')[0]?.slice(0, 200) ?? '',
       durationMs: Date.now() - started,
+      resultText: full ?? text,
     });
     return text;
   }
@@ -1017,28 +1122,10 @@ export class LoopExecutor implements StageExecutor {
    * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
    * неограниченную глубину прав и бюджета.
    */
-  /**
-   * Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу.
-   *
-   * Для РЕЦЕНЗЕНТА (`REVIEWER_AGENTS`) алиас-фолбэк на модель этапа — не деградация, а
-   * нарушение самого смысла шага: методология требует рецензента строго сильнее
-   * исполнителя, и «пусть отревьюирует та же слабая модель, что писала код» не «ревью
-   * похуже», а не-ревью, которое гейт «Ревью независимым агентом» не отличит от
-   * настоящего (сам факт вызова субагента гейт уже зажигает). Это путь ТОЛЬКО для
-   * случая, когда прямой прогон рантаймом (`Run.runReviewerDirectly`) не состоялся и
-   * модель зовёт рецензента сама — на практике редкий, но должен падать явно, а не
-   * тихо подменять модель.
-   */
+  /** Resolves subagent models; unsupported Claude Code aliases fall back with a warning. */
   private subagentModel(def: SubagentDef, req: ExecRequest, hooks: ExecHooks): string {
     if (def.model === null || def.model === undefined) return req.model;
     if (CLAUDE_MODEL_ALIASES.has(def.model)) {
-      if (REVIEWER_AGENTS.includes(def.name)) {
-        throw new SubagentUnavailable(
-          `рецензент «${def.name}» назвал модель «${def.model}» — алиас Claude Code, флоу ` +
-            'loop им не пользуется, а замена на модель этапа нарушила бы правило «рецензент ' +
-            'строго сильнее исполнителя». Ревью не запущено вместо того, чтобы пройти на не той модели.',
-        );
-      }
       hooks.onWarn(
         `модель «${def.model}» из определения субагента «${def.name}» — алиас Claude Code, ` +
           'флоу loop им не пользуется: субагент идёт на модели этапа',
@@ -1055,7 +1142,7 @@ export class LoopExecutor implements StageExecutor {
     task: string,
     allowedTools: readonly ToolName[],
     spentUsd: number,
-  ): Promise<string> {
+  ): Promise<{ text: string; full: string }> {
     hooks.onWarn(
       `запущен субагент «${def.name}»: инструменты ${allowedTools.join(', ') || '(нет)'} — ` +
         'пересечение прав этапа и объявленных прав субагента',
@@ -1069,20 +1156,30 @@ export class LoopExecutor implements StageExecutor {
           // Тело агента — его системный промпт, задача приходит пользовательским
           // сообщением. Рассказ вызывающего о своей работе сюда НЕ попадает: рецензент не
           // должен получать версию автора.
-          system: def.prompt,
+          system:
+            def.name === 'sdlc-locator'
+              ? `${def.prompt}\n\nТы независимый read-only проверяющий места правки. Работай только с путями из запроса вызывающего. Для каждого существующего файла сначала вызови Read или Grep по символу/месту, затем процитируй точную короткую строку из результата. Никогда не угадывай код или anchor; если чтение не подтверждает цитату, верни status=diverged. Не выводи содержимое файлов, не ищи другие файлы и не делай исправлений. ` +
+                'Определи по задаче и плану, какие файлы и символы уже существуют, а какие надо создать. Отсутствие запланированной новой функции или нового теста ожидаемо. Сообщи расхождение только при отсутствующей необходимой опоре, неверном состоянии файла или противоречии плана коду. ' +
+                'Для existing anchor дай короткую точную цитату (до 100 символов) из места вставки/связанного символа; для new anchor=null. Поле change — одна короткая фраза о требуемом действии.\n\n' +
+                'Верни только один компактный JSON-объект без Markdown и текста до/после: ' +
+                '{"status":"matched"|"diverged","reason":null|"причина","files":[{"path":"путь из одобренного плана","state":"existing"|"new","anchor":"точная непрерывная цитата из существующего файла"|null,"change":"что план требует изменить"}]}. ' +
+                'Каждый путь из запроса укажи ровно один раз, не добавляй другие пути. JSON должен быть короче 1000 символов. Если требование не помещается или обнаружено противоречие, верни status=diverged и краткую причину.'
+              : def.prompt,
           user: task,
           tools: [],
           editedByOperator: false,
         },
-        // Модель субагента, если он её назвал: рецензент бывает сильнее исполнителя.
+        // Модель субагента, если он её назвал; ранг не задаёт пригодность рецензента.
         // Но алиасы Claude Code — имена ЧУЖОГО флоу: определения агентов написаны для
         // claude-code, и `model: opus`, отданный OpenAI-совместимому провайдеру буквально,
         // падал «Модель "opus" не найдена» ровно на рецензенте — самом сторожевом месте.
         // Алиас игнорируется с предупреждением: маршрут verify уже выбран профилем, и
-        // правило «рецензент сильнее исполнителя» держит он, а не строка определения.
+        // Unsupported Claude Code aliases fall back to the stage route with a warning.
         model: this.subagentModel(def, req, hooks),
         allowedTools,
         subagents: [],
+        // Кто вызывает — до политики: по имени она сужает чтение (`sdlc-claims`).
+        callerAgent: def.name,
         // Страж завершения — про артефакт ЭТАПА, а его пишет вызывающий, не субагент:
         // `sdlc-locator` вообще не имеет прав записи, и требовать с него файл значило бы
         // обрывать вложенный прогон за чужую недоделку.
@@ -1105,9 +1202,13 @@ export class LoopExecutor implements StageExecutor {
     // потолка мог превысить `maxResultBytes` (разбор серии v11, 2026-09-15: результат
     // `Task` на 16 096 байт против потолка 12 000 — единственный из пяти путей результата,
     // где `cap()` не стоял).
-    return result.finalText === ''
-      ? `субагент «${def.name}» вернул пустой ответ`
-      : cap(result.finalText, this.o.maxResultBytes);
+    // Полный текст уходит рантайму отдельно (`resultText`): контракт `verify-review-v1`
+    // (`reviewValidate.ts`) судит весь ответ, а не обрезок для истории хода — иначе хвост с
+    // последними claim-N отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
+    if (result.finalText === '') return { text: `субагент «${def.name}» вернул пустой ответ`, full: '' };
+    const runtimeNote = hooks.onSubagentResult?.(def.name, result.finalText);
+    const full = runtimeNote ? `${result.finalText}\n\n${runtimeNote}` : result.finalText;
+    return { text: cap(full, this.o.maxResultBytes), full };
   }
 
   private async execute(
@@ -1117,13 +1218,24 @@ export class LoopExecutor implements StageExecutor {
     toolCtx: ToolContext,
     /** Уже потрачено на витке — вложенный прогон субагента делит потолок с родителем. */
     spentUsd: number,
-  ): Promise<string> {
+  ): Promise<{ ok: boolean; text: string; full?: string }> {
+    const done = (text: string): { ok: boolean; text: string } => ({ ok: true, text });
     switch (call.kind) {
       case 'ask_human': {
         const answers = await hooks.onAskHuman(call);
-        return Object.keys(answers).length === 0
-          ? 'человек не ответил — считай вопрос пропущенным и запиши это в артефакт'
-          : JSON.stringify(answers, null, 2);
+        const note = hooks.afterAskHuman?.(call, answers) ?? null;
+        if (note !== null && Object.keys(answers).length > 0) {
+          return done(`${JSON.stringify(answers, null, 2)}\n\n${note}`);
+        }
+        return done(
+          Object.keys(answers).length === 0
+            // Прежний текст «запиши это в артефакт» модель читала буквально и шла в поле
+            // решения («**Подтвердил:** — · — / не подтверждено (человек не ответил)»,
+            // gpt-oss-20b 2026-09-24) — запись, которую тут же отклоняет `humanDecision.ts`.
+            ? 'человек не ответил — считай вопрос пропущенным; поля решений человека не заполняй, ' +
+              'отметь пропуск в своём содержательном поле артефакта'
+            : JSON.stringify(answers, null, 2),
+        );
       }
 
       case 'finalize_artifact': {
@@ -1135,20 +1247,22 @@ export class LoopExecutor implements StageExecutor {
         // Сама проверка — общая для флоу `loop` и `sdk` (`finalizeCheck.ts`), чтобы
         // отказ не разъезжался между ними и локализация незаполненных мест не дублировалась.
         const rejection = finalizeRejection(call.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
-        return rejection?.message ?? `артефакт заявлен готовым: ${call.artifact}`;
+        return rejection === null
+          ? done(`артефакт заявлен готовым: ${call.artifact}`)
+          : { ok: false, text: rejection.message };
       }
 
       // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь
       // только передача: второго места, знающего форму отчёта, не заводим.
       case 'record_claim':
       case 'record_finding':
-        return hooks.onRecord(call);
+        return done(hooks.onRecord(call));
 
       case 'request_scope_extension':
         // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`
         // ДО того, как этот вызов дошёл сюда: `execute()` зовётся только после `decision.
         // allowed`. Здесь только подтверждение модели, что путь теперь можно писать.
-        return `«${call.path}» добавлен в files_to_touch — теперь его можно писать`;
+        return done(`«${call.path}» добавлен в files_to_touch — теперь его можно писать`);
 
       case 'subagent': {
         // Субагент — вложенный прогон ТОГО ЖЕ цикла с урезанными правами.
@@ -1190,7 +1304,8 @@ export class LoopExecutor implements StageExecutor {
           throw new SubagentUnavailable(note);
         }
 
-        return this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
+        const sub = await this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
+        return { ok: true, text: sub.text, full: sub.full };
       }
 
       case 'mcp': {
@@ -1198,15 +1313,15 @@ export class LoopExecutor implements StageExecutor {
         // диск, таймаут, сигнал — и по построению не знает ни про хаб, ни про хуки.
         // Ровно поэтому рядом живут `ask_human` и `subagent`.
         if (req.mcp === null) {
-          return 'ошибка: внешние MCP-серверы на этом этапе не выданы';
+          return { ok: false, text: 'ошибка: внешние MCP-серверы на этом этапе не выданы' };
         }
         const outcome = await req.mcp.call(call.server, call.tool, call.args, req.signal);
-        return outcome.ok ? outcome.text : `ошибка: ${outcome.text}`;
+        return { ok: outcome.ok, text: outcome.ok ? outcome.text : `ошибка: ${outcome.text}` };
       }
 
       default: {
         const outcome = await executeTool(call, toolCtx);
-        return outcome.ok ? outcome.text : `ошибка: ${outcome.text}`;
+        return { ok: outcome.ok, text: outcome.ok ? outcome.text : `ошибка: ${outcome.text}` };
       }
     }
   }

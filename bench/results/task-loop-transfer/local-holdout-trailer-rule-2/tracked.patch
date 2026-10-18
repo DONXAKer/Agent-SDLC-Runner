@@ -1,0 +1,51 @@
+diff --git a/src/index.ts b/src/index.ts
+index 19acf15..633c918 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -7,4 +7,4 @@
+ 
+ export { FUEL_RATE_DL_PER_100KM, rateFor } from './rates.ts';
+ 
+-export { FUEL_STEP_ML, fuelMl } from './trip.ts';
++export { FUEL_STEP_ML, TRAILER_SURCHARGE_ML_PER_KM, fuelMl, trailerFuelMl } from './trip.ts';
+diff --git a/src/trip.ts b/src/trip.ts
+index 083b9ac..f329ccc 100644
+--- a/src/trip.ts
++++ b/src/trip.ts
+@@ -11,6 +11,16 @@ import { rateFor } from './rates.ts';
+ /** Шаг округления расхода: акт выдачи пишется кратно 100 мл — цена деления мерной ёмкости. */
+ export const FUEL_STEP_ML = 100;
+ 
++/**
++ * Надбавка за прицеп в мл на километр.
++ *
++ * Записана у диспетчерской как 2 литра на 100 км — это плоская прибавка К НОРМЕ КЛАССА,
++ * а не процент или множитель от расхода: сырой расход считается по скорректированной
++ * норме (норма класса + 20 мл/км), итог округляется вверх до 100 мл, как обычный расход.
++ * 2 л/100 км численно = 20 мл/км — те же единицы, что и норма, без деления.
++ */
++export const TRAILER_SURCHARGE_ML_PER_KM = 20;
++
+ /**
+  * Расход топлива на поездку в миллилитрах; `null` — класс неизвестен.
+  *
+@@ -26,3 +36,19 @@ export function fuelMl(distanceKm: number, vehicleClass: string): number | null
+   const rawMl = distanceKm * rate;
+   return Math.ceil(rawMl / FUEL_STEP_ML) * FUEL_STEP_ML;
+ }
++
++/**
++ * Расход топлива на поездку С ПРИЦЕПОМ в миллилитрах; `null` — класс неизвестен.
++ *
++ * Прицеп — свойство поездки, а не новый класс (см. rates.ts и правила витка): таблица норм
++ * не расширяется. Надбавка ПРИБАВЛЯЕТСЯ К НОРМЕ КЛАССА в величинами (20 мл/км = 2 л/100 км),
++ * а не умножается по расходу: сырой расход считается по скорректированной норме
++ * (норма класса + надбавка), затем итог округляется вверх до 100 мл — точно так же, как в
++ * `fuelMl`. Единственное отличие — исходная величина: `rate + TRAILER_SURCHARGE_ML_PER_KM`.
++ */
++export function trailerFuelMl(distanceKm: number, vehicleClass: string): number | null {
++  const rate = rateFor(vehicleClass);
++  if (rate === null) return null;
++  const rawMl = distanceKm * (rate + TRAILER_SURCHARGE_ML_PER_KM);
++  return Math.ceil(rawMl / FUEL_STEP_ML) * FUEL_STEP_ML;
++}

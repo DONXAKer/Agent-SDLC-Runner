@@ -16,13 +16,32 @@ function нетЭталона(dir: string): string | false {
 
 import {
   addedBeyondPlanPaths,
+  appendFilesToTouch,
   appendScopeExtension,
   excludedFromPlanPaths,
   extractFilesToTouch,
+  filesToTouchDirectories,
   seedFilesToTouch,
   touchListEntries,
 } from '../src/artifacts/planFiles.ts';
 import { loadConfig } from '../src/config/load.ts';
+
+it('identifies directory entries instead of silently treating them as writable files', () => {
+  const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| `test/` | создать новые тесты |\n| `src/hold.ts` | добавить moveHold |';
+  deepStrictEqual(filesToTouchDirectories(plan), ['test/']);
+  deepStrictEqual(extractFilesToTouch(plan), ['src/hold.ts']);
+});
+
+it('does not treat an optional property name as a file path', () => {
+  const plan = [
+    '## files_to_touch',
+    '| Путь | Что делаем |',
+    '|---|---|',
+    '| `opts.issuer?` | сохранить опциональное поле |',
+    '| `src/issuer.ts` | обновить issuer |',
+  ].join('\n');
+  deepStrictEqual(extractFilesToTouch(plan), ['src/issuer.ts']);
+});
 
 describe('touchListEntries', () => {
   it('читает путь и заметку из бульита «Что придётся тронуть»', () => {
@@ -338,5 +357,17 @@ describe('seedFilesToTouch (4.1, засев до хода модели)', () => 
     // считается расхождением сам по себе — он тот же путь, что и в «Что придётся тронуть».
     const { text } = seedFilesToTouch(PLAN, [{ path: 'src/a.ts', note: 'правка' }]);
     deepStrictEqual(extractFilesToTouch(text), ['src/a.ts']);
+  });
+});
+
+describe('appendFilesToTouch', () => {
+  it('adds only explicit-step paths missing from a partially filled allowlist', () => {
+    const partial = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| `src/hold.ts` | moveHold |\n';
+    const result = appendFilesToTouch(partial, [
+      { path: 'src/hold.ts', note: 'duplicate' },
+      { path: 'test/hold.test.ts', note: 'new test' },
+    ]);
+    strictEqual(result.appended, 1);
+    deepStrictEqual(extractFilesToTouch(result.text), ['src/hold.ts', 'test/hold.test.ts']);
   });
 });

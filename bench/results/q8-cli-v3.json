@@ -1,0 +1,561 @@
+{
+  "run": {
+    "slug": "q8-cli-v3",
+    "model": "lmstudio:qwen3-8b-stepfill-compactfill",
+    "task": "cli-flag",
+    "fixtureDir": "fixtures/cli-tool",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "explore": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "ask": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "plan": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "chunk": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "verify": "lmstudio:qwen3-8b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:qwen3-8b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T04:42:27.190Z",
+    "finishedAt": "2026-10-03T05:00:57.354Z",
+    "maxTurns": 80,
+    "maxTurnsExplicit": true,
+    "maxIterationsByStage": {}
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 13,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 27
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 33
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 31150,
+          "outputTokens": 9136,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 349401
+        },
+        "durationMs": 189442,
+        "requestDurationsMs": [
+          23342,
+          38510,
+          42491,
+          11859,
+          22478,
+          35066,
+          15289,
+          37390,
+          54496,
+          22986,
+          18654,
+          11426,
+          15427
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 207856,
+          "outputTokens": 18844,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 573030
+        },
+        "durationMs": 439605,
+        "requestDurationsMs": [
+          36724,
+          29256,
+          16025,
+          17416,
+          12715,
+          9130,
+          9667,
+          8052,
+          16324,
+          6578,
+          12106,
+          10585,
+          12643,
+          10998,
+          27382,
+          17979,
+          16953,
+          7842,
+          34257,
+          17379,
+          24421,
+          38889,
+          43331,
+          12957,
+          30844,
+          26413,
+          30873,
+          35316
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 325636,
+          "outputTokens": 20139,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1040390
+        },
+        "durationMs": 479906,
+        "requestDurationsMs": [
+          18643,
+          43333,
+          58134,
+          30675,
+          36737,
+          50746,
+          8044,
+          19261,
+          31682,
+          30657,
+          45463,
+          57567,
+          9068,
+          22668,
+          37192,
+          34719,
+          44600,
+          52084,
+          12859,
+          19460,
+          32375,
+          31052,
+          45856,
+          60649,
+          10210,
+          22210,
+          38708,
+          36258,
+          45974,
+          53530
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 3,
+        "approvals": 2,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 13
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 6
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 62
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:90441e90-fc64-4468-ade1-d828c3847add",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:4fd20472-bee7-4439-8416-1715fd79c9c7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:a87f641d-cd04-4c04-aa17-49c02f1d68dd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:8fc02749-687f-4674-890f-f0ceaca9cf19",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:21b9af44-ff5e-4bb0-b526-04a38759d246",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:538d9986-8c43-4a8e-9935-802020cf1094",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\q8-cli-v3\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как получить значения zone, kg и price из текущей логики команды quote для JSON-вывода?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Как адаптировать существующую логику парсинга строк для режима JSON без нарушения старого формата вывода?"
+          },
+          {
+            "id": "intent-open-2",
+            "question": "Как убедиться, что порядок ключей в JSON соответствует требуемому (zone, kg, price)?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.json-shape"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11121,
+        "userChars": 4093,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9425,
+        "userChars": 16043,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 19393,
+        "userChars": 19253,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-c83655d0-ffd7-40ef-836d-11a19d9d8965-1",
+        "questionId": "intent-open-0",
+        "text": "Как получить значения zone, kg и price из текущей логики команды quote для JSON-вывода?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-c83655d0-ffd7-40ef-836d-11a19d9d8965-1",
+        "questionId": "intent-open-1",
+        "text": "Как адаптировать существующую логику парсинга строк для режима JSON без нарушения старого формата вывода?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-c83655d0-ffd7-40ef-836d-11a19d9d8965-1",
+        "questionId": "intent-open-2",
+        "text": "Как убедиться, что порядок ключей в JSON соответствует требуемому (zone, kg, price)?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "c3b4ba81d550df89c6cade5af2361281abb708965699c638f7026346dfd7fb47",
+      "configHash": "bea63e850dd128b1e4dc8a34661d8b22738e69dea66f4616c1dd8537e371591a",
+      "localEndpoints": {},
+      "inputHash": "0cb257ddcb866661e0dfcac8cc4afc71398bbf39f3af04bbb191c0fc8d4e3992",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 2700000
+    },
+    "workspaceHash": "811c0a6c26f42c4024bb2b5ee230b4d7ae42c71e1a10488cba00d353b1093fba",
+    "state": "finished",
+    "capturedAt": "2026-10-03T05:00:57.380Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-03T05:00:57.344Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "a9ebabccc806f6978b7fd8138cb42c9306220cc85be1b434102e255c50c2b7aa",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "027da88135ab9e0c779f5a521a95f06d50784c27bd43c20cb9bda84d7510d522",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "76decd238b66a0f84b1e85d50ce73e6a421801508527170e2cb51bf933604992",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "234469b6fa3d005b0402551426e878c581fce594a97b66cb6646e7ca699965aa",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "4fbc21e8678bec440a20fe4a51a4507facb0351b782937af090302377be29fb8",
+        "placeholders": 62,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "d7c254e8767828f8d3032070cc92726bb780483ff39002fe75525ef63f13efd5",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

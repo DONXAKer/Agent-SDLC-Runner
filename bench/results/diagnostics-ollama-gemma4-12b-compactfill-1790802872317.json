@@ -1,0 +1,1086 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-30T21:14:32.316Z",
+  "model": "ollama:gemma4-12b-compactfill",
+  "repeats": 1,
+  "preflight": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "name": "задача: файлы фикстуры",
+        "ok": true,
+        "env": true,
+        "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+        "durationMs": 0
+      },
+      {
+        "name": "задача: банк ответов человека",
+        "ok": true,
+        "env": true,
+        "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+        "durationMs": 0
+      },
+      {
+        "name": "конфиг: контрольный маршрут",
+        "ok": true,
+        "env": true,
+        "detail": "маршрут «контроль на подписке Claude» собирается",
+        "durationMs": 6
+      },
+      {
+        "name": "фикстура: сборка",
+        "ok": true,
+        "env": true,
+        "detail": "build-check.mjs зелёный",
+        "durationMs": 133
+      },
+      {
+        "name": "фикстура: тесты",
+        "ok": true,
+        "env": true,
+        "detail": "нетронутая фикстура зелёная (2 файлов)",
+        "durationMs": 242
+      },
+      {
+        "name": "стенд: лимит ходов",
+        "ok": true,
+        "env": true,
+        "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: промпт plan против окна",
+        "ok": true,
+        "env": true,
+        "detail": "системная часть plan ≈6218 токенов при окне 32768",
+        "durationMs": 1
+      },
+      {
+        "name": "модель: окно контекста",
+        "ok": true,
+        "env": true,
+        "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: прогрев движка",
+        "ok": true,
+        "env": true,
+        "detail": "движок ответил — веса подняты до замеряемых проб",
+        "durationMs": 740
+      },
+      {
+        "name": "модель: раскладка после прогрева",
+        "ok": true,
+        "env": false,
+        "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+        "durationMs": 4
+      },
+      {
+        "name": "модель: вызов Write",
+        "ok": true,
+        "env": false,
+        "detail": "Write(notes/hello.md)",
+        "durationMs": 1388
+      },
+      {
+        "name": "модель: заполнение поля через Edit",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с плейсхолдером в old_string",
+        "durationMs": 2665
+      },
+      {
+        "name": "модель: чтение → запись",
+        "ok": true,
+        "env": false,
+        "detail": "Read, затем Edit",
+        "durationMs": 3327
+      },
+      {
+        "name": "модель: точный Edit многострочного блока",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с точным многострочным old_string",
+        "durationMs": 2081
+      },
+      {
+        "name": "модель: честность путей",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строго по объявленному файлу src/a.ts",
+        "durationMs": 1883
+      },
+      {
+        "name": "модель: длинная запись без усечения",
+        "ok": true,
+        "env": false,
+        "detail": "Write с маркером 60-й строки — ответ не усечён",
+        "durationMs": 11882
+      },
+      {
+        "name": "модель: правка поля без перезаписи файла",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строки карты, поле решения человека не тронуто",
+        "durationMs": 2915
+      }
+    ]
+  },
+  "fingerprint": {
+    "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+    "sourceHash": "04dade6d8967d378cfa248a2d8e254a099e091c05a478120446bb21b3b76d938",
+    "configHash": "2ef53b224030cfe1ab92a2d04da6284933043f3f432a390a9da2bf7b48c15fb2",
+    "modelConfigHash": "77454efda00514c299b62e47222b22d9e1aab3bb2d745c6b3b4161dd3dc81fa8"
+  },
+  "cases": [
+    {
+      "id": "I01",
+      "task": "oversize",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        5,
+        7,
+        14
+      ],
+      "evaluation": "intent rubric: preserve scope, constraints, measurable acceptance criteria",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-i01-1790801512848-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 33585,
+          "tokens": 19295,
+          "toolCalls": 2,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "791011f0085357cae78b58dbbcee13e423acb97c8935f1d1941b1bf92faac50b",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-i01-1790801512848-1.json"
+        }
+      ]
+    },
+    {
+      "id": "I02",
+      "task": "contradiction",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        7
+      ],
+      "evaluation": "contradiction rubric: detect conflict and ask before committing to either answer",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 31165,
+          "tokens": 17552,
+          "toolCalls": 2,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "20b3d2040e90c7ea1f207fa1b382929f8517f03f7616430da16bfe6832d4fd76",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-i02-1790801548144-1.json"
+        }
+      ]
+    },
+    {
+      "id": "E01",
+      "task": "rename-field",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4,
+        10
+      ],
+      "evaluation": "required files, symbols, dependency chain, and exploration completeness",
+      "inputStatus": "available",
+      "inputReason": "rename-field-intent-reference",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-e01-1790801581201-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 105267,
+          "tokens": 100712,
+          "toolCalls": 4,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "2d3448c30caffdef3a0d968f9530772c9cb6d0482913d9babd61e15fbb67b033",
+            "snapshotName": "rename-field-intent-reference",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-e01-1790801581201-1.json"
+        }
+      ]
+    },
+    {
+      "id": "E02",
+      "task": "multi-file-cascade",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4
+      ],
+      "evaluation": "dependency graph and all affected modules",
+      "inputStatus": "available",
+      "inputReason": "diagnostic-multi-file-cascade-intent-v1",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-e02-1790801687699-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 109289,
+          "tokens": 128807,
+          "toolCalls": 4,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "b5e01b304e446c3618071e20ec88b77d0f8a93215fbc23bfcc27e37a211ad55e",
+            "snapshotName": "diagnostic-multi-file-cascade-intent-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-e02-1790801687699-1.json"
+        }
+      ]
+    },
+    {
+      "id": "A01",
+      "task": "two-right-answers",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "resolve the choice from src/hold.ts and test/hold.test.ts as required by the task; ask only if project evidence leaves it unresolved; record the choice and source before code",
+      "inputStatus": "available",
+      "inputReason": "diagnostic-two-right-answers-explore-v1",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-a01-1790801798576-1",
+          "exitCode": 2,
+          "outcome": "not-started",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "INPUT_BLOCKED"
+          ],
+          "durationMs": 746,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "74a5c9672eefae8f8c35aa2238d059ba0edfba76d32d9dcb149be0fcd784b5a5",
+            "snapshotName": "diagnostic-two-right-answers-explore-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-a01-1790801798576-1.json"
+        }
+      ]
+    },
+    {
+      "id": "A02",
+      "task": "impossible-without-data",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask for unavailable decision data instead of inventing it",
+      "inputStatus": "available",
+      "inputReason": "diagnostic-impossible-without-data-explore-v1",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-a02-1790801800577-1",
+          "exitCode": 2,
+          "outcome": "not-started",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "INPUT_BLOCKED"
+          ],
+          "durationMs": 735,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "bf41ae249c2c291f0a2a8ad69c2341190983ce0da2021eae7408b815a009371b",
+            "snapshotName": "diagnostic-impossible-without-data-explore-v1",
+            "snapshotAuthor": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-a02-1790801800577-1.json"
+        }
+      ]
+    },
+    {
+      "id": "P01",
+      "task": "config-default",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "snapshot": "config-default-plan-reference-v4",
+      "problemIds": [
+        6,
+        15
+      ],
+      "evaluation": "config default behavior, compatibility, and tests",
+      "inputStatus": "available",
+      "inputReason": "config-default-plan-reference-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-p01-1790801802557-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 101745,
+          "tokens": 176578,
+          "toolCalls": 2,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "9cbc28bd9ea3df22375244c03740510d564ecc272353e7082612bc0c9eb0c4a9",
+            "snapshotName": "config-default-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-p01-1790801802557-1.json"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "task": "migration-compat",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "snapshot": "migration-compat-plan-reference-v4",
+      "problemIds": [
+        6
+      ],
+      "evaluation": "migration sequencing, compatibility window, rollback",
+      "inputStatus": "available",
+      "inputReason": "migration-compat-plan-reference-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-p02-1790801905575-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 104953,
+          "tokens": 182010,
+          "toolCalls": 2,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "fa723529a156a307c1f3d2de5be119b8e9303118694078fa395a197be9c1d676",
+            "snapshotName": "migration-compat-plan-reference-v4",
+            "snapshotAuthor": "reference:curated",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-p02-1790801905575-1.json"
+        }
+      ]
+    },
+    {
+      "id": "C01",
+      "task": "vat-rounding",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "vat-rounding-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        11,
+        12,
+        13,
+        26
+      ],
+      "evaluation": "correct rounding semantics, affected files, tests",
+      "inputStatus": "available",
+      "inputReason": "vat-rounding-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-c01-1790802011898-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "HIDDEN_TEST_FAILED"
+          ],
+          "durationMs": 107637,
+          "tokens": 49203,
+          "toolCalls": 6,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "552226200b4115bb7a46872a57a8bdbf8eb64c12da82903d76e3bd514e0c41bc",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "a8b0b2e20ed97d1b0ebe8a515357e971f0036355e6fdd7f4e4ddd99eecbb8b17",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-c01-1790802011898-1.json"
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "task": "rename-field",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "rename-field-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        8,
+        11,
+        12,
+        13
+      ],
+      "evaluation": "complete rename, migration compatibility, tests",
+      "inputStatus": "available",
+      "inputReason": "rename-field-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-c02-1790802121097-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 98772,
+          "tokens": 56643,
+          "toolCalls": 7,
+          "friction": 0,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "3817db6a93816046315a819b236886e0525441ce088309c8753ce3e692459a7c",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-c02-1790802121097-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V00",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "none",
+      "evaluation": "clean control: no unsupported findings, accurate gate report",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-v00-1790802221361-1",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED"
+          ],
+          "durationMs": 140412,
+          "tokens": 313426,
+          "toolCalls": 2,
+          "friction": 0,
+          "reason": "этап закончился, но артефакт не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-37C3uH\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v00-1790802221361-1\\verification-report-1-attempt-1.md (7 незаполненных полей)",
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "3817db6a93816046315a819b236886e0525441ce088309c8753ce3e692459a7c",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-v00-1790802221361-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V01",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-config-blind",
+      "evaluation": "name the seeded configuration defect with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-v01-1790802363105-1",
+          "exitCode": 0,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": true,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 170344,
+          "tokens": 446616,
+          "toolCalls": 3,
+          "friction": 0,
+          "reason": "этап закончился, но артефакт не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-KeU7Dg\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790802363105-1\\verification-report-1-attempt-1.md (7 незаполненных полей)",
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "3817db6a93816046315a819b236886e0525441ce088309c8753ce3e692459a7c",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-v01-1790802363105-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V02",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-secret-in-log",
+      "evaluation": "name the seeded secret exposure with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-v02-1790802535375-1",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED",
+            "SEED_MISSED"
+          ],
+          "durationMs": 160404,
+          "tokens": 403560,
+          "toolCalls": 3,
+          "friction": 0,
+          "reason": "этап закончился, но артефакт не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-EMtQXo\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v02-1790802535375-1\\verification-report-1-attempt-1.md (7 незаполненных полей)",
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "3817db6a93816046315a819b236886e0525441ce088309c8753ce3e692459a7c",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-v02-1790802535375-1.json"
+        }
+      ]
+    },
+    {
+      "id": "H01",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "matrix-h01-gemma-v2-clean",
+      "problemIds": [],
+      "evaluation": "successful verify input: complete and accurate handoff",
+      "inputStatus": "available",
+      "inputReason": "matrix-h01-gemma-v2-clean",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-h01-1790802697650-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 171287,
+          "tokens": 586491,
+          "toolCalls": 20,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "3817db6a93816046315a819b236886e0525441ce088309c8753ce3e692459a7c",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "7eda9dd01b2748002e4c10c70032e430054c7b779c27f75c18a16feded3196b3",
+            "snapshotName": "matrix-h01-gemma-v2-clean",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-h01-1790802697650-1.json"
+        }
+      ]
+    },
+    {
+      "id": "H02",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "matrix-h01-gemma-v2-clean-missing-verdict",
+      "expectedBlocked": true,
+      "problemIds": [],
+      "evaluation": "runtime safety control (not model ability): missing runtime verdict must block handoff before any model or commit",
+      "inputStatus": "available",
+      "inputReason": "matrix-h01-gemma-v2-clean-missing-verdict: expected missing runtime verdict",
+      "samples": [
+        {
+          "slug": "diag-ollama-gemma4-12b-compactfill-h02-1790802870311-1",
+          "exitCode": 2,
+          "outcome": "safely-blocked",
+          "stageStarted": false,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 720,
+          "tokens": 0,
+          "toolCalls": 0,
+          "friction": 0,
+          "reason": "вердикта рантайма по попытке 1 нет: verify прерван до расчёта вердикта, виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке `passed:` в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ajQa0Y\\.sdlc\\diag-ollama-gemma4-12b-compactfill-h02-1790802870311-1\\verification-report-1-attempt-1.md рантайм не доверяет — её пишет и модель. Повтори verify, или запусти этап с флагом «обрыв».",
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "4a07b20bbf51739f0ca5c5908704285d779e2463bf3b4bfd9232aeb037991609",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "6e8e2934d6f642245999c4051be50e75b5f693ae5507893b370bdf9979c269aa",
+            "snapshotName": "matrix-h01-gemma-v2-clean-missing-verdict",
+            "snapshotAuthor": "ollama:gemma4-12b-compactfill",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-gemma4-12b-compactfill-h02-1790802870311-1.json"
+        }
+      ]
+    }
+  ],
+  "problemCoverage": [
+    {
+      "problemId": 1,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 2,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 3,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 4,
+      "cases": [
+        "E01",
+        "E02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 5,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 6,
+      "cases": [
+        "P01",
+        "P02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 7,
+      "cases": [
+        "I01",
+        "I02",
+        "C01"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 8,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 9,
+      "cases": [
+        "A01",
+        "A02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 10,
+      "cases": [
+        "E01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 11,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 12,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 13,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 14,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 15,
+      "cases": [
+        "P01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 16,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 17,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 18,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 19,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 20,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 21,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 22,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 23,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 24,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 25,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 26,
+      "cases": [
+        "C01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    }
+  ]
+}

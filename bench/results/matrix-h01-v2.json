@@ -1,0 +1,385 @@
+{
+  "run": {
+    "slug": "matrix-h01-v2",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-30T18:15:14.770Z",
+    "finishedAt": "2026-09-30T18:17:40.493Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается его записями, добором по пунктам приёмки и дозаполнением по полям, без второго свободного прохода по тому же diff'у — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 16, осталось на диске 1 полей модели; ответ на поле гейты ранних этапов отклонён: поле «гейты ранних этапов»: записей нет, а альтернативы «пусто» у него нет; ответ на поле гейты ранних этапов отклонён: поле «гейты ранних этапов»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 18
+      }
+    ],
+    "finalVerdict": {
+      "passed": true,
+      "action": "continue",
+      "reasons": [
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 308155,
+          "outputTokens": 1131,
+          "cacheReadTokens": 231305,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 229370
+        },
+        "durationMs": 144750,
+        "requestDurationsMs": [
+          9670,
+          12501,
+          16645,
+          3839,
+          21577,
+          26229,
+          11953,
+          15115,
+          16765,
+          18148,
+          1635,
+          10048,
+          11936,
+          1185,
+          3105,
+          4999,
+          1908,
+          8921,
+          10700,
+          1651,
+          2938,
+          4594,
+          1590,
+          3287,
+          8444
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 175
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 338
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 311
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 479
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 321
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 138
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 67
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 73
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 15
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 7
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": true,
+    "action": "continue",
+    "reasons": [
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-NsUikS\\.sdlc\\matrix-h01-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:3a9936c5-0a8c-4ff5-8765-20972f6b60ea",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-h01-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11772,
+        "userChars": 37042,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "84b6f7c401938a43b1f6687863fa4943e29901d1f11f33e2c7c762e8d3794999",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+      "snapshotName": "oversize-axes3-diagnostic-v4",
+      "snapshotAuthor": "claude-sdk:sonnet",
+      "stageTimeoutMs": 600000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "dc2611c9dae60dbbea4dfebcbeaf9defe5f2ab2db32de7a8778e3ce8e0e266c1",
+    "state": "finished",
+    "capturedAt": "2026-09-30T18:17:40.526Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "verify",
+      "at": "2026-09-30T18:17:40.490Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "8c7113c48f98f6b43005067bf32704fa6727bc99b8a3cdd624d986214818d677",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "88a6b614bc25ae3c36b611ce82bf2d770122bacd7fc7769894e28ccfe7c7028b",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "73b7e386714f58abd7a004bbec49ea46297ccd7264b328fba2258c279ec5543a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c4ac8161a302b8095fbee180f657c45184b6a638ed9994f60a65e6741b12c1bc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "42addf5ddd88ac5252935e0bb1ecf605abbea007f01b497165aba73be8fa0274",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "6ba36be0e1e0e3af2987bb1260708943ab57efb90022cf7ab70430881bbe2ffb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "fbdd1855e8205d399e0c0224b0217936bb9010592d7446f45cae001867fb2528",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "self-review-1-attempt-1.md",
+        "sha256": "b7d5b0adc9602d58a5f70169db4408cd92a76a40d2dcf45a4bfba07e7fe5a483",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "c8829dded690f1113608a0692550cdd20976ba57d639d84bcd6fa4783334692f",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

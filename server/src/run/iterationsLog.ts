@@ -22,11 +22,26 @@ import type {
   VerdictAction,
 } from '@sdlc-runner/shared';
 
+import { readArtifact } from '../artifacts/artifact.ts';
+import type { WitokPaths } from '../artifacts/paths.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 
 // Разбор патча общий на кодовую базу: свой считал строку кода, начинающуюся с `++`,
 // заголовком файла — журнал печатал «Файлов: 2» для патча одного файла.
 import { patchSize } from '../diff/parse.ts';
+
+/**
+ * Текст журнала итераций: новое место (`.runner/iterations.md`), а для витков, начатых до
+ * переезда служебных файлов раннера, — прежнее (`iterations.md` в корне каталога витка).
+ * Запись всегда идёт в новое место; прежние строки при первой дозаписи переезжают вместе
+ * с ней (вызывающий пишет `appendIteration(existing.text, …)` по новому пути).
+ */
+export function readIterationsText(paths: WitokPaths): { exists: boolean; text: string } {
+  const fresh = readArtifact(paths.iterations);
+  if (fresh.exists) return { exists: true, text: fresh.text };
+  const legacy = readArtifact(paths.iterationsLegacy);
+  return legacy.exists ? { exists: true, text: legacy.text } : { exists: false, text: '' };
+}
 
 export interface IterationRecord {
   chunk: number;

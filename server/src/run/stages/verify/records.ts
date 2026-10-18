@@ -6,24 +6,48 @@
 import { localResultBytes } from '../../../config/limits.ts';
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
-import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
+import { countPlaceholdersExceptDecisions, readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
-import { gateKey } from '../../../gates/gatesFile.ts';
+import { gateKey, gatesExpectedInReport, openDebt } from '../../../gates/gatesFile.ts';
 import { ProviderEnvError } from '../../../provider/ChatProvider.ts';
 import { createProvider } from '../../../provider/registry.ts';
 import { claimTextCell } from '../../../verdict/retryBrief.ts';
 import { fillClaims } from '../../claimFill.ts';
+import { guidedSourceHunks, readGuided, guidedImplementationHashes } from '../../guidedState.ts';
+import { renderGuidedVerification } from '../../guidedVerification.ts';
 import type { ClaimAsk } from '../../claimFill.ts';
 import { autofillVerificationReport } from '../../verifyAutofill.ts';
+import { approvedPlanDate } from '../../journalAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../../verifyReport.ts';
 import type { SeededArtifact, StageHost } from '../types.ts';
-import { REVIEW_GATE, earlyGateRows, earlyGatesForModel } from './gates.ts';
+import { REVIEW_GATE, earlyGateRows, earlyGatesForModel, reportedBy, gateResultsForVerdict } from './gates.ts';
+
+export function finishGuidedVerification(host: StageHost): void {
+  if (!readGuided(host.paths) || !host.verifyState.reviewFillComplete || !guidedImplementationHashes(host.paths)) return;
+  const gates = host.gatesFile();
+  const base = host.verifyState.verifyPrefill;
+  if (!gates || !base || host.signal().aborted) return;
+  const date = /Последнее изменение набора:\*\*\s*([^\r\n]+)/u.exec(readArtifact(host.paths.gates).text)?.[1];
+  const header = base.split(/^## Гейты\s*$/mu)[0]!
+    .replace(/^(- \*\*Набор гейтов:\*\*).*$/mu, `$1 от ${date ?? 'дата не указана в наборе'}`)
+    .replace(/^(- \*\*Долг набора:\*\*).*$/mu, `$1 ${openDebt(gates).length ? 'есть незакрытые строки — проверяет вердикт' : 'незакрытых строк нет'}`);
+  const text = renderGuidedVerification({ header, gates: gateResultsForVerdict(host),
+    requiredGates: gatesExpectedInReport(gates).map(g => ({ name: g.name, runtime: reportedBy(g) === 'runtime' })),
+    claims: [...host.verifyState.claimRecords.values()], findings: host.verifyState.findingRecords,
+    titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)])),
+    reviewComplete: host.verifyState.reviewFillComplete, earlyGates: earlyGateRows(host),
+    scanIndependent: host.reviewScan().blocking });
+  host.writeAutofilled(host.paths.verificationReport(host.chunk(), host.attempt()), text, []);
+}
 
 /** Текст, в котором ищется ссылка записи (`VerifyState.anchorHaystack`). */
 export function evidenceHaystack(host: StageHost): string {
   const verify = host.verifyState;
   if (verify.anchorHaystack !== null) return verify.anchorHaystack;
   const parts: string[] = [];
+  if (readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text.trim() === '') {
+    parts.push(...guidedSourceHunks(host.paths).map(h => h.text));
+  }
   for (const p of [
     host.paths.chunkDiff(host.chunk(), host.attempt()),
     host.paths.chunkTests(host.chunk(), host.attempt()),
@@ -46,6 +70,8 @@ export function verifyGaps(host: StageHost): string[] {
   const report = readArtifact(path);
   if (!report.exists) return [];
   const gaps = verifyReportGaps(report.text, [...host.intentClaimLines().keys()]);
+  const remaining = countPlaceholdersExceptDecisions(report.text);
+  if (remaining > 0) gaps.push(`${remaining} незаполненных полей`);
   return gaps.length === 0 ? [] : [`${path} (${gaps.join('; ')})`];
 }
 
@@ -57,7 +83,7 @@ export function verifyGaps(host: StageHost): string[] {
  * требование ссылки задумано против оформителя, закрывающего бланк вслепую, а не против
  * рецензента, который что-то увидел и не смог показать пальцем.
  */
-export function acceptRecord(host: StageHost, call: NormalizedCall): string {
+export function acceptRecord(host: StageHost, call: NormalizedCall, opts?: { advisory?: boolean }): string {
   const verify = host.verifyState;
   if (call.kind === 'record_claim') {
     const anchored = anchorFound(call.evidence, evidenceHaystack(host));
@@ -85,12 +111,19 @@ export function acceptRecord(host: StageHost, call: NormalizedCall): string {
 
   if (call.kind === 'record_finding') {
     const anchored = anchorFound(call.evidence, evidenceHaystack(host));
+    const advisory = opts?.advisory === true;
     verify.findingRecords.push({
       section: call.section,
       text: call.text,
       evidence: call.evidence,
       anchored,
+      advisory,
     });
+    if (advisory) {
+      return `находка принята как СПРАВОЧНАЯ (advisory): рецензент совпадает с исполнителем, ` +
+        `поэтому она видна в отчёте отдельным разделом, но вердикт не роняет. Блокирующими ` +
+        `могут быть только находки отдельного review-маршрута.`;
+    }
     return anchored
       ? `находка записана в секцию ${call.section} отчёта.`
       : `находка принята, но БЕЗ привязки к месту: она уйдёт в отчёт отдельной строкой и в ` +
@@ -117,12 +150,16 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
 
   const limits = host.limits();
   const { calls, envFailure } = await fillClaims({
+    guided: readGuided(host.paths) !== null,
+    onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,
     system,
     claims: asks,
+    repairIncomplete: readGuided(host.paths) !== null,
     diff: readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text,
+    ...(readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text.trim() === '' ? { sourceHunks: guidedSourceHunks(host.paths) } : {}),
     tests: readArtifact(host.paths.chunkTests(host.chunk(), host.attempt())).text,
     // Тот же потолок, что у результата инструмента локального контура: срез патча
     // конкурирует за то же окно, что и всё остальное в вопросе.
@@ -175,6 +212,10 @@ export async function applyRecords(host: StageHost): Promise<void> {
     titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
   });
   if (filled === 0 || text === report.text) return;
+  // Этап отменён: `Run.cancel` уже снял очередь гейта, и новый запрос одобрения ждал бы
+  // человека вечно, держа этап занятым (тот же класс, что у `topUpAxes`; code-review-all
+  // 2026-09-23).
+  if (host.signal().aborted) return;
 
   // Запись — тем же путём, что у спасения артефакта: нормализованный `Write` через
   // политику и гейт одобрения. Оператор видит карточку и вправе её править; отказ
@@ -216,13 +257,31 @@ export function autofillVerification(host: StageHost, seeded: SeededArtifact[]):
   if (!report.exists || report.placeholders === 0) return;
 
   const gates = verify.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
+  let evidence: { base_sha?: string; head_sha?: string } = {};
+  try { evidence = JSON.parse(readArtifact(host.paths.chunkEvidence(host.chunk(), host.attempt())).text); }
+  catch { /* Missing evidence remains a separate red verification fact. */ }
   const { text, filled } = autofillVerificationReport(report.text, gates, {
+    baseSha: typeof evidence.base_sha === 'string' ? evidence.base_sha : null,
+    headSha: typeof evidence.head_sha === 'string' ? evidence.head_sha : null,
+    planApprovedOn: approvedPlanDate(readArtifact(host.paths.plan).text),
     chunk: host.chunk(),
     attempt: host.attempt(),
     slug: host.slug,
     attemptBudget: host.attemptBudget(),
     earlyGates: earlyGateRows(host),
     earlyGatesForModel: earlyGatesForModel(host),
+    // Строки ревью и гейтов проверяющего остаются модели: рецензент на момент
+    // автозаполнения ещё не запускался.
+    gatesForModel: (host.gatesFile()?.rows ?? [])
+      .filter((r) => r.enabled && reportedBy(r) === 'model')
+      .map((r) => r.name),
+    runtimeGateRows: (host.gatesFile()?.rows ?? [])
+      .filter((r) => r.enabled && reportedBy(r) === 'runtime')
+      .map((r) => ({
+        name: r.name,
+        status: '✅',
+        result: 'исполняет рантайм при расчёте вердикта: строка каждого включённого гейта обязана быть в отчёте, иначе вердикт падает',
+      })),
   });
   // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
   // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,

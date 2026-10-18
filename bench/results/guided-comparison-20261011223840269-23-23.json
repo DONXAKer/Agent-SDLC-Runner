@@ -1,0 +1,283 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:qwen3.8-27b-iq4-ctx32k-gpumax",
+    "budgetMs": 3600000,
+    "activeMs": 68466,
+    "remainingMs": 3531534,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T01:06:08.313Z",
+        "inputRevision": "aa988ee272a6b74226871e041605e35936082b0e793666749584215087b09c8b",
+        "decision": "blocked",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать."
+          }
+        ],
+        "uncertainties": [
+          "Для продолжения этапа требуется подтвердить существование ветки sdlc/config-default, указанной в request-1 (строка 27). Проверка рантайма показала отсутствие фактов о структуре дерева или состоянии git в источниках, поэтому необходимо перечитать вход."
+        ],
+        "action": "read",
+        "reason": "Для продолжения этапа требуется подтвердить существование ветки sdlc/config-default, указанной в request-1 (строка 27). Проверка рантайма показала отсутствие фактов о структуре дерева или состоянии git в источниках, поэтому необходимо перечитать вход.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": false,
+          "text": "файла нет: sdlc/config-default"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T01:06:24.462Z",
+        "inputRevision": "aa988ee272a6b74226871e041605e35936082b0e793666749584215087b09c8b",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются."
+          },
+          {
+            "source": "stage-input",
+            "quote": "    \"runtimeContext\": [\n      {\n        \"section\": \"Факт прогона: ветка рабочего дерева\",\n        \"values\": [\n          \"Рабочее дерево стоит на ветке sdlc/config-default.\",\n          \"Поле «Ветка витка» в intent.md обязано совпасть с этой строкой дословно. Не выводи\",\n          \"имя из путей .sdlc/… и не придумывай по конвенции: Runner сверяет поле с фактическим\",\n          \"состоянием дерева и блокирует этап 4 при расхождении.\"\n        ]\n      }\n    ]"
+          }
+        ],
+        "uncertainties": [
+          "Подтвердить текущую структуру BillingConfig и resolveConfig для оценки согласованности с новым полем."
+        ],
+        "action": "read",
+        "reason": "Подтвердить текущую структуру BillingConfig и resolveConfig для оценки согласованности с новым полем.",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T01:06:45.148Z",
+        "inputRevision": "aa988ee272a6b74226871e041605e35936082b0e793666749584215087b09c8b",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: Для proceed нужны основания и отсутствие существенных пробелов"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: Для proceed нужны основания и отсутствие существенных пробелов",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261011223840269-23-23",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T01:05:35.134Z",
+    "finishedAt": "2026-10-12T01:06:45.167Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: Для proceed нужны основания и отсутствие существенных пробелов",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 18571,
+          "outputTokens": 770,
+          "cacheReadTokens": 1458,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 69147
+        },
+        "durationMs": 69475,
+        "requestDurationsMs": [
+          16357,
+          15994,
+          16129,
+          20667
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "5e2054143275c1ed1440c8d91f6641979fa7fd8e2794193b50ca30e41902a187",
+      "configHash": "928ac82479bb24c9945fb2e1a5147f32ab323f7be01456ba3e3f887e72952fc5",
+      "localEndpoints": {},
+      "inputHash": "f172fc1464ef7d3fcfbf35e8fe429bff31f7473946fe0d1d6e5351930a178daa",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "a9e980ff614130936d25186f9ea1eaf8f6d0d1fa35dbe75f60fe439e684056d5",
+    "state": "finished",
+    "capturedAt": "2026-10-12T01:06:45.185Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T01:06:45.151Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "c20ad9fb02c8b27fd3d2675225df76bb04a87d49eb2b970679baa6846b49d99b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "7b086c50d518c6b81d0e37b9ee6d2a69404cf4f8396d8c51d04b5c7eeabbad28",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

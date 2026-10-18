@@ -46,10 +46,11 @@ describe('contextProblemFor', () => {
     strictEqual(await contextProblemFor('lmstudio', 'm', undefined, 'http://127.0.0.1:1/v1'), null);
   });
 
-  it('lmstudio: расхождение окна доезжает до сообщения оператору', async () => {
+  it('lmstudio: расхождение окна доезжает до сообщения оператору, помечено чинимым перезагрузкой', async () => {
     const baseUrl = await startStub(() => ({ data: [{ id: 'm', state: 'loaded', loaded_context_length: 8192 }] }));
     const problem = await contextProblemFor('lmstudio', 'm', 16384, baseUrl);
-    ok(problem !== null && problem.includes('8192') && problem.includes('16384'), String(problem));
+    ok(problem !== null && problem.message.includes('8192') && problem.message.includes('16384'), JSON.stringify(problem));
+    strictEqual(problem?.reloadable, true);
   });
 
   it('lmstudio: окно совпадает — null', async () => {
@@ -66,7 +67,8 @@ describe('contextProblemFor', () => {
     delete process.env['OLLAMA_CONTEXT_LENGTH'];
     try {
       const problem = await contextProblemFor('ollama', 'm', undefined, baseUrl);
-      ok(problem !== null && problem.includes('4096'), String(problem));
+      ok(problem !== null && problem.message.includes('4096'), JSON.stringify(problem));
+      strictEqual(problem?.reloadable, false, 'ollama: окно зашито в тег, перезагрузкой не чинится');
     } finally {
       if (saved !== undefined) process.env['OLLAMA_CONTEXT_LENGTH'] = saved;
     }
@@ -92,7 +94,7 @@ describe('contextProblemFor', () => {
   it('ollama: мёртвый тег — по-прежнему проблема', async () => {
     const baseUrl = await startStub((url) => (url === '/api/tags' ? { models: [{ name: 'другая' }] } : {}));
     const problem = await contextProblemFor('ollama', 'm', 16384, baseUrl);
-    ok(problem !== null && problem.includes('не найдена'), String(problem));
+    ok(problem !== null && problem.message.includes('не найдена'), JSON.stringify(problem));
   });
 
   it('ollama: тег с зашитым num_ctx — null', async () => {

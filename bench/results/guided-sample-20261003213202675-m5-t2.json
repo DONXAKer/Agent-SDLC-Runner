@@ -1,0 +1,300 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 221940,
+    "remainingMs": 1578060,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261003213202675-m5-t2",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T22:05:50.157Z",
+    "finishedAt": "2026-10-03T22:09:32.660Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/hold.ts не подготовлено: Исправь формат предыдущего ответа: Unterminated string in JSON at position 2193 (line 1 column 2194)\n{\"fact\":\"В файле src/hold.ts реализованы три публичные функции:\\n- `makeHold(id: string, slot: Slot, now: Date): Hold` – создаёт Hold, требуя, чтобы `id` был непустой строкой, а `slot.startIso` был строго в будущем относительно `now`. Если условие не выполнено, выбрасывается `RangeError`. Возвращаемый объект содержит `id`, копию `slot` (с `startIso` и `endIso`) и `expiresIso`, равный `slot.startIso`.\\n- `isActive(hold: Hold, now: Date): boolean` – проверяет, активна ли бронь в момент `now` по критерию `now.getTime() <= instantOf(hold.expiresIso)`. Бронь считается активной до и в момент `expiresIso` включительно.\\n- (предлагается) `moveHold(hold: Hold, newSlot: Slot): Hold` – создаёт новый Hold, копируя `id` и `expiresIso` из исходной брони, но заменяя `slot` на новый. Внутри реализовано как `{...hold, slot: {...newSlot}}`, т.е. новые значения копируются, а остальные поля сохраняются неизменными. Функция не принимает `now` и не делает проверок времени.\\n\\nInterface `Hold` состоит из `id`, `slot` (объект с `startIso`/`endIso`) и `expiresIso` (ISO‑строка со смещением).\\n\\n`index.ts` экспортирует все функции из `hold.ts`.\\n\\n impact\\\":\\\"`moveHold` позволяет переносить существующую бронь на другой слот без изменения идентификатора и срока действия. Это решает проблему, когда клиент просит смену слота: перемещение остаётся одной сущностью, сохраняет оригинальные сообщения и дату истечения. Это требуется для тестов переносов и должна работать без дополнительных проверок времени, так как перенос выполняется диспетчером.\\n\\n change\\\":\\\"Добавлена функция  `moveHold(hold: Hold, newSlot: Slot): Hold` в src/hold.ts, которая возвращает новый объект Hold, копируя `id` и `expiresIso`, но заменяя `slot` на новый. Функция экспортируется из src/index.ts.\\n\\n reuse\\\":null,\\n \\\"risks\\\":[\\\"Текущая реализация `moveHold` не валидирует время нового слота, что может привести к переносам на прошедшие слоты, если в будущем появятся ограничениях. Плюс, отсутствие проверки `id`/`expiresIso` может позволить случайно изменить эти поля через неправильное использование. Существующие тесты не покрывают конфликтные сценарии, где новый слот пересекается с предыдущим. \\\"],\\n \\\"questions\\\":[]}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 17938,
+          "outputTokens": 7488,
+          "cacheReadTokens": 11032,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 246875
+        },
+        "durationMs": 129128,
+        "requestDurationsMs": [
+          20990,
+          28041,
+          48021,
+          22340,
+          46686,
+          72974,
+          7830
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 10815,
+          "outputTokens": 5340,
+          "cacheReadTokens": 3958,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 92769
+        },
+        "durationMs": 92829,
+        "requestDurationsMs": [
+          32901,
+          18516,
+          18703,
+          22649
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 6
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:9a734345-c09c-48c8-94a5-b1d621058c10",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003213202675-m5-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4744,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 6999,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "cc1fbd7e5c8b544feab385826f0f34894a352db50fc001bb76ce15513e6044f8",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "960494acb47d4e00e2c7949ceb17959d7684be50a7ab798e0d3f0d6b2945c7cb",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "e3f682436ad98ca29efdd91d960885877e167a132e2a13a9d19b3b59c8098022",
+    "state": "finished",
+    "capturedAt": "2026-10-03T22:09:32.675Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-03T22:09:32.657Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "1487bf89e4b1a5a0a1818f1b1be5a30c5b1acd9b7b786fe7119b0737494dab87",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "3afe0ae6542253db435f82328c4f285f117382c45c84e358c39417f067794cf0",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "22b82089083f8375a6c5df7ffa445b0c058fcfd310f07cd79d42082a0503322e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "f9908f8e844ce60b005134e2949f885a3dafc7b744f06b7d1373bc2194cfffb6",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,288 @@
+{
+  "run": {
+    "slug": "qwen3coder30b-reviewfill-axis-config-blind",
+    "model": "ollama:qwen3-coder-30b-reviewfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:cline_roocode:8b-ctx16k",
+      "verify": "ollama:qwen3-coder-30b-reviewfill",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-28T04:47:43.837Z",
+    "finishedAt": "2026-09-28T04:53:58.047Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ответ обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 1 ходах — это предел окна, а не отказ модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 4
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "нарушен инвариант: src/oversize.ts:24-26",
+        "нарушен инвариант: src/tariffs.ts:123",
+        "нарушен инвариант: src/tariffs.ts:161",
+        "нарушен инвариант: test/oversize.test.ts:159",
+        "регрессия — откат ранее работавшего поведения: Нет проверки на корректность входных данных (отрицательные значения измерений) (src/oversize.ts:24-26)",
+        "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+        "свидетельства попытки не произведены инструментом: записи C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-WJvf7i\\.sdlc\\qwen3coder30b-reviewfill-axis-config-blind\\chunk-1-attempt-1-evidence.json нет — патч и вывод тестов написаны не инструментом, свидетельством не считаются",
+        "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 199392,
+          "outputTokens": 1590,
+          "cacheReadTokens": 95565,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 496381
+        },
+        "durationMs": 374020,
+        "requestDurationsMs": [
+          52927,
+          71360,
+          86797,
+          52677,
+          65714,
+          14127,
+          6776,
+          15866,
+          65386,
+          64753
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 162
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 293
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 274
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 412
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 219
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 102
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 50
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 52
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 22
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "нарушен инвариант: src/oversize.ts:24-26",
+      "нарушен инвариант: src/tariffs.ts:123",
+      "нарушен инвариант: src/tariffs.ts:161",
+      "нарушен инвариант: test/oversize.test.ts:159",
+      "регрессия — откат ранее работавшего поведения: Нет проверки на корректность входных данных (отрицательные значения измерений) (src/oversize.ts:24-26)",
+      "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+      "свидетельства попытки не произведены инструментом: записи C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-WJvf7i\\.sdlc\\qwen3coder30b-reviewfill-axis-config-blind\\chunk-1-attempt-1-evidence.json нет — патч и вывод тестов написаны не инструментом, свидетельством не считаются",
+      "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-WJvf7i\\.sdlc\\qwen3coder30b-reviewfill-axis-config-blind\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11882,
+        "userChars": 40390,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "axis-config-blind",
+    "klass": "ось: настройки — значение из окружения без умолчания",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «axis-config-blind» НЕ назван: `basePrice` начинает читать зональную надбавку из переменной окружения `TARIFF_ZONE_EXTRA`: умолчания в коде нет, значение не проверяется, и при `TARIFF_ZONE_EXTRA=abc` цена становится NaN. Тесты фикстуры переменную не задают — при пустом окружении надбавка равна нулю, и прогон остаётся зелёным"
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": false,
+      "detail": "рантайм сам отметил: перегенерированный diff не совпал с патчем попытки"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

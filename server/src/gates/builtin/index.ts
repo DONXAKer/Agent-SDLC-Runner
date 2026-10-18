@@ -21,6 +21,9 @@ import {
 } from '../ecosystems/index.ts';
 import { foldPathCase, normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
+import { baseCheckGate } from './baseCheck.ts';
+import { overwriteGate } from './overwrite.ts';
+import { testsClaimsGate } from './testsClaims.ts';
 import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
 import { extensionProblems, type ImportExtensionProblem } from './imports.ts';
 import { extractHumanFacts, literalPattern } from '../../artifacts/humanFacts.ts';
@@ -77,6 +80,19 @@ export interface GateContext {
    * 2026-09-19).
    */
   slug?: string;
+  /**
+   * База diff'а витка (поле «База» плана) — вход гейтов, считающих от базы: «Перезапись
+   * файла» (длина файла на базе), «Тесты красные на базе» (worktree на базе).
+   */
+  baseSha?: string | null;
+  /** Патч попытки, записанный рантаймом; без него гейты перегенерируют его от базы. */
+  attemptPatchPath?: string;
+  /** Id пунктов приёмки задачи — вход «Сверки тестов с claims». */
+  claimIds?: readonly string[];
+  /** Журнал chunk'а — секция «Перезапись файлов» с подтверждениями человека. */
+  journalPath?: string;
+  /** Команда «Тесты» из набора проекта — вход «Тестов красных на базе». */
+  testsCommand?: string | null;
 }
 
 export interface BuiltinOutcome {
@@ -104,33 +120,18 @@ export interface BuiltinOutcome {
    * В строку гейта (`lastLine`) хвост не идёт — там сводка; полный вывод только в улике.
    */
   outputTail?: string;
+  /** Полный вывод команды — для свидетельства попытки (`GateRunResult.output`). */
+  output?: string;
+  /** Улика отсутствующего инструмента (`GateRunResult.missingTool`) — у команд набора. */
+  missingTool?: string | null;
+  /** Улики по контракту гейт-скрипта (`GateRunResult.evidence`): пути, hunk'и, имена тестов. */
+  evidence?: string[];
 }
 
-/** Хвост вывода для улики: последние строки, с потолком по байтам. */
-export function outputTailOf(stdout: string, stderr: string, maxLines = 200, maxBytes = 20000): string {
-  // Метка stderr ставится ПЕРЕД его содержимым и когда stdout пуст: иначе stderr читался
-  // неотличимо от stdout, и улика молча выдавала диагностику за штатный вывод.
-  const joined = [
-    ...(stdout.trim() === '' ? [] : [stdout]),
-    ...(stderr.trim() === '' ? [] : [`--- stderr ---\n${stderr}`]),
-  ].join('\n');
-  const lines = joined.split(/\r?\n/);
-  let tail = lines.slice(-maxLines).join('\n');
-  let cutBytes = false;
-  if (Buffer.byteLength(tail, 'utf8') > maxBytes) {
-    tail = Buffer.from(tail, 'utf8').subarray(-maxBytes).toString('utf8');
-    // Байтовый срез мог попасть в середину UTF-8-символа — обрывок в начале не текст.
-    tail = tail.replace(/^�+/, '');
-    cutBytes = true;
-  }
-  // Любая обрезка называется вслух: молча усечённая улика читается как полная, и
-  // рецензент судит по неполному выводу, не зная об этом.
-  const marks = [
-    ...(lines.length > maxLines ? [`показаны последние ${maxLines} строк`] : []),
-    ...(cutBytes ? [`хвост урезан до ${maxBytes} байт`] : []),
-  ];
-  return marks.length > 0 ? `[рантайм обрезал: ${marks.join('; ')}]\n${tail}` : tail;
-}
+// Вывод для улики — в `output.ts` (без зависимостей): гейты из реестра зовут его сами, и
+// импорт из этого файла замыкал бы цикл модулей. Реэкспорт — ради прежних вызывающих.
+export { fullOutputOf, outputTailOf } from './output.ts';
+import { fullOutputOf, outputTailOf } from './output.ts';
 
 export type BuiltinGate = (ctx: GateContext) => Promise<BuiltinOutcome>;
 
@@ -644,7 +645,10 @@ async function testOne(
       lastLine:
         `в ${mod.dir} тест-раннер не обнаружен — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ. Пункты приёмки, ` +
         'проверяемые только тестом, остаются неподтверждёнными.',
+      // Запускать нечем — но это не отсутствующий инструмент, а набор без команды: чинится
+      // строкой «Тесты» в `.sdlc/gates.md`, не другой машиной. Улики инструмента нет.
       envBlocked: true,
+      missingTool: null,
     };
   }
   if (system.depsDir !== null && !existsSync(join(ctx.projectRoot, mod.dir, system.depsDir))) {
@@ -653,8 +657,9 @@ async function testOne(
       command: system.test,
       exitCode: null,
       lastLine: `в ${mod.dir} нет ${system.depsDir} — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ (зависимости не установлены)`,
-      // Среда: чинится установкой зависимостей, а не правкой кода витка.
-      envBlocked: true,
+      // Не среда: `SDLC.md` («Красный из-за окружения») называет непоставленную
+      // зависимость ленью исполнителя — это обычный retry «поставь X и прогони заново».
+      envBlocked: false,
     };
   }
 
@@ -691,6 +696,7 @@ async function testOne(
     lastLine: r.timedOut ? `тесты не уложились в ${ctx.timeoutMs} мс` : r.lastLine,
     // Хвост нужен и на зелёном прогоне: «какие тесты прошли» — тоже свидетельство.
     outputTail: outputTailOf(r.stdout, r.stderr),
+    output: fullOutputOf(r.stdout, r.stderr),
   };
 }
 
@@ -1069,10 +1075,15 @@ const mutationCheckGate: BuiltinGate = async (ctx) => {
   };
 };
 
+/**
+ * Хэш файла для базы chunk'а — sha256, как у `attempt-evidence.py baseline` методологии:
+ * `.chunk-N-baseline.json` читают оба инструмента (`gates/scope.py` и этот гейт), и база,
+ * снятая одним, обязана читаться другим.
+ */
 function hashOf(path: string): string | null {
   try {
     if (!statSync(path).isFile()) return null;
-    return createHash('md5').update(readFileSync(path)).digest('hex');
+    return createHash('sha256').update(readFileSync(path)).digest('hex');
   } catch {
     return null;
   }
@@ -1632,9 +1643,21 @@ const planCoverageGate: BuiltinGate = async (ctx) => {
   );
   const touched = new Set(changed);
 
+  // Путь плана бывает КАТАЛОГОМ: `seedFilesToTouch` берёт строки из «Что придётся тронуть»
+  // задачи, где каталог — штатная форма («test», «src/api/»), и закрывается он файлом
+  // внутри себя. Сверка по равенству этого не видела: три попытки подряд гейт краснел на
+  // `test` при СОЗДАННОМ `test/store.compat.test.ts`, и рецензент каждый раз писал «по
+  // существу закрыт» (gpt-oss-20b, rename-field, 2026-09-24). Проверка префиксом, а не
+  // `statSync`: файловый путь чужого пути с `/` на конце не префиксует по построению, а
+  // диск здесь трогать незачем.
+  const coveredAsDir = (p: string): boolean => {
+    const prefix = `${p.replace(/\/+$/, '')}/`;
+    return changed.some((c) => c.startsWith(prefix));
+  };
+
   const uncovered = ctx.planFiles
     .map((p) => normalizePlanPath(ctx.projectRoot, p))
-    .filter((p) => !touched.has(p));
+    .filter((p) => !touched.has(p) && !coveredAsDir(p));
 
   if (uncovered.length === 0) {
     return {
@@ -1993,6 +2016,10 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['дубли хелперов', duplicatesGate],
   ['проверка предусловий публикации', publishGate],
   ['тест ловит правку', mutationCheckGate],
+  // Гейты перечня `SDLC.md`, выросшие из измерений: порты эталонов методологии.
+  ['перезапись файла', overwriteGate],
+  ['сверка тестов с claims', testsClaimsGate],
+  ['тесты красные на базе', baseCheckGate],
 ]);
 
 export function builtinFor(gateName: string): BuiltinGate | null {

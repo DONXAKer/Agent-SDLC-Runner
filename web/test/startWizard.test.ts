@@ -20,7 +20,7 @@ import {
 import type { WizardState } from '../src/lib/startWizard.ts';
 
 function state(over: Partial<WizardState> = {}): WizardState {
-  return { projectChosen: true, ruleBroken: false, slug: 'pay-412', ...over };
+  return { projectChosen: true, slug: 'pay-412', ...over };
 }
 
 describe('переход между шагами мастера', () => {
@@ -30,10 +30,7 @@ describe('переход между шагами мастера', () => {
     strictEqual(canProceed(1, state()), true);
   });
 
-  it('нарушенное правило рецензента запирает шаг моделей', () => {
-    // Раньше клиент показывал предупреждение и пропускал дальше — виток создавался и
-    // падал уже на сервере.
-    strictEqual(canProceed(2, state({ ruleBroken: true })), false);
+  it('ранг модели рецензента не блокирует переход к запуску', () => {
     strictEqual(canProceed(2, state()), true);
   });
 

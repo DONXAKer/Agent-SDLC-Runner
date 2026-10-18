@@ -1,0 +1,38 @@
+export const protocolVersion = 1;
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validate(ranges) {
+  if (!Array.isArray(ranges)) {
+    throw new TypeError('ranges must be an array of [start,end] pairs');
+  }
+  for (const pair of ranges) {
+    if (!Array.isArray(pair) || pair.length !== 2) {
+      throw new TypeError('each range must be a [start,end] pair');
+    }
+    const [start, end] = pair;
+    if (!isFiniteNumber(start) || !isFiniteNumber(end)) {
+      throw new TypeError('range endpoints must be finite numbers');
+    }
+    if (start > end) {
+      throw new TypeError(`range endpoints are reversed: [${start},${end}]`);
+    }
+  }
+}
+
+export function mergeRanges(ranges) {
+  validate(ranges);
+  const sorted = ranges.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged = [];
+  for (const pair of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && pair[0] <= last[1]) {
+      last[1] = Math.max(last[1], pair[1]);
+    } else {
+      merged.push([pair[0], pair[1]]);
+    }
+  }
+  return merged;
+}

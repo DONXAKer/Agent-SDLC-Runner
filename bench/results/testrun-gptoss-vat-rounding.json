@@ -1,0 +1,1243 @@
+{
+  "run": {
+    "slug": "testrun-gptoss-vat-rounding",
+    "model": "ollama:gpt-oss-20b-agent-stepfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:gpt-oss-20b-agent-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-27T13:05:28.643Z",
+    "finishedAt": "2026-09-27T13:49:45.478Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "шагов 5: применено 3, без правок 0, красных 2 — красные шаги на суд этапа 6",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап завершён за 38 ход(ов)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 38
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": true,
+        "note": "шагов 5: применено 1, без правок 4, красных 0",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 5
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 109965,
+          "outputTokens": 14463,
+          "cacheReadTokens": 38224,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 430723
+        },
+        "durationMs": 391842
+      },
+      {
+        "stage": "verify",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 54,
+          "outputTokens": 53011,
+          "cacheReadTokens": 1303336,
+          "cacheWriteTokens": 163219,
+          "costUsd": 3.7986735000000005,
+          "durationMs": 1531952
+        },
+        "durationMs": 2264380
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 7,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 74,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 150
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 275
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 189
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 307
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 252
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 147
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 61
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 60
+      }
+    ],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 7,
+        "waitMs": 27
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 42,
+        "waitMs": 68
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-2.md",
+        "placeholders": 28
+      }
+    ],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "❌",
+        "treeChanged": true,
+        "scopeViolation": true
+      },
+      {
+        "chunk": 1,
+        "attempt": 2,
+        "testsStatus": "✅",
+        "treeChanged": true,
+        "scopeViolation": false
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "step:d0b946d0-89a4-4328-9492-f7ab8936eb58",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/vat.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:daa09a8b-5d4a-4d97-9238-f23dcab46cd9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/lines.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:8da973b6-2821-48c3-8e4e-803030ed8ade",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/invoice.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:4c797c36-e8d6-4756-a180-8ecc6367ed26",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "test/vat.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:89383433-ac29-4ff6-b9cb-6889ee420055",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "test/vat.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:9568b7ea-48c1-460a-8bdc-a6554ca4738d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\testrun-gptoss-vat-rounding\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01St8K4FKtiQbhfi2H5nPBa1",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01HqXva4r7dQKUzwKKfS35hh",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_011VUnaXzYUfUxkaigVB9GBi",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01N8tWmna2kVgCBbqwgzTTtE",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01L6f5Rf7TnuaQtTeZGqNNC4",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_012CXt195Gxv2LD95WMyUHu6",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019w4DqmnA1imaNFJJTxijev",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01NpPY8uApnLiuUiitHy36sm",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_011qwTHJFDXwd1jqgMtjA5Nv",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014RpGxGgnYxxwvVaB6uTLeb",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01J6qCTAzC9BjZtdetryn1iN",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01P8Ncvw94JhtXiMfCkfnYgH",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Fv5ZP85pfjrHgit24cTzCM",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_017AFDo3itTe9wJsAABpaHSJ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01D4kfyygefg3Q36spf6xVby",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DykMdMheEtoN5MKzqjMJHb",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UbVJT6SdcJNp8XYM6af9XQ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Da8BbY6tXWWXWPAWBrqiUu",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_0129CGW5f875B82noAkKpAae",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Wr5vToEZ4Xenp91jDkdo1J",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01VqFyQbs714a1YiTXFZJ3S8",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_018nipwHXAtajNoCkoX2GwXe",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01MY5ruP53o9aYj6supigeyH",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01MNygi4n946Ki3chxwaoRrL",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01WYPz2mifkoziFFYAe6pLVX",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01JjWVMq7gaAqXbKC2RHKx3B",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019EQtMed3dmjNBHmgPmThfj",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01QhX9rhY3t3mQUpuofGN7zG",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DBpYDoVR2rMN9soz7XbQFH",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:528148d1-fba0-4fed-b35b-4cb9b21fbadf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01TwTx9htHHuPPSAr5oBYcaw",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-Jx7Slq\\.sdlc\\testrun-gptoss-vat-rounding\\verification-report-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DRTML9Vt6NpWeEfCVu695j",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013NNSaPX15y9FnSJabwvsSB",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014LF3PyxTJCA457V6TeDpxA",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01EXSD1rodTjGAouhsb4TpB7",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_012SRXNpZNybNxDPKDrL6qnE",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Ub2sanxgzc51q2F5Lvm8Jy",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Syy883QJ53EWtEyK5RpprX",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_018p7anFBRREH3PGj2wL4z5w",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_016evTAv3RmMETy2St3nHWMU",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01F1GBVjm5dsg3XnKstuYKzQ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Eiojhcea9RzZy35YFLZC7i",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XDTf7tXF2AYSc9qzrGR8J7",
+        "reason": "policy"
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01NepqsZoptCLNhSjgyqPF5p",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Grep",
+        "kind": "grep"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Glob",
+        "kind": "glob"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 13344,
+        "userChars": 17148,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11220,
+        "userChars": 40151,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 12687,
+        "userChars": 33070,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11220,
+        "userChars": 37029,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XDTf7tXF2AYSc9qzrGR8J7",
+        "toolName": "Grep",
+        "kind": "grep",
+        "policy": "readScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[readScope] поиск на этапе verify задел бы «.sdlc/testrun-gptoss-vat-rounding/verification-report-1-attempt-1.md» — файл, закрытый этому вызывающему на чтение. Сузь поиск: каталог исходников в path или фильтр имён (Grep: glob, например \"*.ts\"; Glob: шаблон по коду). Артефакты витка (intent.md, plan.md) читай Read или Grep по самому файлу. Связь между попытками несут retry_instruction и carry_forward, которые подаёт машина витка."
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01NepqsZoptCLNhSjgyqPF5p",
+        "toolName": "Glob",
+        "kind": "glob",
+        "policy": "readScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[readScope] поиск на этапе verify задел бы «.sdlc/testrun-gptoss-vat-rounding/verification-report-1-attempt-1.md» — файл, закрытый этому вызывающему на чтение. Сузь поиск: каталог исходников в path или фильтр имён (Grep: glob, например \"*.ts\"; Glob: шаблон по коду). Артефакты витка (intent.md, plan.md) читай Read или Grep по самому файлу. Связь между попытками несут retry_instruction и carry_forward, которые подаёт машина витка."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 8,
+    "pass": 8,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе позиций: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Облагаемый счёт: НДС 20% от подытога 1000 → 200, итог 1200."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-3): Подытог 505: 505×20/100 = 101.0 ровно — округление не даёт лишнего +1 (ловит floor(x+0.5) vs ceil-подобные ошибки)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-1): Необлагаемый счёт (без опции): поля vat НЕТ вовсе — форма Invoice прежняя, итог равен подытогу. Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности формы, сигнал фичи несут Pr1/Pr2/H1-H3."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "ok 6 - H1 [human] (claim-4): Все позиции льготные (reduced): ставка 10%. Подытог 105 → 105×10/100 = 10.5 → половина вверх 11, НЕ 10 (отбрасывание здесь — ошибка)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "ok 7 - H2 [human] (claim-4): Смешанный счёт (одна позиция reduced, одна нет) — целиком по стандартным 20%."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "ok 8 - H3 [human] (claim-4): Льготная ставка на ДРУГОМ подытоге: 1000, все reduced → 100, итог 1100 — ловит копирование числа H1 вместо пересчёта."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": true,
+      "detail": "8 из 8 скрытых тестов зелёные"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

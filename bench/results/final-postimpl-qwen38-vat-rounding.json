@@ -1,0 +1,202 @@
+{
+  "run": {
+    "slug": "final-postimpl-qwen38-vat-rounding",
+    "model": "ollama:qwen3.8-27b-iq4-ctx16k",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "explore": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "ask": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "plan": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "chunk": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "verify": "ollama:qwen3.8-27b-iq4-ctx16k",
+      "handoff": "ollama:qwen3.8-27b-iq4-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T01:08:30.131Z",
+    "finishedAt": "2026-09-29T01:38:30.747Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "envFailure": "ollama: ответ не получен за 1200000 мс — таймаут запроса",
+        "modelRequests": 6
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 4920,
+          "outputTokens": 1816,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 453268
+        },
+        "durationMs": 1800051,
+        "requestDurationsMs": [
+          453269
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 15
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 33
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10793,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "6288aa0a9c2b1b36d19753593b5f47a92126998432619d649d9c4e3c7b749e53",
+      "configHash": "43d59d2e3ec3448eed7a285a5b42c44ed0246e8a7fe894d43c6626a6b4688abd",
+      "inputHash": "ecfea76db5aa5a5e54af58fe481584f95a6b1221f63409080965027306abde9b",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "ab764430d3b0ce5c01054bede4db8563ff14b57ab07f9ee6ab3a983fc5cdd697",
+    "state": "finished",
+    "capturedAt": "2026-09-29T01:38:30.766Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T01:38:30.739Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "5f76ebd7a98bb22278bea7dd6cc7d3843a9ccadfda63b2283151f9dc57421ed9",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "6938cfc5a3c14811575a596a12ff2897bb094bdc0f49581ab6522e6161c57caa",
+        "placeholders": 15,
+        "uncheckedQuestions": 2,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "333c31151d14475ba7cbba1a5408e92d70d4574bf3200ce090bebdfc14ac6186",
+        "placeholders": 33,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

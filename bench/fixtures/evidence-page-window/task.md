@@ -1,0 +1,2 @@
+Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.
+Preserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.

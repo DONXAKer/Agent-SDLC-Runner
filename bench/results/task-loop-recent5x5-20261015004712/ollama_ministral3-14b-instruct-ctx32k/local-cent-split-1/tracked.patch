@@ -1,0 +1,38 @@
+diff --git a/src/shares.mjs b/src/shares.mjs
+index e8014d2..8b59ad6 100644
+--- a/src/shares.mjs
++++ b/src/shares.mjs
+@@ -1 +1,31 @@
+-export const protocolVersion = 1;
++export const protocolVersion  = 1;
++
++/***
++ * Export: splitCents(total, count)
++ * - Shares total cents into count integers
++ * - Distributes extra cents in increasing index order 
++ * - Throws RangeError for invalid (total  >= 0, count ≤ 1000)
++ ***/
++
++export function splitCents(total, count) {
++    // Input validation: nonnegative safe integers
++  if (!Number.isSafeInteger(total)  || total  < 0)
++     throw new RangeError("total  must be a nonnegative SafeInteger");
++ 
++  if (!Number.isSafeInteger(count) || count <=  0 || count > 1000)
++     throw new RangeError("count must be a positive integer ≤ 1000");
++  
++  const baseShare =  Math. floor(total / count);
++  const remainder = total % count;
++  const shares = Array(count).fill(baseShare);
++  
++  // Distribute remainder to FIRST indices
++   for (let i
++         = 0;
++          i  < remainder;
++          i   + )  {
++     shares[i]  = baseShare   +1;
++     }
++  
++  return shares;
++}
+\ No newline at end of file

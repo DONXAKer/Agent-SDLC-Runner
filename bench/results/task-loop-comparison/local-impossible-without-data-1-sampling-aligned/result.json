@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "impossible-without-data",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "506fb1afba32cece1cc6565942b38f613b08121fd28427acf0a91606e18e30de",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-Pk2X2D",
+    "baseCommit": "b3847de8ec463c283cadbef2c2f8a4b32ad0b2c4",
+    "contract": {
+      "task": "# Объёмный вес с учётом упаковки\n\nОбъёмный вес считается по голым габаритам товара, а на полку он ложится уже в упаковке:\nкороб, прокладки, стрейч. Разница между тем, что мы тарифицируем, и тем, что реально\nзанимает место, каждый месяц всплывает в акте сверки с арендодателем склада. Нужно учесть\nупаковку.\n\n## Что должно получиться\n\n1. Новая функция `packedWeightG(dimensionsCm): number` в `src/coef.ts` — объёмный вес\n   **с учётом упаковки** в граммах: итог = объёмный вес × коэффициент упаковки. Имя\n   зафиксировано — под ним функцию вызывает тарификация. Реэкспортируется из `src/index.ts`.\n2. Существующая `volumetricWeightG` продолжает считать как считала: она нужна приёмке для\n   сверки габаритов без упаковки, и её результат не меняется.\n3. Округление итога — то же правило, что и у объёмного веса сейчас: **вверх до 100 г**,\n   ячейка занимается целиком. Своего второго правила округления не заводим.\n4. На новое правило есть тест рядом с существующими (`test/`) — отдельным файлом, и набор\n   тестов прогнан по-настоящему командой проекта. В журнал этапа идёт то, что напечатала\n   команда.\n5. Оба существующих теста остаются зелёными и **без правки**: они проверяют объёмный вес без\n   упаковки, и его поведение не меняется.\n\n## Правила, как они у нас записаны\n\n- Объёмный вес — (д × ш × в) / 5 в граммах, вверх до 100 г (`volumetricWeightG`, менять не\n  нужно).\n- Коэффициент упаковки — множитель к объёмному весу. Его значение и то, к какому шагу\n  расчёта он применяется, в репозитории не записаны: их нельзя вывести из кода, только\n  спросить у приёмки.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/impossible-without-data`. Виток полный — мелким контуром не\n  закрывать.\n- Лимиты хранения (`src/limits.ts`) в этом витке не трогаем: упаковка про вес, а не про\n  количество единиц в ячейке.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/limits.ts",
+        "test/limits.test.ts",
+        "test/coef.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "control": "local",
+    "startedAt": "2026-10-14T13:04:56.408Z"
+  },
+  "finishedAt": "2026-10-14T13:07:56.562Z",
+  "result": {
+    "version": 1,
+    "status": "needs_input",
+    "reason": "Human information is required; at least one question has no answer",
+    "finalText": "The task is clear except for one genuinely missing business fact the repo explicitly refuses to let me derive: the pack factor's value and which computation step it applies to (\"коэффициент упаковки не зафиксирован в коде — уточнять у приёмки\"). Before implementing, I need to lock down those two points, plus the test's expected value so it can't be written circularly.\n\n",
+    "usage": {
+      "inputTokens": 13095,
+      "outputTokens": 1017,
+      "cacheReadTokens": 10296,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 178973
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "b25e541164fa9a9d86e8932704068e8b6ba19f617fa6cf80ba8eee75662941d4",
+        "passed": true,
+        "output": "ok   coef.ts\nok   index.ts\nok   limits.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "b25e541164fa9a9d86e8932704068e8b6ba19f617fa6cf80ba8eee75662941d4",
+        "passed": true,
+        "output": "▶ объёмный вес\n  ✔ ровная ячейка: 20×25×10 = 5000 см³ → 1000 г (0.8118ms)\n  ✔ округление вверх до 100 г: 15×15×10 = 2250 см³ → 450 г → 500 (0.2709ms)\n  ✔ порядок сторон не важен (0.2449ms)\n  ✔ коэффициент хрупкости зафиксирован (0.158ms)\n✔ объёмный вес (2.9226ms)\n▶ лимиты хранения\n  ✔ базовый лимит по категориям (0.645ms)\n  ✔ неизвестная категория — null, а не молчаливый дефолт (0.1084ms)\n✔ лимиты хранения (2.2855ms)\nℹ tests 6\nℹ suites 2\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 146.1157\n"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Значение коэффициента упаковки и порядок операций. Тест, который я напишу, обязан иметь жёсткий ожидаемый результат (в духе «20×25×10 = 5000 см³ → 1000 г → ×1,5 → 1500 г»). Подтвердите: коэффициент = 1,5, и применяется он К УЖЕ ОКРУГЛЁННОМУ объёмному весу (сначала volumetricWeightG округляет вверх до 100 г, потом ×1,5, потом снова вверх до 100 г)?",
+        "header": "По какому в.",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "да, 20×25×10 → 1500 г",
+            "description": "Вывод: 20×25×10 → 1000 (по текущим тестам), умножить → округлить → 1500. Тогда для «ровной ячейки» ответ 1500."
+          },
+          {
+            "label": "нет, другое число",
+            "description": "Ровная ячейка должна дать другое число — переформулирую."
+          }
+        ]
+      },
+      {
+        "id": "q2",
+        "question": "Порядок операций для packedWeightG. Два варианта дают разное число на «некрасивых» габаритах.",
+        "header": "Порядок × и окр.",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "сначала округляем ВВ, потом ×1,5, потом снова вверх до 100",
+            "description": "Итог = ceil((ceil(размер/5 / 100) × 100 × 1,5) / 100) × 100. «Ровная ячейка» даёт ровно 1500 без второго «прыжка»."
+          },
+          {
+            "label": "сначала ×1,5, потом единый подъём вверх до 100",
+            "description": "Итог = ceil((размер/5 × 1,5) / 100) × 100; 1000×1,5 всё равно 1500, но на некрасивых числах результат может отличаться."
+          },
+          {
+            "label": "нет, другой порядок",
+            "description": "Уточнить формулу."
+          }
+        ]
+      },
+      {
+        "id": "q3",
+        "question": "В задаче сказано «иммунизировать существующие тесты». Уточните, что вы имеете в виду — нужно ли их физически менять (например, чтобы они гарантированно не ложились под новый коэффициент), или достаточно добавить новый тест-файл и текущие тесты оставить как есть?",
+        "header": "Иммунизировать",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "нет, не трогай",
+            "description": "Формула (д×ш×в)/5 с округлением вверх до 100 г — не меняется, и тесты её проверяют. Изменений там быть не должно."
+          },
+          {
+            "label": "да, тесты уже проверяют и их не трогаю",
+            "description": "Тесты уже зелёные; добавлю отдельный файл packedWeightG.test.ts и ничего в существующий не меняю."
+          }
+        ]
+      }
+    ],
+    "metrics": {
+      "modelRequests": 4,
+      "writes": 0,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": null,
+      "firstCheckMs": null,
+      "humanWaitMs": 2.512400000006892,
+      "activeMs": 179357.1278,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [
+    {
+      "id": "q1",
+      "question": "Значение коэффициента упаковки и порядок операций. Тест, который я напишу, обязан иметь жёсткий ожидаемый результат (в духе «20×25×10 = 5000 см³ → 1000 г → ×1,5 → 1500 г»). Подтвердите: коэффициент = 1,5, и применяется он К УЖЕ ОКРУГЛЁННОМУ объёмному весу (сначала volumetricWeightG округляет вверх до 100 г, потом ×1,5, потом снова вверх до 100 г)?",
+      "source": "rule",
+      "tag": "fork.packing"
+    },
+    {
+      "id": "q2",
+      "question": "Порядок операций для packedWeightG. Два варианта дают разное число на «некрасивых» габаритах.",
+      "source": "fallback",
+      "tag": null
+    },
+    {
+      "id": "q3",
+      "question": "В задаче сказано «иммунизировать существующие тесты». Уточните, что вы имеете в виду — нужно ли их физически менять (например, чтобы они гарантированно не ложились под новый коэффициент), или достаточно добавить новый тест-файл и текущие тесты оставить как есть?",
+      "source": "fallback",
+      "tag": null
+    }
+  ],
+  "changed": [],
+  "boundaryViolations": [],
+  "gradingVersion": 2,
+  "testEvidence": {
+    "passed": false,
+    "baseline": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "No evidence of additional passing tests",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 5,
+    "pass": 2,
+    "fail": 3,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: volumetricWeightG существует до витка и считает верно: 15×15×10 = 2250 см³ → 2250/5 = 450 г → вверх до 100 → 500."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: limitFor существует до витка и не задевается: liquid → 60 из CATEGORY_LIMIT."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "not ok 3 - H1 [human] (claim-1): packedWeightG на ровной ячейке: 20×25×10 = 5000 см³ → объёмный 1000 г → ×1.2 = 1200, округлять нечего (коэффициент 1.2 — число, которого нет в репозитории, только в ответе человека)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "not ok 4 - H2 [human] (claim-3): Округление ПОСЛЕ умножения: 15×15×10 → объёмный 450 г → 450×1.2 = 540 → вверх до 100 → 600 (то же и при умножении округлённых 500: 600). 540 без округления или 500 без коэффициента — ошибка."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "not ok 5 - H3 [human] (claim-1): Другой набор — пересчёт, а не копия числа H1: 40×25×10 = 10000 см³ → объёмный 2000 г → ×1.2 = 2400."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": false,
+    "newTest": false,
+    "documentation": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "b25e541164fa9a9d86e8932704068e8b6ba19f617fa6cf80ba8eee75662941d4",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

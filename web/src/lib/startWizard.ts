@@ -3,9 +3,7 @@
  *
  * Логика «можно ли дальше» живёт здесь, а не в компоненте: до мастера стартовый экран был
  * одной простынёй, где единственной проверкой был `disabled` на финальной кнопке по
- * пустому slug'у — а правило рецензента клиент показывал текстом и пропускал дальше.
- * Мастер обязан не пускать на следующий шаг с заведомо нестартующим витком, и это правило
- * должно быть проверяемым.
+ * пустому slug'у. Выбор моделей по этапам остаётся настройкой оператора.
  */
 
 /** Номера шагов: проект → профиль и модели → задача и запуск. */
@@ -22,8 +20,6 @@ export const WIZARD_TITLES: Record<WizardStep, string> = {
 export interface WizardState {
   /** Выбран ли проект. Без него нечего слать на сервер. */
   projectChosen: boolean;
-  /** Правило рецензента нарушено — `evaluateReviewerRule(...).broken`. */
-  ruleBroken: boolean;
   /** Slug витка как его набрал человек, без обрезки. */
   slug: string;
 }
@@ -36,11 +32,7 @@ export interface WizardState {
  */
 export function stepBlocker(step: WizardStep, state: WizardState): string | null {
   if (step === 1) return state.projectChosen ? null : 'Проект не выбран';
-  if (step === 2) {
-    return state.ruleBroken
-      ? 'verify не строго сильнее chunk — сервер такой виток не запустит'
-      : null;
-  }
+  if (step === 2) return null;
   return state.slug.trim() === '' ? 'Slug витка не задан' : null;
 }
 

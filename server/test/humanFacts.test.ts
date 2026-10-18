@@ -7,6 +7,8 @@
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { clarificationResolutionBlock, clarificationResolutionProblem } from '../src/artifacts/clarificationResolution.ts';
+import { escapeCell } from '../src/md/table.ts';
 
 import {
   appendAnswerRows,
@@ -17,8 +19,18 @@ import {
   literalsOf,
   openQuestions,
   renderAnswerRow,
+  reopenUnverifiedQuestions,
   unaskedQuestions,
+  unreflectedAnswers,
 } from '../src/artifacts/humanFacts.ts';
+
+it('не выдаёт запись рантайма об отсутствии вопросов за ответ человека', () => {
+  const empty = ['## Вопросы и ответы', '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |',
+    '|---|---|---|---|---|',
+    '| — | по существу пусто — открытых вопросов нет; записано рантаймом | н/п | н/п | ничего |'].join('\n');
+  deepStrictEqual(extractHumanFacts(empty), []);
+  strictEqual(clarificationResolutionProblem('# План', empty), null);
+});
 
 const REPORT = `# Вопросы и ответы: Надбавка
 
@@ -90,6 +102,98 @@ describe('extractHumanFacts', () => {
     );
     strictEqual(facts.length, 1);
     strictEqual(facts[0]?.literals[0]?.shown, '90%');
+  });
+  it('reconciles every nonempty human answer before plan approval', () => {
+    const facts = extractHumanFacts(REPORT);
+    strictEqual(facts.length, 2);
+    const promptBlock = clarificationResolutionBlock(REPORT);
+    ok(promptBlock);
+    strictEqual(clarificationResolutionProblem('# plan\n', REPORT) !== null, true);
+    strictEqual(clarificationResolutionProblem('# plan\n', '# no answers\n'), null);
+    const tableRows = facts.map((_, i) => {
+      const claim = i === 0 ? 'claim-3' : 'claim-7';
+      const answerId = '\u043e\u0442\u0432\u0435\u0442-' + (i + 1);
+      const confirmation = '\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 ' + claim + ' \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439';
+      return '| ' + answerId + ' | ' + claim + ' | ' + confirmation + ' |';
+    });
+    const approvedPlan = [
+      '# Plan',
+      '',
+      '## \u0423\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u044f \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0440\u0430\u0441\u0445\u043e\u0436\u0434\u0435\u043d\u0438\u0439',
+      '',
+      '| ID \u043e\u0442\u0432\u0435\u0442\u0430 | \u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442 | \u0420\u0435\u0448\u0435\u043d\u0438\u0435 |',
+      '|---|---|---|',
+      ...tableRows,
+    ].join('\n');
+    strictEqual(clarificationResolutionProblem(approvedPlan, REPORT, new Set(['claim-3', 'claim-7'])), null);
+    strictEqual(clarificationResolutionProblem(approvedPlan, REPORT, new Set(['claim-3'])) !== null, true);
+    const missingAnswer = approvedPlan.replace('| ' + '\u043e\u0442\u0432\u0435\u0442-2' + ' | claim-7 |', '| ' + '\u043e\u0442\u0432\u0435\u0442-9' + ' | claim-7 |');
+    strictEqual(clarificationResolutionProblem(missingAnswer, REPORT) !== null, true);
+    const unresolved = approvedPlan.replace('\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 claim-3 \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439', 'unresolved');
+    strictEqual(clarificationResolutionProblem(unresolved, REPORT) !== null, true);
+  });
+
+  it('keeps accepting the legacy plan table while old plans are being migrated', () => {
+    const facts = extractHumanFacts(REPORT);
+    const rows = facts.map((fact, index) => {
+      const claim = index === 0 ? 'claim-3' : 'claim-7';
+      const answerId = '\u043e\u0442\u0432\u0435\u0442-' + (index + 1);
+      const resolution = '\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 ' + claim + ' \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439';
+      return `| ${answerId} | ${fact.question} | ${fact.answer} | ${claim} | ${resolution} |`;
+    });
+    const legacyPlan = [
+      '# Plan',
+      '## \u0423\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u044f \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0440\u0430\u0441\u0445\u043e\u0436\u0434\u0435\u043d\u0438\u0439',
+      '| ID \u043e\u0442\u0432\u0435\u0442\u0430 | \u0412\u043e\u043f\u0440\u043e\u0441 | \u041e\u0442\u0432\u0435\u0442 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430 | \u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442 | \u0420\u0435\u0448\u0435\u043d\u0438\u0435 |',
+      '|---|---|---|---|---|',
+      ...rows,
+    ].join('\n');
+    strictEqual(clarificationResolutionProblem(legacyPlan, REPORT), null);
+  });
+
+});
+
+/**
+ * `unreflectedAnswers` (Р6, серия local6 2026-09-24): «Что изменилось в задаче» заполнено,
+ * но не тем — числа/условия из ОТВЕТА человека в него не попали, и claim-N не назван.
+ * Фикстура — дословно текст живого прогона (`vat-rounding`): ответ называет 10 % при
+ * условии, «Что изменилось» пересказывает 20 % без единой цифры ответа.
+ */
+describe('unreflectedAnswers', () => {
+  const table = (changed: string) =>
+    '## Вопросы и ответы\n' +
+    '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |\n' +
+    '|---|---|---|---|---|\n' +
+    `| 1 | Какую ставку льготы использовать? | да | Льготная ставка НДС — 10%. Применяется, только если ВСЕ позиции льготные. | ${changed} |\n`;
+
+  it('живой случай: «Что изменилось» пересказывает 20% без единой цифры ответа (10%) — находка', () => {
+    const stale = unreflectedAnswers(
+      table('Invoice обновлён с логикой расчёта VAT: при opts.vat=\'std\' добавляется 20 % от subtotal'),
+    );
+    strictEqual(stale.length, 1);
+    strictEqual(stale[0]?.question, 'Какую ставку льготы использовать?');
+  });
+
+  it('«Что изменилось» содержит литерал ответа (10%) — не находка', () => {
+    strictEqual(unreflectedAnswers(table('Добавлена льготная ставка 10% для счетов, где все позиции reduced')).length, 0);
+  });
+
+  it('«Что изменилось» называет claim-N — не находка (законный адрес, поправит человек)', () => {
+    strictEqual(unreflectedAnswers(table('см. claim-1')).length, 0);
+  });
+
+  it('«Что изменилось» пусто/плейсхолдер — не находка (общий страж завершения уже поймал бы это)', () => {
+    strictEqual(unreflectedAnswers(table('‹что изменилось в задаче›')).length, 0);
+    strictEqual(unreflectedAnswers(table('')).length, 0);
+  });
+
+  it('ответ без литералов — не проверяется вовсе: сверять нечем', () => {
+    const noLiterals =
+      '## Вопросы и ответы\n' +
+      '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |\n' +
+      '|---|---|---|---|---|\n' +
+      '| 1 | Кратко? | нет | Ответа у меня нет, прочитай код сам. | что-то не по теме |\n';
+    strictEqual(unreflectedAnswers(noLiterals).length, 0);
   });
 });
 
@@ -268,6 +372,20 @@ describe('openQuestions (3.4: вопрос человеку задаёт ран�
     ]);
   });
 
+  it('открывает обратно галочку модели без ответа человека и сохраняет закрытую с human fact', () => {
+    const checked = INTENT
+      .replace('- [x] **[неблокирующий]** Уже закрытый, не в списке\n', '')
+      .replace('- [ ] **[блокирующий]** Ставка для суммы >300см?', '- [x] **[блокирующий]** Ставка для суммы >300см?');
+    const facts = extractHumanFacts(REPORT);
+    const withFact = reopenUnverifiedQuestions(checked, facts);
+    strictEqual(withFact.reopened, 0);
+    ok(withFact.text.includes('- [x] **[блокирующий]** Ставка для суммы >300см?'));
+
+    const noFact = reopenUnverifiedQuestions(checked, []);
+    strictEqual(noFact.reopened, 1);
+    ok(noFact.text.includes('- [ ] **[блокирующий]** Ставка для суммы >300см?'));
+  });
+
   it('оба текста пусты или без секции — пустой список, не падение', () => {
     deepStrictEqual(openQuestions('', ''), []);
     deepStrictEqual(openQuestions('# Задача\nбез секции', '# Отчёт\nбез секции'), []);
@@ -394,4 +512,8 @@ describe('renderAnswerRow / appendAnswerRows', () => {
     const noSection = '# Отчёт\nбез секции\n';
     strictEqual(appendAnswerRows(noSection, ['| 1 | x | да | y | z |']), noSection);
   });
+
+
+
+
 });

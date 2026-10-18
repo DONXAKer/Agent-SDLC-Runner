@@ -1,0 +1,293 @@
+{
+  "model": "assistant-session",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Work on the human task within the supplied boundaries. Read relevant code, implement, run checks, repair, then summarize evidence and remaining limitations.\nUse one continuous investigation and implementation loop. No process documents or mandatory plan artifacts are required.\nUse AskHuman only for missing business facts, contradictions, or a required scope change. Never invent missing facts. A question does not grant a scope expansion.\nUse mcp__task__check to run all registered visible checks. Shell commands are unavailable. Checks must pass after your final edit.\nPassing visible checks establishes readiness for review, not proof of all requirements. Compare the patch against every requirement before finishing."
+    },
+    {
+      "role": "user",
+      "content": "Task:\n# Артикул: `code` → `sku`\n\nПриёмка и склад зовут артикул `sku`, каталог — `code`. Одно поле под двумя именами путает в\nкаждом разборе расхождений между складским остатком и каталогом. Терминологию приводим к\nприёмочной.\n\n## Что должно получиться\n\n1. `Product` (`src/product.ts`) получает поле `sku` вместо `code`; конструктор `product()`\n   собирает запись с ним. Название и цена как были.\n2. Чтение старых файлов обязано работать: `parse` (`src/store.ts`) принимает и\n   `{\"code\": …}`, и `{\"sku\": …}`. Если в строке оба имени — побеждает `sku`: новое имя\n   пишет наш код, старое могло остаться от ручной правки файла.\n3. Запись — только новое имя: `serialize` пишет `sku`, ключа `code` в выводе нет вовсе — ни\n   как поля, ни как дубля «на всякий случай»: строку с обоими именами внешние службы\n   прочитают каждая по-своему.\n4. Существующие тесты остаются зелёными **без правки**. Они собирают записи конструктором и\n   сверяют round-trip `parse(serialize(p))`, а не имя поля, — и после переименования\n   round-trip обязан сходиться: то, что пишет `serialize`, читает `parse`. Это часть\n   совместимости, а не поблажка: если для зелёных тестов понадобилось их править — формат\n   сломан.\n5. На совместимость (старая строка читается, новая пишется, при обоих именах побеждает\n   `sku`) есть тест рядом с существующими (`test/`), и набор прогнан по-настоящему командой\n   проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Формат, как он у нас записан\n\n- Формат строки задокументирован таблицей в README; таблицу полей приводим к новому имени и\n  отмечаем, что старое имя читается.\n- Одна запись — одна строка, порядок полей в строке закреплён: `sku` встаёт на место `code`.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/rename-field`. Виток полный — мелким контуром не закрывать.\n- Существующие тестовые файлы не правятся (см. п. 4). Название, цена и формат файла (JSONL,\n  строка на запись) не меняются.\n\n\nHuman write boundaries (file or directory prefix):\n[\"src/\",\"test/\",\"README.md\"]\nProtected paths:\n[\"test/store.test.ts\",\"test/product.test.ts\",\"package.json\",\"package-lock.json\",\"scripts/\"]\n\nRegistered checks: build, test\nBaseline:\nbuild: PASS\nok   index.ts\nok   product.ts\nok   store.ts\nмодулей загружено: 3 из 3\n\n\ntest: PASS\n▶ товар\n  ✔ собирается из артикула, названия и цены (0.9667ms)\n  ✔ пустой артикул отвергается (0.3168ms)\n  ✔ цена — целые копейки, не меньше нуля (0.1271ms)\n✔ товар (2.1926ms)\n▶ строка каталога\n  ✔ serialize → parse возвращает ту же запись (1.1343ms)\n  ✔ строка одна: переносов внутри нет (0.1441ms)\n  ✔ строка без цены или с дробной ценой отвергается (0.3671ms)\n  ✔ не-JSON и не-объект отвергаются (0.156ms)\n✔ строка каталога (2.6526ms)\n▶ файл каталога\n  ✔ saveAll → loadAll возвращает те же записи в том же порядке (0.2273ms)\n  ✔ каждая строка файла завершена переводом строки (0.1292ms)\n  ✔ пустые строки и хвостовой перевод строки записями не считаются (0.1722ms)\n  ✔ пустой файл — пустой каталог (0.1127ms)\n✔ файл каталога (1.3669ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 139.5918\n"
+    },
+    {
+      "role": "assistant",
+      "content": "Проверю формат хранения, конструктор и текущие тесты совместимости.",
+      "toolCalls": [
+        {
+          "id": "001-0",
+          "name": "Read",
+          "arguments": {
+            "file_path": "src/product.ts"
+          },
+          "rawArguments": "{\"file_path\":\"src/product.ts\"}"
+        },
+        {
+          "id": "001-1",
+          "name": "Read",
+          "arguments": {
+            "file_path": "src/store.ts"
+          },
+          "rawArguments": "{\"file_path\":\"src/store.ts\"}"
+        },
+        {
+          "id": "001-2",
+          "name": "Read",
+          "arguments": {
+            "file_path": "src/index.ts"
+          },
+          "rawArguments": "{\"file_path\":\"src/index.ts\"}"
+        },
+        {
+          "id": "001-3",
+          "name": "Read",
+          "arguments": {
+            "file_path": "README.md"
+          },
+          "rawArguments": "{\"file_path\":\"README.md\"}"
+        },
+        {
+          "id": "001-4",
+          "name": "Glob",
+          "arguments": {
+            "pattern": "test/*"
+          },
+          "rawArguments": "{\"pattern\":\"test/*\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-0",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Товар каталога.\n3\t *\n4\t * Запись — три поля, и все три обязательны: без артикула запись не найти, без названия не\n5\t * показать на витрине, без цены не продать. Конструктор проверяет то, что типом не\n6\t * выразить — пустой артикул и дробные копейки: TypeScript снимается на лету, и в рантайме\n7\t * сюда приходит что угодно, в том числе из формы ввода.\n8\t */\n9\t\n10\texport interface Product {\n11\t  /** Артикул — идентификатор записи в каталоге. Непустая строка. */\n12\t  code: string;\n13\t  /** Название, как оно показывается на витрине. */\n14\t  title: string;\n15\t  /** Цена в копейках, целое неотрицательное: рублей с плавающей точкой в каталоге нет. */\n16\t  priceK: number;\n17\t}\n18\t\n19\t/**\n20\t * Собрать запись товара с проверкой полей.\n21\t *\n22\t * Проверки здесь, а не у потребителя: цена «10.5 копейки» всплыла бы не в каталоге, а в\n23\t * сумме заказа — там, где уже непонятно, какая запись её принесла.\n24\t */\n25\texport function product(code: string, title: string, priceK: number): Product {\n26\t  if (code.trim() === '') {\n27\t    throw new RangeError('артикул товара пуст');\n28\t  }\n29\t  if (!Number.isInteger(priceK) || priceK < 0) {\n30\t    throw new RangeError(`цена в копейках — целое неотрицательное число, получено ${priceK}`);\n31\t  }\n32\t  return { code, title, priceK };\n33\t}\n34\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-1",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Хранение каталога: JSONL.\n3\t *\n4\t * Одна запись — одна строка JSON, файл — строки через `\\n`. Формат — публичный контракт:\n5\t * файлы каталога читают внешние службы (витрина, склад, выгрузка в бухгалтерию), и любое\n6\t * изменение имён полей здесь — изменение для них. Поэтому набор и порядок полей в строке\n7\t * закреплены явно, а не оставлены на усмотрение того, в каком порядке поля легли в объект:\n8\t * diff двух выгрузок обязан показывать изменение данных, а не перестановку ключей.\n9\t *\n10\t * parse проверяет форму, а не доверяет JSON.parse: файл на диске мог написать кто угодно,\n11\t * и «undefined в цене» всплыл бы не здесь, а в сумме заказа.\n12\t */\n13\t\n14\timport { product } from './product.ts';\n15\timport type { Product } from './product.ts';\n16\t\n17\t/** Одна запись → одна строка JSON без переносов. Порядок полей — как в таблице README. */\n18\texport function serialize(p: Product): string {\n19\t  return JSON.stringify({ code: p.code, title: p.title, priceK: p.priceK });\n20\t}\n21\t\n22\t/** Одна строка файла → запись. Всё, что не запись каталога, отвергается с названной причиной. */\n23\texport function parse(line: string): Product {\n24\t  let raw: unknown;\n25\t  try {\n26\t    raw = JSON.parse(line);\n27\t  } catch (e) {\n28\t    throw new SyntaxError(`строка каталога не разбирается как JSON: ${e instanceof Error ? e.message : String(e)}`);\n29\t  }\n30\t  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {\n31\t    throw new TypeError('строка каталога — не объект');\n32\t  }\n33\t  const r = raw as Record<string, unknown>;\n34\t  const code = r['code'];\n35\t  const title = r['title'];\n36\t  const priceK = r['priceK'];\n37\t  if (typeof code !== 'string') throw new TypeError('в строке каталога нет артикула (code)');\n38\t  if (typeof title !== 'string') throw new TypeError('в строке каталога нет названия (title)');\n39\t  if (typeof priceK !== 'number') throw new TypeError('в строке каталога нет цены (priceK)');\n40\t  // Диапазоны — те же, что у конструктора: правило одно и на ввод, и на чтение с диска.\n41\t  return product(code, title, priceK);\n42\t}\n43\t\n44\t/** Каталог → текст файла JSONL. Каждая строка завершена `\\n`, чтобы файлы склеивались конкатенацией. */\n45\texport function saveAll(products: readonly Product[]): string {\n46\t  let text = '';\n47\t  for (const p of products) text += `${serialize(p)}\\n`;\n48\t  return text;\n49\t}\n50\t\n51\t/** Текст файла JSONL → каталог. Пустые строки (в т.ч. хвостовой перевод строки) записями не считаются. */\n52\texport function loadAll(text: string): Product[] {\n53\t  const out: Product[] = [];\n54\t  for (const line of text.split('\\n')) {\n55\t    if (line.trim() === '') continue;\n56\t    out.push(parse(line));\n57\t  }\n58\t  return out;\n59\t}\n60\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-2",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { product } from './product.ts';\n9\texport type { Product } from './product.ts';\n10\t\n11\texport { loadAll, parse, saveAll, serialize } from './store.ts';\n12\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-3",
+      "name": "Read",
+      "content": "1\t# catalog\n2\t\n3\tКаталог товаров: запись, хранение в JSONL, чтение обратно.\n4\t\n5\t## Как устроено\n6\t\n7\t| Модуль | Отвечает за |\n8\t|---|---|\n9\t| `src/product.ts` | Товар: артикул, название, цена в **копейках** целым числом. Конструктор `product()` проверяет то, что типом не выразить: пустой артикул, дробные или отрицательные копейки. |\n10\t| `src/store.ts` | Сериализация. Одна запись — одна строка JSON, файл — JSONL. Набор и порядок полей в строке закреплены. |\n11\t| `src/index.ts` | Публичный контракт: снаружи вызывают только его. |\n12\t\n13\t## Формат строки каталога (JSONL)\n14\t\n15\t| Поле | Тип | Что значит |\n16\t|---|---|---|\n17\t| `code` | строка | Артикул — идентификатор записи. Непустой. |\n18\t| `title` | строка | Название, как на витрине. |\n19\t| `priceK` | целое | Цена в копейках. |\n20\t\n21\tФайл — строки JSONL: одна запись на строку, каждая завершена `\\n`, пустые строки при чтении\n22\tпропускаются. Порядок полей в строке — как в таблице.\n23\t\n24\t> Формат читают внешние службы (витрина, склад, выгрузка в бухгалтерию) — поля не\n25\t> переименовывают без совместимости: старые файлы обязаны читаться тем же кодом, что пишет\n26\t> новые.\n27\t\n28\t## Как запускать\n29\t\n30\t```bash\n31\tnode scripts/build-check.mjs      # «сборка»: загрузка всех модулей src\n32\tnode --test \"test/**/*.test.ts\"   # тесты\n33\t```\n34\t\n35\tКомпиляции нет: TypeScript исполняется напрямую, типы снимает Node (нужен 23.6 или новее).\n36\tЗависимостей у пакета нет, `npm install` не требуется.\n37\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-4",
+      "name": "Glob",
+      "content": "test/product.test.ts\ntest/store.test.ts"
+    },
+    {
+      "role": "user",
+      "content": "Implement the requested behavior and run registered checks after edits."
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Строка, с которой начать (с 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Сколько строк прочитать"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Glob",
+      "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob-шаблон"
+          },
+          "path": {
+            "type": "string",
+            "description": "Каталог поиска; по умолчанию корень проекта"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Grep",
+      "description": "Поиск по содержимому файлов регулярным выражением.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Регулярное выражение"
+          },
+          "path": {
+            "type": "string",
+            "description": "Файл или каталог поиска; по умолчанию корень проекта"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Дополнительный фильтр по именам файлов"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Create or replace a file inside the human write boundaries. Protected paths and destructive overwrites are rejected.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "content": {
+            "type": "string",
+            "description": "Полное содержимое"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Фрагмент, который заменяем"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Чем заменяем"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Заменить все вхождения"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "AskHuman",
+      "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "Полный текст вопроса"
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Короткая метка, до 12 символов"
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "description": "Можно выбрать несколько"
+                },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Вариант"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Что это значит и чем грозит ошибка"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "question",
+                "header",
+                "multiSelect",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__task__check",
+      "description": "Run all registered visible project checks on the current files.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "params": null
+}

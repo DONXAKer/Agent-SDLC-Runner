@@ -9,7 +9,10 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import {
@@ -21,6 +24,7 @@ import {
   sliceHunks,
 } from '../src/run/reviewFill.ts';
 import { splitHunks } from '../src/run/claimEvidence.ts';
+import { reviewAxes } from '../src/run/stages/verify/reviewer.ts';
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -56,6 +60,29 @@ function scripted(answers: string[]): ChatProvider & { asked: string[] } {
       };
     },
   } as unknown as ChatProvider & { asked: string[] };
+}
+
+const roots: string[] = [];
+after(() => {
+  for (const r of roots) rmSync(r, { recursive: true, force: true });
+});
+
+/** Тот же `scripted`, но каждый ответ несёт СВОЙ путь дампа — по порядку, тем же индексом. */
+function scriptedTraced(answers: { text: string; rawLogPath: string }[]): ChatProvider {
+  const queue = [...answers];
+  return {
+    name: 'stub-traced',
+    async chat() {
+      const next = queue.shift() ?? { text: 'нет', rawLogPath: null };
+      return {
+        text: next.text,
+        toolCalls: [],
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+        finishReason: 'end_turn' as const,
+        rawLogPath: next.rawLogPath,
+      };
+    },
+  } as unknown as ChatProvider;
 }
 
 describe('разбор ответа по фрагменту', () => {
@@ -135,7 +162,32 @@ describe('разбор комбинированного ответа по ося
     { name: 'Настройки', affected: false, outcomeRaw: '' },
     { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
     { name: 'Безопасность', affected: true, outcomeRaw: 'claim-1' },
-  ];
+];
+
+describe('reviewAxes', () => {
+  it('проверяет канонические оси даже если план их не содержит', () => {
+    deepStrictEqual(reviewAxes(null).map((axis) => axis.name), [
+      'Безопасность',
+      'Ресурсы и скорость',
+      'Отказы зависимостей',
+      'Настройки',
+      'Совместимость и данные',
+      'Наблюдаемость',
+    ]);
+  });
+
+  it('сохраняет пользовательские оси плана после шести канонических', () => {
+    const plan = [
+      '## Последствия шагов',
+      '| Ось | Затронута | Исход |',
+      '|---|---|---|',
+      '| Лицензирование | нет | н/п — не меняется |',
+    ].join('\n');
+    const axes = reviewAxes(plan);
+    strictEqual(axes.length, 7);
+    deepStrictEqual(axes[6], { name: 'Лицензирование', affected: false, outcomeRaw: 'н/п — не меняется' });
+  });
+});
 
   it('строки «N. …» разбираются по номеру, а не по порядку прихода', () => {
     const answer = ['2. нет', '1. да | читается ENV | src/tariffs.ts:11', '3. да | claim-1 про другое | x.ts:1'].join(
@@ -196,6 +248,16 @@ describe('нарезка под потолок', () => {
 });
 
 describe('конвейер', () => {
+  it('guided no-change reviews supplied source without fabricating a diff', async () => {
+    const provider = scripted(['нет']);
+    const result = await reviewByHunks({ provider, model: 'stub', params: null, taskContext: 'value is one', diff: '',
+      sourceHunks: [{ file: 'a.ts', text: 'Текущий исходник a.ts; это не изменение:\n1: export const value = 1;' }],
+      axes: [], hunkBudgetBytes: 12000, signal: new AbortController().signal });
+    strictEqual(result.hunksAsked, 1); strictEqual(result.hunksAnswered, 1);
+    strictEqual(result.findings.length, 0);
+    ok(provider.asked[0]?.includes('export const value = 1;'));
+    ok(!provider.asked[0]?.includes('diff --git'));
+  });
   it('по вопросу на фрагмент и на КАЖДУЮ ось (трек 1а — не только «не затронутые»); находки — записи', async () => {
     const provider = scripted([
       'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11',
@@ -228,10 +290,49 @@ describe('конвейер', () => {
     ok(r.findings.every((f) => f.kind === 'record_finding'));
     // Затронутая ось теперь ТОЖЕ спрашивается — вопрос про то, покрывает ли заявленный
     // исход реально сделанное, а не «трогает ли» (план и так сказал «да»).
-    ok(provider.asked.some((q) => q.includes('«Безопасность» — в плане объявлена ЗАТРОНУТОЙ')));
+    ok(provider.asked.some((q) => q.includes('«Безопасность» — в плане объявлена затронутой')));
     // Сводка называет проверенные файлы — этим она и якорится к патчу.
     ok(r.text.includes('src/tariffs.ts') && r.text.includes('test/oversize.test.ts'));
     ok(r.text.includes('фрагментов проверено 2 из 2'));
+  });
+
+  it('метка корпуса `reviewFill`: хунк с находкой и хунк без — оба принятые обмены; неполный ответ по осям отклонён (code-review-all, 2026-09-27)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-reviewfill-'));
+    roots.push(root);
+    const hunkFoundPath = join(root, 'hunk-found.json');
+    const hunkCleanPath = join(root, 'hunk-clean.json');
+    const axesPath = join(root, 'axes.json');
+    const provider = scriptedTraced([
+      { text: 'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', rawLogPath: hunkFoundPath },
+      { text: 'нет', rawLogPath: hunkCleanPath },
+      // Отвечена только ось 1 из двух запрошенных — форма «ровно N строк» не выдержана.
+      { text: '1. нет', rawLogPath: axesPath },
+    ]);
+    await reviewByHunks({
+      provider,
+      model: 'stub',
+      params: null,
+      taskContext: '',
+      diff: DIFF,
+      axes: [
+        { name: 'Настройки', affected: false, outcomeRaw: '' },
+        { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
+      ],
+      hunkBudgetBytes: 12_000,
+      signal: new AbortController().signal,
+    });
+
+    const foundLabel = JSON.parse(readFileSync(`${hunkFoundPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(foundLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
+    const cleanLabel = JSON.parse(readFileSync(`${hunkCleanPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(cleanLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
+    const axesLabel = JSON.parse(readFileSync(`${axesPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(axesLabel, {
+      accepted: false,
+      oracle: 'record-finding-parse',
+      target: 'review-fill-axes',
+      reason: 'answered-1-of-2',
+    });
   });
 
   it('оси задаются ОДНИМ запросом независимо от их числа — цена размышления платится один раз, не N раз', async () => {

@@ -1,0 +1,277 @@
+{
+  "run": {
+    "slug": "six-local-20261003-014800-ollama-devstral-small-2-two-right-answers",
+    "model": "ollama:devstral-small-2",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:devstral-small-2",
+      "explore": "ollama:devstral-small-2",
+      "ask": "ollama:devstral-small-2",
+      "plan": "ollama:devstral-small-2",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "ollama:devstral-small-2-selfreview",
+      "handoff": "ollama:devstral-small-2"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T22:48:02.684Z",
+    "finishedAt": "2026-10-02T22:55:18.853Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "приёмочный лист короче минимума этапа 1: пунктов 6 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 22885,
+          "outputTokens": 1684,
+          "cacheReadTokens": 18126,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 718616
+        },
+        "durationMs": 435620,
+        "requestDurationsMs": [
+          32521,
+          43278,
+          46102,
+          17015,
+          37358,
+          108963,
+          46208,
+          106974,
+          176081,
+          32079,
+          56486,
+          15564
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:e0b1fcd7-544f-4cea-b2b3-187df7071ac9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-014800-ollama-devstral-small-2-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как реализовать перенос брони на другой слот: изменением существующей брони или созданием новой c тем же id и сроком?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Какой механизм должен быть выбран на основе существующей реализации в src/hold.ts и test/hold.test.ts?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11411,
+        "userChars": 4193,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-39a26a8e-89a7-4e2d-b816-04ea608b14aa-1",
+        "questionId": "intent-open-0",
+        "text": "Как реализовать перенос брони на другой слот: изменением существующей брони или созданием новой c тем же id и сроком?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-39a26a8e-89a7-4e2d-b816-04ea608b14aa-1",
+        "questionId": "intent-open-1",
+        "text": "Какой механизм должен быть выбран на основе существующей реализации в src/hold.ts и test/hold.test.ts?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e9f3bb01ef3223ae728b7d4a7b9d5da7e0b3cf7f99807b180ec9021afe4eda3d",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "0c5eb97e52726ebb13c86414540d66600a03d1ea4faacbf6a06a01a2e7f48544",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 7200000
+    },
+    "workspaceHash": "c3bb3f9730fc9c8b21237df05735c9ccb46b9b143f28368fddf04d546de4fefd",
+    "state": "finished",
+    "capturedAt": "2026-10-02T22:55:18.872Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-02T22:55:18.850Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "1a0f06b4561d6e92a0b3fb22f2158dae77ef3fb58af178066ffbb83a9185ead7",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "b2d9a4bf66afbb0cc8e763c3cd2331b24d887d14b9a7c9265069fec2746d400b",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "31a4f56abdc5073e9ed18708f3dbec69216cf83e5bf0ec0b747e5c1645a72885",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "18fc0f04f8f68af08f800e17f7c85509940bc44d912819e4539c74a54560afa2",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

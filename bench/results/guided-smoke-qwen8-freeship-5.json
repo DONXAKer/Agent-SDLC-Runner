@@ -1,0 +1,422 @@
+{
+  "run": {
+    "slug": "guided-smoke-qwen8-freeship-5",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T17:28:49.999Z",
+    "finishedAt": "2026-10-03T17:41:25.959Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 32
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "План не подготовлен: files_to_touch включает существующие тесты, которые Intent запрещает менять: test/tariffs.test.ts; оставь только новый файл тестов.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 17386,
+          "outputTokens": 552,
+          "cacheReadTokens": 16198,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 170540
+        },
+        "durationMs": 82052,
+        "requestDurationsMs": [
+          1771,
+          15995,
+          22267,
+          20987,
+          50444,
+          54169,
+          4914
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 152994,
+          "outputTokens": 4807,
+          "cacheReadTokens": 135662,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 980255
+        },
+        "durationMs": 445806,
+        "requestDurationsMs": [
+          10697,
+          1811,
+          3935,
+          992,
+          4205,
+          1339,
+          9329,
+          1489,
+          5242,
+          1029,
+          3145,
+          1251,
+          3104,
+          1757,
+          6063,
+          1411,
+          6554,
+          1461,
+          5263,
+          1488,
+          5672,
+          1838,
+          7066,
+          1731,
+          7435,
+          18344,
+          699,
+          256966,
+          276451,
+          292544,
+          1209,
+          38748
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 9486,
+          "outputTokens": 3079,
+          "cacheReadTokens": 7473,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 225807
+        },
+        "durationMs": 226411,
+        "requestDurationsMs": [
+          74753,
+          64325,
+          86729
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 6
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "plan.md",
+        "placeholders": 37
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:a7fc6f63-3cc5-43be-ab5b-033fe108caf8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-smoke-qwen8-freeship-5\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:a029c85b-f501-47df-aaa6-d71abd04c6a6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-smoke-qwen8-freeship-5\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:8efa47ff-bbf5-4ca9-87be-312337761c09",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-smoke-qwen8-freeship-5\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6544,
+        "userChars": 5892,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6016,
+        "userChars": 10802,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7446,
+        "userChars": 19554,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "daf1cdfa1b8c246ecafdaa949ee89fcb9d4cdf9af9e29a95c18bbd5e7debb79d",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "a77a6c708af6a970b67acf879e326ebac2b938aa491d6a8e64cffff9f5a6ab74",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 600000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "0e9fcf9e1dad4a0627e3c9f26558ed3e6e3947734fafd7feacc74fb02e6acf6f",
+    "state": "finished",
+    "capturedAt": "2026-10-03T17:41:25.981Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-03T17:41:25.956Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "4f2b9ea1bd0eec0efe3372093506ccd0d7c7de9df9ef49f171acedb849870e4b",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "3749bab3f081a06da85ad86823212cb211d046decc02f93d2c1ed719872d8428",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "231466c85b5f2bf5772c3f0e9a0993fdc552ff3e7f5f6abc71370d178c2757f6",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "eaf9e1191e7662baf0b993853cc7cb0c9cbcff976dd3edbb551900cd781df92c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "5598b76c99d56b93cf315b058bda9b7eaffa5a263aeda68af546748eb8c1191d",
+        "placeholders": 37,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "14a37ce8d65df01b1c4ccc17d69057b2a9bd1806c91e821c37170a3766806036",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

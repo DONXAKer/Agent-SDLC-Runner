@@ -1,10 +1,52 @@
 /** Этап 1 — цель витка: определение этапа и его проверки. */
 
+import { existsSync } from 'node:fs';
+import { initializePreparation, isPreparationV2, markStructuredPreparationTablesRendered, normalizePreparationTables, preparation, syncCanonicalPreparation } from '../../artifacts/preparation.ts';
+
+import type { Question, StageId } from '@sdlc-runner/shared';
+
 import { DecisionFormError, readArtifact, readField, setDecision } from '../../artifacts/artifact.ts';
+import { writeIntentSnapshot } from '../../artifacts/intentSections.ts';
 import { currentBranch, isRepo } from '../../gates/git.ts';
-import { autofillReadiness } from '../formAutofill.ts';
-import { claimsMinimum, intentPlaceholdersOutsideTouch } from './preconditions.ts';
+import { appendAnswerRows, askedQuestionCount, closeAnsweredQuestions, extractHumanFacts, openQuestions, renderAnswerRow, reopenUnverifiedQuestions, unaskedQuestions } from '../../artifacts/humanFacts.ts';
+import { autofillClarification, autofillReadiness } from '../formAutofill.ts';
+import { seedArtifacts } from '../seed.ts';
+import { hasRuntimeReadiness, readinessRun1 } from '../readinessChecks.ts';
+import { claimsMinimum, intentPlaceholderCount, readinessVerdict } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
+
+/**
+ * Снимок секций `intent.md` (`SDLC.md` → «Вердикт», восьмое условие): снимается на первом
+ * прогоне готовности и заново — после одобрения плана. `force` — пересъёмка (одобрение
+ * плана: с этого момента лист снова неизменяем); без него — только если снимка ещё нет.
+ * Пропускается, пока прогон 1 готовности не сказал «готова»: задача ещё правится по праву.
+ */
+export function ensureIntentSnapshot(
+  host: StageHost,
+  stage: StageId,
+  opts: { force?: boolean; why?: string } = {},
+): boolean {
+  const intent = readArtifact(host.paths.intent);
+  if (!intent.exists) return false;
+  const path = host.paths.intentSections;
+  if (!opts.force && existsSync(path)) return false;
+  if (!opts.force) {
+    const readiness = readArtifact(host.paths.readiness);
+    if (!readiness.exists || readinessVerdict(readiness.text, 1) !== 'ready') return false;
+  }
+  writeIntentSnapshot(path, intent.text);
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage,
+    message:
+      opts.why ??
+      (stage === 'intent'
+        ? 'снимок секций задачи снят: с этого момента intent.md правится только тремя законными правками'
+        : `снимок секций задачи снят только сейчас (этап ${stage}): правки задачи до этого момента не проверены`),
+  });
+  return true;
+}
 
 /**
  * Факт прогона для этапа 1: на какой ветке РЕАЛЬНО стоит рабочее дерево.
@@ -79,7 +121,7 @@ export async function autofillBranchField(host: StageHost, seeded: SeededArtifac
 }
 
 /**
- * Та же проверка, что `filledExceptTouchSection` (`preconditions.ts`, предусловие входа в разведку), но
+ * Та же проверка, что `intentFilled` (`preconditions.ts`, предусловие входа в разведку и в план), но
  * вызванная СВОИМ ходом модели на этапе `intent`, а не чужим предусловием следующего
  * этапа. Общий страж завершения хода (`notDone()`, `Run.ts`) видит только «файл тронут
  * vs пустой бланк», а не «плейсхолдеры закрыты» — `FormFillExecutor` считает точное число
@@ -93,13 +135,16 @@ export async function autofillBranchField(host: StageHost, seeded: SeededArtifac
 export function intentPlaceholderProblem(c: StageContext): string | null {
   const a = readArtifact(c.paths.intent);
   if (!a.exists) return null;
-  const n = intentPlaceholdersOutsideTouch(a.text);
+  // Тот же счётчик, что у предусловий `explore`/`plan` (`intentPlaceholderCount`): один
+  // ответ на «артефакт полон?» на всех потребителей.
+  const n = intentPlaceholderCount(c, a.text, false);
   if (n === 0) return null;
   return `в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: ${n} — задача не готова`;
 }
 
 export const intentStage: StageDef = {
   id: 'intent',
+  startsTask: true,
   skill: 'sdlc-intent',
   title: 'Цель витка',
   // Bash обязателен: скилл заводит ветку витка `sdlc/<slug>` и пересчитывает
@@ -110,7 +155,7 @@ export const intentStage: StageDef = {
   // задачу оболочкой — копирует форму в проект и перебирает команды вместо того, чтобы
   // заполнить документ (у 35B двенадцать вызовов из четырнадцати были shell'ом). Этап 1
   // читает, спрашивает человека и пишет артефакт — команда ему не нужна ни для чего.
-  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
+  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'FinalizeArtifact', 'FillField'],
   subagents: [],
   produces: (c) => [c.paths.gates, c.paths.intent, c.paths.readiness],
   requires: [],
@@ -122,6 +167,8 @@ export const intentStage: StageDef = {
 
 export const intentModule: StageModule = {
   def: intentStage,
+  initialize: (host, opts) => initializePreparation(host.paths, opts.requirement, opts.preparationVersion),
+  runtimeFacts: [{ id: 'git-branch', purpose: 'текущая ветка рабочего дерева для поля ветки задачи', freshness: 'live' }],
   formFillExecutor: true,
   leanDocTools: true,
   mechanicalJobs: (host) => {
@@ -144,6 +191,55 @@ export const intentModule: StageModule = {
     // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
     autofill: (seeded) => autofillBranchField(host, seeded),
 
+    afterTurn: async (_prompt, signal) => {
+      if (isPreparationV2(host.paths)) return;
+      if (signal.aborted) return;
+      const intent = readArtifact(host.paths.intent);
+      if (!intent.exists) return;
+      const reportPath = host.paths.clarificationReport;
+      let report = readArtifact(reportPath);
+      const seeded = report.exists ? [] : seedArtifacts([reportPath], host.runner().methodologyDir);
+      if (!report.exists && seeded.length > 0) {
+        const filled = autofillClarification(readArtifact(reportPath).text, { title: host.slug, explorationDone: false });
+        host.writeAutofilled(reportPath, filled.text, seeded);
+        report = readArtifact(reportPath);
+      }
+      if (!report.exists) return;
+      const facts = extractHumanFacts(report.text);
+      const reopened = reopenUnverifiedQuestions(intent.text, facts);
+      if (reopened.reopened > 0) host.writeAutofilled(host.paths.intent, reopened.text, []);
+      const currentIntent = readArtifact(host.paths.intent);
+      if (!currentIntent.exists) return;
+      const pending = unaskedQuestions(openQuestions(currentIntent.text, ''), report.text)
+        .filter((q) => q.source === 'intent').slice(0, 4);
+      if (pending.length === 0) return;
+      const questions: Question[] = pending.map((q, i) => ({
+        id: `intent-open-${i}`,
+        question: q.question,
+        header: q.blocking ? 'Блокирующий вопрос задачи' : 'Вопрос задачи',
+        multiSelect: false,
+        options: [],
+      }));
+      const answers = await host.askHuman('intent', questions);
+      if (signal.aborted) return;
+      const start = askedQuestionCount(report.text);
+      const rows = pending.map((q, i) => {
+        const answer = (answers[questions[i]!.id] ?? []).join(', ').trim();
+        return renderAnswerRow(start + i + 1, q, answer === '' ? null : answer);
+      });
+      const updated = appendAnswerRows(report.text, rows);
+      if (updated !== report.text) host.writeAutofilled(reportPath, updated, []);
+      const closed = closeAnsweredQuestions(currentIntent.text, extractHumanFacts(updated));
+      if (closed.closed > 0) host.writeAutofilled(host.paths.intent, closed.text, []);
+    },
+
+    // Снимок секций задачи — по факту готовности (прогон 1 сказал «готова»): дальше
+    // intent.md правится только тремя законными правками, и этапы 4 и 6 сверяют с ним.
+    evidence: async () => {
+      if (isPreparationV2(host.paths)) return;
+      ensureIntentSnapshot(host, 'intent');
+    },
+
     // Полнота intent.md — здесь, а не только предусловием этапа 2. `notDone()`
     // выше видит только «файл тронут vs пустой бланк»: дозаполнение, тронувшее
     // intent.md и оставившее хотя бы одно место (вне законно пустой «Что придётся
@@ -151,6 +247,18 @@ export const intentModule: StageModule = {
     // чинить уже некому (тот же класс потери, что карта разведки; живой
     // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
     finishProblem: () => {
+      if (isPreparationV2(host.paths)) {
+        const state = preparation(host.paths);
+        if (state?.structuredTablesRequired === true && state.structuredTablesRendered !== true) {
+          const artifact = readArtifact(host.paths.intent);
+          const normalized = normalizePreparationTables(artifact.text, true, state?.requests ?? []);
+          if (normalized.problem !== null) return normalized.problem;
+          if (!normalized.changed) return 'Верни JSON-маркеры acceptance и basis с корректными объектами, чтобы Runner мог построить таблицы.';
+          host.writeAutofilled(host.paths.intent, normalized.text, []);
+          markStructuredPreparationTablesRendered(host.paths);
+        }
+        syncCanonicalPreparation(host.paths);
+      }
       const problem = intentPlaceholderProblem(host.ctx());
       if (problem !== null) {
         return `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
@@ -162,7 +270,20 @@ export const intentModule: StageModule = {
       // (нужно 2) — этап 3 отклонит», этап всё равно закрывался ✅, и виток вставал на
       // входе разведки, где чинить уже некому (разбор серии v9, 2026-09-15). Тот же класс
       // потери, что `intentPlaceholderProblem` рядом.
-      return claimsMinimum().check(host.ctx());
+      const minimumProblem = claimsMinimum().check(host.ctx());
+      const result = readinessRun1(host.ctx());
+      const readiness = readArtifact(host.paths.readiness);
+      const runtimeChecklist = readiness.exists && hasRuntimeReadiness(readiness.text);
+      if (runtimeChecklist) {
+        const date = new Date().toISOString().slice(0, 10);
+        const updated = autofillReadiness(readiness.text, {
+          title: host.slug, date, run: 1, checks: result.checks, verdict: result.ready ? 'ready' : 'not',
+        });
+        if (updated.text !== readiness.text) host.writeAutofilled(host.paths.readiness, updated.text, []);
+      }
+      if (minimumProblem !== null) return minimumProblem;
+      if (!runtimeChecklist) return null;
+      return result.ready ? null : `проверки готовности прогона 1 не пройдены: ${result.checks}`;
     },
   }),
 };

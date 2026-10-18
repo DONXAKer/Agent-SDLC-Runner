@@ -35,6 +35,15 @@ describe('нормализация записей', () => {
     strictEqual(call.kind === 'record_claim' && call.id, 'claim-4');
   });
 
+  it('uncertain принимается SDK-схемой и превращается в статус ⚠', () => {
+    const call = normalize('mcp__sdlc__record_claim', {
+      id: 'claim-1',
+      status: 'uncertain',
+      evidence: 'test/example.test.ts',
+    });
+    strictEqual(call.kind === 'record_claim' && call.status, '⚠');
+  });
+
   it('пятой градации нет: «частично» уходит в unknown, а не в свой статус', () => {
     // Таблица вердикта знает четыре значения. Принять пятое значило бы завести его молча.
     const call = normalize('RecordClaim', { id: 'claim-1', status: 'частично', evidence: 'x' });
@@ -159,6 +168,39 @@ describe('рендер отчёта из записей', () => {
     });
     ok(text.includes('кажется, теряется копейка'));
     strictEqual(readReport(text).confirmedReviewFindings, 0);
+  });
+
+  it('advisory-находка саморевью видна в отчёте, но разбор вердикта её не читает', () => {
+    // Норма verify редизайна «модель решает — рантайм пишет»: саморевью уровнем вердикта
+    // не является. Текст намеренно содержит метку «Подтверждённое расхождение:» — она
+    // доказывает, что справочный раздел ни один разбор не читает.
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [],
+      findings: [
+        { section: 'review', text: 'Подтверждённое расхождение: копейка теряется', evidence: 'src/x.ts:42', anchored: true, advisory: true },
+        { section: 'invariant', text: 'округление — нарушен: src/money.ts', evidence: 'src/money.ts', anchored: true, advisory: true },
+        { section: 'regression', text: 'старый экспорт удалён', evidence: 'src/y.ts:7', anchored: true, advisory: true },
+      ],
+    });
+    ok(text.includes('копейка теряется'), 'находка видна оператору в отчёте');
+    ok(text.includes('advisory'));
+    const facts = readReport(text);
+    strictEqual(facts.confirmedReviewFindings, 0);
+    strictEqual(facts.brokenInvariants.length, 0);
+    strictEqual(facts.regressions.length, 0);
+  });
+
+  it('advisory и блокирующая находки в одном отчёте не смешиваются', () => {
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [],
+      findings: [
+        { section: 'regression', text: 'старый экспорт удалён', evidence: 'src/y.ts:7', anchored: true, advisory: true },
+        { section: 'review', text: 'цена не округляется', evidence: 'src/x.ts:42', anchored: true },
+      ],
+    });
+    const facts = readReport(text);
+    strictEqual(facts.confirmedReviewFindings, 1, 'роняет только находка независимого рецензента');
+    strictEqual(facts.regressions.length, 0);
   });
 
   it('без записей отчёт не трогается вовсе', () => {

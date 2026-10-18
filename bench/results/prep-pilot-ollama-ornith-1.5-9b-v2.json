@@ -1,0 +1,412 @@
+{
+  "run": {
+    "slug": "prep-pilot-ollama-ornith-1.5-9b-v2",
+    "model": "ollama:ornith-1.5-9b",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ornith-1.5-9b",
+      "explore": "ollama:ornith-1.5-9b",
+      "ask": "ollama:ornith-1.5-9b",
+      "plan": "ollama:ornith-1.5-9b",
+      "chunk": "ollama:ornith-1.5-9b",
+      "verify": "ollama:ornith-1.5-9b",
+      "handoff": "ollama:ornith-1.5-9b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T11:01:01.144Z",
+    "finishedAt": "2026-10-01T11:25:32.830Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 6,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "цикл остановлен: артефакт готов к финализации несколько ходов подряд, а FinalizeArtifact так и не вызван — этап закрыт по диску",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 6,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "running"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 61648,
+          "outputTokens": 12388,
+          "cacheReadTokens": 47706,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 581645
+        },
+        "durationMs": 582077,
+        "requestDurationsMs": [
+          28950,
+          11043,
+          477955,
+          26437,
+          23246,
+          14015
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 98614,
+          "outputTokens": 5662,
+          "cacheReadTokens": 79442,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 275762
+        },
+        "durationMs": 275842,
+        "requestDurationsMs": [
+          33072,
+          15908,
+          176464,
+          24132,
+          14900,
+          11288
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 48785,
+          "outputTokens": 5514,
+          "cacheReadTokens": 29905,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 284864
+        },
+        "durationMs": 0,
+        "requestDurationsMs": [
+          21903,
+          9943,
+          253020
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 15,
+        "reminders": 2
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 15,
+        "reminders": 2
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 8,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 14
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:0b3c8a8f-f950-4b6d-9bc2-6768c2f23cc6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ornith-1.5-9b-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:388d2e1f-b18a-4382-ab53-5b021f9fa3b8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ornith-1.5-9b-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:f22d8c66-c9c9-4145-98f2-4d9896deafdf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ornith-1.5-9b-v2/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:efbb785b-5c5b-40eb-ae2b-0628ea1f4a60",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:73abad8f-92c0-4e58-b791-7d617d832123",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ornith-1.5-9b-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:00a3c491-a249-4d09-8a28-b65f29650d29",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-pilot-ollama-ornith-1.5-9b-v2/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 5075,
+        "userChars": 6974,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 5744,
+        "userChars": 22085,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 6076,
+        "userChars": 29434,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "0f1add205669bb999bc26beec819404a64e6dfa27b66f9cbc071ea5ac5519d6f",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "7bd71bc36450d67a31f25b67f0274e17378b80f03839998a8dec373408bb0ddb",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "d2e8c20606116d9b85e84ef533de63e57d1583025fdecfd09ff33f5e4263c39e",
+    "state": "running",
+    "capturedAt": "2026-10-01T11:25:32.839Z",
+    "lastEvent": {
+      "type": "tool_result",
+      "stage": "plan",
+      "at": "2026-10-01T11:20:04.982Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "ede2cf6c8fbeab04eabf845d3bc3673487a23499d1918cd0518637af32d84094",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "2e1a4bcf725ad52a20d1fc1c03450a72d6f34a9f28194da2b27a2e11b19cc4c3",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "11f7bf66dfe4c7c2cf69fd044e3fc6b372ef6ea3623d8e27baebc3080c076e0a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "fcdb6f954a942d91c79f64252eb9c44fab280aa9154b394cc1ba8bcf6b8fc988",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "068693428803e096dd7cad8cdc00281868a61678bcfb3fe8563733496afe50bb",
+        "placeholders": 45,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "64810b4cf2c2670175d5027fe2ac6a2cc4170707f1568b0304786f0941821b4a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

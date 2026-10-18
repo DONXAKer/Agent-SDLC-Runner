@@ -1,0 +1,2 @@
+Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.
+Preserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.

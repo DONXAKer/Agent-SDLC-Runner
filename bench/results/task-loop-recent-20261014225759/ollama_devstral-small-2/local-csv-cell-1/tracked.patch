@@ -1,0 +1,25 @@
+diff --git a/src/format.mjs b/src/format.mjs
+index e8014d2..db6c4de 100644
+--- a/src/format.mjs
++++ b/src/format.mjs
+@@ -1 +1,19 @@
+-export const protocolVersion = 1;
++export const protocolVersion    = 1;
++
++export function csvRow(values)    {
++  return values. map(cell    =>    {
++    const needsQuoting    =   (
++      String(ell).includes(',')     ||   
++      String(ell).includes('"')     ||   
++      String(ell).includes('\r')     ||   
++      String(ell).includes('\n')
++      );
++     
++    if    (!needsQuoting)    {
++      return String(ell);
++     }
++     
++    const escaped    = String(ell).replace(/\"/g,    '""""');  
++    return '"${escaped}"';          
++   }).join(',');
++}

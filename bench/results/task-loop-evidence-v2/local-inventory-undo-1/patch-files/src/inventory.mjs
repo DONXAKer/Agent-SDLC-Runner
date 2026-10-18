@@ -1,0 +1,39 @@
+export const protocolVersion = 1;
+
+export function createInventory(initial) {
+  const stock = new Map();
+  for (const [sku, quantity] of Object.entries(initial ?? {})) {
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
+      throw new RangeError(`invalid initial quantity for "${sku}": ${quantity}`);
+    }
+    stock.set(sku, quantity);
+  }
+  const reservations = new Map();
+  let counter = 0;
+  return {
+    reserve(sku, quantity) {
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+        throw new RangeError(`invalid quantity: ${quantity}`);
+      }
+      const current = stock.get(sku);
+      if (current === undefined || current < quantity) return null;
+      stock.set(sku, current - quantity);
+      counter += 1;
+      const token = { sku, quantity, released: false, id: counter };
+      reservations.set(token, token);
+      return token;
+    },
+    release(token) {
+      const entry = reservations.get(token);
+      if (!entry || entry.released) return false;
+      entry.released = true;
+      stock.set(entry.sku, stock.get(entry.sku) + entry.quantity);
+      reservations.delete(token);
+      return true;
+    },
+    available(sku) {
+      const current = stock.get(sku);
+      return current === undefined ? 0 : current;
+    },
+  };
+}

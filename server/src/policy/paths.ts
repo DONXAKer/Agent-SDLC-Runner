@@ -6,6 +6,8 @@
  * symlink-побегов требует I/O и живёт не здесь, а в гейте одобрений.
  */
 
+import { matchesGlob } from 'node:path';
+
 export function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -106,10 +108,27 @@ function repairRepeatedRoot(root: string, rel: string): string {
   return rel;
 }
 
+/**
+ * Ложный абсолютный путь модели (`/src/foo.ts`): с ведущим `/`, но вне корня проекта.
+ * Настоящие абсолютные (`/etc/passwd`, `C:/…`, путь уже под корнем) не трогаем.
+ */
+function coerceFalseAbsolute(root: string, userPath: string): string {
+  const trimmed = userPath.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || /^[A-Za-z]:/u.test(trimmed)) return trimmed;
+  const abs = lexicalNormalize(trimmed);
+  if (relativizeWithin(root, abs) !== null) return trimmed;
+  const stripped = trimmed.replace(/^\/+/u, '');
+  if (stripped === '' || stripped.includes('..')) return trimmed;
+  // Системные корни POSIX не считаем «путём в проекте».
+  if (/^(etc|usr|var|proc|sys|dev|bin|sbin|tmp|root|home)(\/|$)/iu.test(stripped)) return trimmed;
+  return stripped;
+}
+
 /** Путь пользователя, разрешённый относительно корня проекта. */
 export function resolveUserPath(root: string, userPath: string): string {
-  if (isAbsolute(userPath)) return lexicalNormalize(userPath);
-  const repaired = repairRepeatedRoot(root, toPosix(userPath.trim()));
+  const coerced = coerceFalseAbsolute(root, userPath);
+  if (isAbsolute(coerced)) return lexicalNormalize(coerced);
+  const repaired = repairRepeatedRoot(root, toPosix(coerced.trim()));
   return lexicalNormalize(`${rootWithSlash(root)}${repaired}`);
 }
 
@@ -155,4 +174,73 @@ export function normalizePlanPath(root: string, raw: string): string {
   if (p.startsWith('./')) p = p.slice(2);
 
   return lexicalNormalize(repairRepeatedRoot(root, p));
+}
+
+/**
+ * Фильтр имён поиска, разобранный один раз, в семантике `rg --glob` — одна функция на
+ * политику (`pathScope::deniedInScope`: задевает ли поиск закрытый файл) и на исполнение
+ * `Grep` флоу `loop`: понимай они фильтр по-разному, политика разрешала бы то, что инструмент
+ * потом читает (code-review-all 2026-09-23 — `!*.ts` читался политикой как «только .ts»).
+ *
+ * `grep`: один или несколько шаблонов через пробел или запятую ВНЕ фигурных скобок
+ * (`*.ts,*.md` — два шаблона, `*.{ts,md}` — один). Шаблон с `!` исключает, прочие —
+ * включают (любой из них); только исключающие — «всё, кроме». Без `/` шаблон сверяется с
+ * именем файла на любой глубине, с `/` — с путём от каталога поиска. `glob`: шаблон один
+ * (шаблон `Glob`), сверяется с путём от каталога поиска. Ведущее `./` снимается. Шаблон,
+ * который `matchesGlob` не разобрал, решается в сторону «файл проходит»: не включает его
+ * меньше и не исключает.
+ *
+ * `alt` — второй вид того же пути для ВКЛЮЧЕНИЯ (политика подаёт путь без ведущих точек:
+ * `**` в `matchesGlob` не заходит в `.sdlc`, а исполнитель флоу `sdk` заходить может).
+ * Исключение сверяется только с настоящим путём: `!.sdlc/**` исключает файл витка, и
+ * поиск, сам исключивший каталог витка, не отклоняется.
+ */
+export function compileSearchFilter(
+  filter: string,
+  mode: 'grep' | 'glob',
+  caseInsensitive = false,
+): (name: string, fromBase: string, alt?: string) => boolean {
+  const norm = (v: string): string => (caseInsensitive ? v.toLowerCase() : v);
+  const parts = (mode === 'glob' ? [toPosix(filter).trim()] : splitGlobList(toPosix(filter)))
+    .filter((p) => p !== '')
+    .map((p) => ({ neg: p.startsWith('!'), glob: norm((p.startsWith('!') ? p.slice(1) : p).replace(/^\.\//, '')) }));
+  const include = parts.filter((p) => !p.neg);
+  const exclude = parts.filter((p) => p.neg);
+  const hits = (glob: string, target: string, onError: boolean): boolean => {
+    try {
+      return matchesGlob(norm(target), glob);
+    } catch {
+      return onError;
+    }
+  };
+  const targetOf = (glob: string, name: string, fromBase: string): string =>
+    mode === 'glob' || glob.includes('/') ? fromBase : name;
+  return (name, fromBase, alt) => {
+    if (exclude.some((p) => hits(p.glob, targetOf(p.glob, name, fromBase), false))) return false;
+    if (include.length === 0) return true;
+    return include.some(
+      (p) =>
+        hits(p.glob, targetOf(p.glob, name, fromBase), true) ||
+        (alt !== undefined && hits(p.glob, targetOf(p.glob, name, alt), true)),
+    );
+  };
+}
+
+/** Шаблоны через пробел или запятую — кроме запятых внутри `{…}`. */
+function splitGlobList(filter: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (const ch of filter) {
+    if (ch === '{') depth++;
+    else if (ch === '}') depth = Math.max(0, depth - 1);
+    if ((/\s/.test(ch) && depth === 0) || (ch === ',' && depth === 0)) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
 }

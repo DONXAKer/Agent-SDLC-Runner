@@ -16,9 +16,9 @@
  * поведении которого уверены. Без файла эталона тест падает, а не создаёт его молча.
  */
 
-import { deepStrictEqual, ok } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual, rejects } from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -26,14 +26,22 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
-import type { RunEvent, StageId } from '@sdlc-runner/shared';
-import { STAGE_ORDER } from '@sdlc-runner/shared';
+import type { PolicyContext, RunEvent, StageId } from '@sdlc-runner/shared';
+import { STAGE_ORDER, emptyUsage } from '@sdlc-runner/shared';
+import type { ExecRequest, StageExecutor } from '../src/exec/StageExecutor.ts';
 
 import { AskGate } from '../src/approval/askGate.ts';
 import { ApprovalGate } from '../src/approval/gate.ts';
 import type { LoadedConfig } from '../src/config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/config/schema.ts';
 import { Run } from '../src/run/Run.ts';
+import { readGuided } from '../src/run/guidedState.ts';
+import { readFlowTrace } from '../src/run/runFlow.ts';
+import { evaluate } from '../src/policy/index.ts';
+import { normalize as normalizeTool } from '../src/exec/normalize.ts';
+import { envRetryCount } from '../src/run/envRetryBudget.ts';
+import { readRunVerdict } from '../src/run/verdictStore.ts';
+import { parseIterations, readIterationsText } from '../src/run/iterationsLog.ts';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'runStage');
 const UPDATE = process.env['UPDATE_GOLDEN'] === '1';
@@ -52,8 +60,11 @@ const GATES = [
   '',
   '| Гейт | Вкл | Где отчитывается | Чем реализован |',
   '|---|---|---|---|',
-  '| Сборка | да — минимум | этап 6 | `node -e "process.exit(0)"` |',
-  '| Тесты | да — минимум | этап 6 | `node -e "process.exit(0)"` |',
+  // Команда обязана быть исполнимой и разрешённой полом безопасности: прежний однострочник
+  // `node -e …` отклонялся `denyList` и на прогоне давал ⏭, а preflight набора теперь не
+  // пускает такой набор на chunk вовсе — эталон гонял бы витки, которые не стартуют.
+  '| Сборка | да — минимум | этап 6 | `node --version` |',
+  '| Тесты | да — минимум | этап 6 | `node --version` |',
   '| Scope: файлы вне плана | да — минимум | этап 6 | скрипт сверки diff с files_to_touch |',
   '| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |',
   '| Ревью независимым агентом | да — минимум | этап 6 | агент на более сильной модели |',
@@ -78,6 +89,7 @@ const TEMPLATES: Record<string, string> = {
   'plan.template.md': [
     '# План: ‹название витка›',
     '',
+    '- **Требования (SHA-256):** ‹sha256 требований›',
     '- **Одобрение:** ‹подпись и дата›',
     '',
     '## files_to_touch',
@@ -112,6 +124,13 @@ const TEMPLATES: Record<string, string> = {
     '|---|---|---|---|---|',
     '| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |',
     '',
+    // Секция вердикта — как в шаблоне эталона: копию вердикта в неё пишет рантайм, и без
+    // неё сквозной эталон покрывал только путь «копия не легла».
+    '## Вердикт',
+    '',
+    '- **passed:** true / false',
+    '- **action:** continue / retry / blocked_env / escalate',
+    '',
   ].join('\n'),
   'handoff.template.md': '# Передача: ‹название витка›\n\n- **Приёмка:** ‹подпись и дата›\n\n## Итог\n\n‹итог›\n',
   'exploration-report.template.md': [
@@ -144,7 +163,7 @@ function git(root: string, ...args: string[]): void {
   });
 }
 
-function makeProject(gates: string = GATES, reviewer = false): string {
+function makeProject(gates: string = GATES, reviewer = false, files: Record<string, string> = {}): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-golden-')));
   roots.push(root);
   for (const stage of STAGE_ORDER) {
@@ -167,6 +186,11 @@ function makeProject(gates: string = GATES, reviewer = false): string {
   mkdirSync(join(root, '.sdlc'), { recursive: true });
   writeFileSync(join(root, '.sdlc', 'gates.md'), gates);
   writeFileSync(join(root, '.gitignore'), 'skills/\nmethodology/\nagents/\n');
+  for (const [name, content] of Object.entries(files)) {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'база');
@@ -186,7 +210,7 @@ interface RequestSummary {
   lastRole: string;
 }
 
-async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: RequestSummary[]; close: () => void }> {
+async function startModel(queues: Queues, root: string): Promise<{ baseUrl: string; requests: RequestSummary[]; close: () => void }> {
   const requests: RequestSummary[] = [];
   let seq = 0;
   const server = createServer((req, res) => {
@@ -198,14 +222,31 @@ async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: 
         tools?: { function: { name: string } }[];
       };
       const system = parsed.messages.find((m) => m.role === 'system')?.content ?? '';
-      const stage = /СКИЛЛ (\w+):/.exec(system)?.[1] ?? 'вне этапа';
+      const stage = /СКИЛЛ (\w+):/.exec(system)?.[1] ?? /Проверка предварительного решения \((\w+)\)/u.exec(system)?.[1] ?? 'вне этапа';
       requests.push({
         stage,
         messages: parsed.messages.length,
         tools: (parsed.tools ?? []).map((t) => t.function.name).sort(),
         lastRole: parsed.messages.at(-1)?.role ?? '',
       });
-      const reply = queues[stage as StageId]?.shift() ?? { text: 'готово' };
+      let reply = queues[stage as StageId]?.shift() ?? { text: 'готово' };
+      // Static scripted plans must preserve the runtime-owned requirements fingerprint just
+      // as a real model using Edit/FillField must; the harness reads the actual seeded value
+      // so this stays correct when the intent or clarification fixture changes.
+      if ('tool' in reply && reply.tool === 'Write' && String(reply.args['file_path'] ?? '').replace(/\\/g, '/') === '.sdlc/demo/plan.md') {
+        const seeded = readFileSync(join(root, '.sdlc', 'demo', 'plan.md'), 'utf8');
+        const hash = /^- \*\*Требования \(SHA-256\):\*\*\s*`?([a-f0-9]{64})`?\s*$/im.exec(seeded)?.[1];
+        if (hash !== undefined && typeof reply.args['content'] === 'string') {
+          let content = reply.args['content'];
+          const line = `- **Требования (SHA-256):** \`${hash}\``;
+          if (/^- \*\*Требования \(SHA-256\):\*\*/im.test(content)) {
+            content = content.replace(/^- \*\*Требования \(SHA-256\):\*\*.*$/im, line);
+          } else {
+            content = content.replace(/^(# .*\r?\n)/, `$1\n${line}\n`);
+          }
+          reply = { ...reply, args: { ...reply.args, content } };
+        }
+      }
       const message =
         'text' in reply
           ? { role: 'assistant', content: reply.text }
@@ -253,6 +294,7 @@ function makeRun(
     skipTurnAfterReviewFill: false,
     planAxisFill: false,
     stepFill: false,
+    stepContext: false,
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
@@ -334,6 +376,13 @@ function normalize(value: unknown, root: string): unknown {
   for (const form of rootForms.sort((a, b) => b.length - a.length)) text = text.split(form).join('<ROOT>');
   text = text
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<ID>')
+    // Хэши свидетельств попытки (`evidence.json`: sha256 патча и вывода тестов) — 64 hex,
+    // раньше 40-значного sha, иначе тот съел бы их середину.
+    .replace(/\b[0-9a-f]{64}\b/g, '<SHA256>')
+    // Вывод `node --version` гейтов эталона — версия машины, не витка.
+    // Без `\b`: в сериализованной строке версия стоит после `\n` (два символа), и граница
+    // слова перед `v` не срабатывала — 17 сырых версий доехали до эталона (ревью).
+    .replace(/(^|[^\w]|\\n)v\d+\.\d+\.\d+(\\r)?(?=\\n|\\"|"|\s|$)/g, '$1<NODEVER>')
     .replace(/\b[0-9a-f]{40}\b/g, '<SHA>')
     .replace(/index [0-9a-f]{7,40}\.\.[0-9a-f]{7,40}/g, 'index <SHA>..<SHA>')
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<DATETIME>')
@@ -344,8 +393,12 @@ function normalize(value: unknown, root: string): unknown {
     // Длительности: `\b` по кириллице не работает (граница считается по ASCII), поэтому конец
     // единицы — явным «не буква и не цифра дальше».
     .replace(/\d+(?:[.,]\d+)?\s?(?:мин|мс|ms|с|s)(?![\p{L}\d])/gu, '<DUR>')
-    // Базовый снимок дерева chunk'а хранит хэши грязных файлов, а метрики витка несут время.
-    .replace(/(metrics\.(?:json|md)\\*": \\*")[0-9a-f]{32}/g, '$1<HASH>');
+    // Базовый снимок дерева chunk'а хранит хэши грязных файлов, а в артефактах витка —
+    // даты прогона (`plan.md`: «Одобрение: … · <дата>»): хэш такого файла меняется с
+    // календарём, и эталон, снятый вчера, краснел сегодня по всем сценариям с chunk'ом
+    // (2026-09-21 и 2026-09-23 — оба раза фикстуры пересобирали вместо причины). Имена
+    // файлов в снимке остаются видны, маскируются только значения хэшей.
+    .replace(/(\.sdlc\\*\/[^"\\]+\\*": \\*")[0-9a-f]{32}/g, '$1<HASH>');
   return JSON.parse(text);
 }
 
@@ -356,6 +409,9 @@ function sdlcFiles(root: string): Record<string, string> {
     if (!existsSync(d)) return;
     for (const name of readdirSync(d).sort()) {
       const p = join(d, name);
+      // Detailed flow archives are derived diagnostics, tested separately from stage artifacts.
+      const rel = relative(dir, p).replace(/\\/g, '/');
+      if (rel === '.runner/flow' || rel === '.runner/flow.html') continue;
       if (statSync(p).isDirectory()) walk(p);
       // Лента и метрики — производные от событий и времени: лента уже сравнивается целиком.
       else if (!/^\.events\.ndjson$|^metrics\.(json|md)$/.test(name)) out[relative(dir, p).replace(/\\/g, '/')] = readFileSync(p, 'utf8');
@@ -376,6 +432,98 @@ function compareWithGolden(name: string, actual: unknown): void {
   ok(existsSync(file), `нет эталона ${file} — снять: UPDATE_GOLDEN=1 node --test test/runStageGolden.test.ts`);
   deepStrictEqual(actual, JSON.parse(readFileSync(file, 'utf8')));
 }
+
+it('guided: blocked initial decision stops before execution and exports actual model transfers', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({ intent: [{ text: JSON.stringify({ decision: 'Нужно уточнить бизнес-правило', evidence: [],
+    uncertainties: ['Лимит отсутствует в запросе'], next: { action: 'blocked', reason: 'Нет основания выбрать лимит' } }) }] }, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events);
+    const result = await run.runStage('intent', { executionMode: 'guided', preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(result.ok, false); strictEqual(result.modelRequests, 1);
+    strictEqual(stub.requests.length, 1);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.status, 'blocked');
+    const html = join(run.paths.runnerDir, 'flow', run.id, 'index.html'); ok(existsSync(html));
+    const trace = readFlowTrace(join(run.paths.runnerDir, 'flow', run.id, 'trace.ndjson'));
+    strictEqual(trace.entries.filter(e => e.kind === 'model_request').length, 1);
+    strictEqual(trace.entries.filter(e => e.kind === 'model_http').length, 1);
+    strictEqual(trace.entries.filter(e => e.kind === 'decision_check').length, 1);
+    ok(events.some(e => e.type === 'stage_done' && !e.ok));
+    ok(run.flowHtml().includes('flow-data'));
+  } finally { stub.close(); }
+});
+
+it('guided engine 3 checks prerequisites without asking the model and still runs completion guards', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({}, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events); let entered = false;
+    const seam = run as unknown as { executorFor: () => StageExecutor };
+    seam.executorFor = () => ({ flow: 'loop', async run(req) {
+      entered = true; ok(req.progress); ok(req.finishGuard?.());
+      return { ok: false, finalText: '', usage: emptyUsage(), note: 'deliberate unfinished task', modelRequests: 0 };
+    } });
+    const result = await run.runStage('intent', { executionMode: 'guided', guidedEngineVersion: 3, preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(entered, true); strictEqual(result.ok, false); strictEqual(stub.requests.length, 0);
+    strictEqual(readGuided(run.paths)?.engineVersion, 3);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.checkedBy, 'runtime');
+    await rejects(() => run.runStage('intent', { executionMode: 'guided', guidedEngineVersion: 1 }), /Версия движка/);
+  } finally { stub.close(); }
+});
+
+it('flow archive: real Run policy protects old and current copies from verify and tool-using claims', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({}, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events);
+    const old = join(run.paths.runnerDir, 'flow', 'previous', 'trace.ndjson');
+    mkdirSync(dirname(old), { recursive: true }); writeFileSync(old, '{"request":"Закрытый авторский лист"}\n');
+    const seam = run as unknown as { executorFor: () => StageExecutor; policyContext: (stage: StageId) => PolicyContext };
+    const current = join(run.paths.runnerDir, 'flow', run.id, 'trace.ndjson');
+    for (const path of [old, current, join(run.paths.runnerDir, 'flow.html')]) {
+      strictEqual(evaluate(normalizeTool('Read', { file_path: path }), seam.policyContext('verify')).ok, false);
+    }
+    let checked = false;
+    seam.executorFor = () => ({ flow: 'loop', async run(req, hooks) {
+      for (const path of [old, current]) {
+        const rawInput = { file_path: path }; const call = normalizeTool('Read', rawInput);
+        const meta = { requestId: path, toolName: 'Read', rawInput, callerTools: req.allowedTools };
+        const visible = await hooks.onToolRequest(call, meta); strictEqual(visible.allowed, true);
+        const hidden = await hooks.onToolRequest(call, { ...meta, caller: 'sdlc-claims' });
+        strictEqual(hidden.allowed, false);
+        if (!hidden.allowed) ok(hidden.reason.includes('закрыто'), hidden.reason);
+      }
+      checked = true;
+      return { ok: false, finalText: '', usage: emptyUsage(), note: 'test stop', modelRequests: 0 };
+    } });
+    await run.runStage('intent', { preparationVersion: 1, requirement: 'Добавить проверку лимита' });
+    strictEqual(checked, true);
+  } finally { stub.close(); }
+});
+
+it('guided: grounded checkpoint forwards its decision and shares the turn budget with the executor', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({ intent: [{ text: JSON.stringify({ decision: 'Проверить текущий код', evidence: [],
+    uncertainties: ['Неизвестна текущая реализация'], next: { action: 'read', path: 'src/app.js', offset: 1, limit: 20, reason: 'Прочитать исходник' } }) },
+    { text: JSON.stringify({ decision: 'Исследовать лимит без выдуманного значения',
+    evidence: [{ source: 'lookup-1', lines: [2, 2] }], uncertainties: [],
+    next: { action: 'proceed', reason: 'Запрос задаёт направление исследования' } }) }] }, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events); const received: ExecRequest[] = [];
+    // Replace only the executor at the test seam, keeping the real Run lifecycle and provider.
+    const seam = run as unknown as { executorFor: () => StageExecutor; maxTurnsFor: (stage: StageId) => number };
+    seam.executorFor = () => ({ flow: 'loop', async run(req) {
+      received.push(req); return { ok: false, finalText: 'Остановлено тестом после передачи входа', note: 'test stop', usage: emptyUsage(), modelRequests: 0 };
+    } });
+    const result = await run.runStage('intent', { executionMode: 'guided', preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(received.length, 1);
+    ok(received[0]!.decisionContext?.includes('Исследовать лимит'));
+    ok(received[0]!.decisionContext?.includes('export const version = 1;'));
+    strictEqual(received[0]!.maxTurns, seam.maxTurnsFor('intent') - 2);
+    strictEqual(result.modelRequests, 2);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.status, 'ready');
+  } finally { stub.close(); }
+});
 
 /**
  * Один сценарий: проект, модель с очередями ответов и шаги витка. Шаг возвращает результат
@@ -401,7 +549,7 @@ async function scenario(
   } = {},
 ): Promise<void> {
   const root = makeProject(gates, opts.reviewer === true);
-  const model = await startModel(queues);
+  const model = await startModel(queues, root);
   const events: RunEvent[] = [];
   const results: Record<string, unknown> = {};
   const run = makeRun(root, model.baseUrl, events, opts.route, opts.ensemble);
@@ -495,13 +643,85 @@ const CHUNK_REPLIES = (): Reply[] => [
 ];
 
 async function toChunkDone(run: Run, results: Record<string, unknown>): Promise<void> {
-  for (const stage of ['intent', 'explore', 'ask', 'plan'] as const) results[stage] = await run.runStage(stage);
+  for (const stage of ['intent', 'explore', 'ask', 'plan'] as const) results[stage] = await run.runStage(stage, { preparationVersion: 1 });
   decide(run, results, 'plan', 'Одобрение');
   results['chunk:1'] = await run.runStage('chunk');
   decide(run, results, 'journal', 'Подтвердил');
 }
 
 describe('runStage: эталон поведения витка', () => {
+  it('средовой сбой → рестарт → третий красный → восстановление → успешный Verify', { timeout: 60_000 }, async () => {
+    const gates = GATES.replace('`node --version`', '`node tools/build.cjs`');
+    const root = makeProject(gates, true, {
+      'tools/build.cjs': "const fs = require('node:fs');\nif (fs.existsSync('agents/build-env-broken')) { console.error('java: command not found'); process.exit(127); }\nconsole.log('build passed');\n",
+      'methodology/templates/verification-report.template.md': TEMPLATES['verification-report.template.md']!
+        .replace('| Сборка | ‹статус› | ‹итог› |', ['Сборка', 'Тесты', 'Scope: файлы вне плана', 'Анти-обход тест-гейта', 'Ревью независимым агентом'].map(name => `| ${name} | ‹статус› | ‹итог› |`).join('\n')) + '- **По каким условиям упал:** н/п\n',
+    });
+    const review = JSON.stringify({
+      schema_version: 'agent-sdlc/verify-review/v1',
+      claims: [{ id: 'claim-1', status: 'passed', evidence: [{ path: 'src/app.js', anchor: 'export const version = 2;' }], remediation: '' }],
+      findings: [], scope: [], invariants: [], regressions: [], retry_instruction: '',
+    });
+    const queues = {
+      intent: INTENT_REPLIES(), plan: PLAN_REPLIES(), chunk: CHUNK_REPLIES(),
+      verify: [
+        { tool: 'Edit', args: { file_path: '.sdlc/demo/verification-report-1-attempt-1.md', old_string: '| Ревью независимым агентом | ‹статус› | ‹итог› |', new_string: '| Ревью независимым агентом | ✅ | независимый рецензент проверил src/app.js и claim-1 |' } },
+        { tool: 'Edit', args: { file_path: '.sdlc/demo/verification-report-1-attempt-1.md', old_string: '| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |', new_string: '| claim-1 | версия поднята до 2 | ✅ | src/app.js:export const version = 2; | н/п |' } },
+        ...Array.from({ length: 4 }, () => ({ text: 'проверено' })),
+      ],
+      'вне этапа': Array.from({ length: 4 }, () => ({ text: review })),
+    } as Queues;
+    const model = await startModel(queues, root);
+    const events: RunEvent[] = [];
+    let run = makeRun(root, model.baseUrl, events);
+    try {
+      const results: Record<string, unknown> = {};
+      await toChunkDone(run, results);
+      ok(run.blockers('verify').length === 0, run.blockers('verify').join('; '));
+      writeFileSync(join(root, 'agents', 'build-env-broken'), 'dependency unavailable');
+      for (let cycle = 1; cycle <= 3; cycle++) {
+        const outcome = await run.runStage('verify');
+        const expected = cycle === 3 ? 'escalate' : 'blocked_env';
+        ok(outcome.ok, JSON.stringify({ note: outcome.note, events: events.filter(e => e.type === 'tool_result' || e.type === 'warning') }));
+        strictEqual(run.lastVerdict?.action, expected, JSON.stringify({ outcome, verdict: run.lastVerdict, warnings: events.filter(e => e.type === 'warning') }));
+        strictEqual(run.attempt, 1);
+        strictEqual(envRetryCount(run.paths, 1), cycle);
+        strictEqual(readRunVerdict(run.paths, 1, 1)?.action, expected);
+        const report = readFileSync(run.paths.verificationReport(1, 1), 'utf8');
+        ok(report.includes(expected), report);
+        ok(run.gateResults.some(g => g.name === 'Сборка' && g.envBlocked), 'средовой красный должен происходить из фактического прогона сборки');
+        if (cycle === 3) ok(report.includes('среда не восстановлена за 3'), report);
+        if (cycle < 3) strictEqual(run.advanceProblem('attempt'), null);
+        else ok(run.advanceProblem('attempt')?.includes('Восстанови среду и повтори Verify'));
+        if (cycle === 1) {
+          await run.dispose();
+          run = makeRun(root, model.baseUrl, events);
+          strictEqual(run.lastVerdict?.action, 'blocked_env');
+          strictEqual(envRetryCount(run.paths, 1), 1);
+        }
+      }
+      unlinkSync(join(root, 'agents', 'build-env-broken'));
+      const recovered = await run.runStage('verify');
+      ok(recovered.ok, recovered.note);
+      strictEqual(run.lastVerdict?.passed, true, JSON.stringify({ recovered, verdict: run.lastVerdict, report: readFileSync(run.paths.verificationReport(1, 1), 'utf8') }));
+      strictEqual(run.lastVerdict?.action, 'continue');
+      strictEqual(run.attempt, 1);
+      strictEqual(envRetryCount(run.paths, 1), 0);
+      strictEqual(readRunVerdict(run.paths, 1, 1)?.passed, true);
+      strictEqual(run.advanceProblem('chunk'), null);
+      ok(run.gateResults.some(g => g.name === 'Сборка' && g.status === '✅' && !g.envBlocked));
+      const finalReport = readFileSync(run.paths.verificationReport(1, 1), 'utf8');
+      ok(finalReport.includes('**passed:** true') && finalReport.includes('**action:** continue'), finalReport);
+      ok(!finalReport.includes('среда не восстановлена'), finalReport);
+      strictEqual(run.blockers('handoff').length, 0, run.blockers('handoff').join('; '));
+      deepStrictEqual(parseIterations(readIterationsText(run.paths).text).map(v => v.action), ['blocked_env', 'blocked_env', 'escalate', 'continue']);
+      deepStrictEqual(events.filter(e => e.type === 'verdict').map(e => e.verdict.action), ['blocked_env', 'blocked_env', 'escalate', 'continue']);
+      strictEqual(model.requests.filter(r => r.stage === 'вне этапа').length, 4, 'каждый Verify проводит независимое ревью');
+    } finally {
+      await run.dispose();
+      model.close();
+    }
+  });
   it('мелкий контур: intent → plan → chunk → verify → handoff (обрыв)', async () => {
     await scenario(
       'small-contour',
@@ -577,7 +797,7 @@ describe('runStage: эталон поведения витка', () => {
         ],
       },
       async (run, results) => {
-        for (const stage of ['intent', 'explore', 'ask'] as const) results[stage] = await run.runStage(stage);
+        for (const stage of ['intent', 'explore', 'ask'] as const) results[stage] = await run.runStage(stage, { preparationVersion: 1 });
       },
     );
   });
@@ -587,7 +807,7 @@ describe('runStage: эталон поведения витка', () => {
       'explore-fill',
       { intent: INTENT_FULL() },
       async (run, results) => {
-        results['intent'] = await run.runStage('intent');
+        results['intent'] = await run.runStage('intent', { preparationVersion: 1 });
         results['explore'] = await run.runStage('explore');
       },
       GATES,

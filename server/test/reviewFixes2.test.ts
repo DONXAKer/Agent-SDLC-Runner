@@ -26,6 +26,7 @@ import {
 import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
 import { configProblems, openDebt, parseCommand, parseGates } from '../src/gates/gatesFile.ts';
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../src/policy/index.ts';
+import { classifyRedVerdict } from '../src/verdict/classify.ts';
 import { collectVerdictInput, readReport } from '../src/verdict/collect.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-fixes2-')));
@@ -248,6 +249,25 @@ describe('вердикт при расхождении отчёта и прог�
   // источник, который стоит переспоривать.
   it('❌ отчёта не перекрашивается зелёным прогоном', () => {
     strictEqual(statusOf('❌', '✅'), '❌');
+  });
+
+  // Серия s3 (2026-09-25): ❌ отчёта в строке ревью значит «ревью нашло дефекты», а не
+  // «рецензент разошёлся с фактами». Как расхождение оно уводило классификатор в
+  // `escalate-model`, и однострочный `ReferenceError` эскалировался с первой попытки.
+  it('❌ отчёта при состоявшемся ревью — не расхождение: вердикт красный, но без escalate-model', () => {
+    const res = collectVerdictInput({
+      gates,
+      gateResults: [run('✅')],
+      runtimeAuthoritativeWhenGreen: ['ревью независимым агентом'],
+      reports: [reportWith('❌')],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    strictEqual(res.input.gates.find((g) => g.name === 'Ревью независимым агентом')?.status, '❌');
+    strictEqual(res.disagreements.length, 0);
+    strictEqual(res.reportQuality.length, 1);
+    strictEqual(classifyRedVerdict(res.input, res.disagreements)?.suggest, 'fix-in-chunk');
   });
 
   // r23: рантайм СВОИМИ РУКАМИ прогнал scope-гейт и получил код 0, а рецензент вписал

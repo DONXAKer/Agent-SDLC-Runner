@@ -1,0 +1,12 @@
+/**
+ * Публичный контракт пакета.
+ *
+ * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга
+ * ссылаются напрямую, но потребитель знает только отсюда.
+ */
+
+export { FUEL_RATE_DL_PER_100KM, rateFor } from './rates.ts';
+
+export { FUEL_STEP_ML, fuelMl } from './trip.ts';
+
+export { TRAILER_SURCHARGE_ML, trailerRateFor, trailerFuelMl } from './trailer.ts';

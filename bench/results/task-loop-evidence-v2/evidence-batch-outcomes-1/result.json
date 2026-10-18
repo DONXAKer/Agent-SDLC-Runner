@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "batch-outcomes",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-exu9qt",
+    "baseCommit": "f5e154bfad506e1c00c9fee81efc6b3a4d84b0eb",
+    "contract": {
+      "task": "Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/batch-outcomes.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T18:01:11.483Z"
+  },
+  "finishedAt": "2026-10-14T18:02:57.564Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Готово. Реализация и проверки.\n\n**Что сделано**\n\n`src/batch.mjs` — добавил экспорт рядом с существующим `protocolVersion` (не трогал):\n```js\nexport async function settleSequentially(items, work) {\n  const results = [];\n  for (let index = 0; index < items.length; index++) {\n    try {\n      const value = await work(items[index], index);\n      results.push({ok: true, value});\n    } catch (error) {\n      results.push({ok: false, error});\n    }\n  }\n  return results;\n}\n```\n\n`test/settleSequentially.test.mjs` — новый исполняемый тест (6 кейсов): пустой ввод → `[]`; вызов `work(item, index)` по одному на элемент в порядке входа; синхронный `throw` и отклонённый промис → `{ok:false,error}` с сохранением исходного объекта ошибки; продолжение после ошибок; последовательность (ожидание каждого await до следующего); отсутствие мутации входного массива.\n\n**Результаты проверок (mcp__task__check)**\n- build: PASS\n- test: PASS — 6/6 (включая защищённый `existing public API`)\n- public-examples: PASS — требуемый экспорт и примеры\n\n**Остаточные ограничения**\nТребование `full-contract` помечено проверяющим как `unverified` (у него нет привязанной видимой проверки), но его каждое условие покрывается новым тестом и зарегистрированной проверкой `public-examples`: экспорт, последовательность, форма результатов, сохранение ошибки, продолжение после сбоя, отсутствие мутации и пустой ввод. Мутацию проверили на глубокое сравнение массива до/после; контракт не налагает ограничений на содержимое результата `value`, так что вернуть сам `items` допустимо.",
+    "usage": {
+      "inputTokens": 21702,
+      "outputTokens": 1755,
+      "cacheReadTokens": 19624,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 104702
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "3a09eb60db4b134ed14be7de96470f408b4ee8260f35b5c2d073ec52f96cddac",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "3a09eb60db4b134ed14be7de96470f408b4ee8260f35b5c2d073ec52f96cddac",
+        "passed": true,
+        "output": "✔ existing public API (0.5715ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 87.6643\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "passed": true,
+        "output": "✔ existing public API (0.5906ms)\n✔ empty input yields [] (1.3842ms)\n✔ resolves each item once, in input order (0.2845ms)\n✔ continues after errors and preserves the original error object (0.2858ms)\n✔ awaits each work call before starting the next (3.23ms)\n✔ does not mutate the input array (0.2031ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.2304\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.1238ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.6423\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 8,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 24116.6375,
+      "firstCheckMs": 78907.9342,
+      "humanWaitMs": 0,
+      "activeMs": 105430.35310000001,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.1238ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.6423\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+            "passed": true,
+            "output": "✔ existing public API (0.5906ms)\n✔ empty input yields [] (1.3842ms)\n✔ resolves each item once, in input order (0.2845ms)\n✔ continues after errors and preserves the original error object (0.2858ms)\n✔ awaits each work call before starting the next (3.23ms)\n✔ does not mutate the input array (0.2031ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.2304\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/batch.mjs",
+    "test/settleSequentially.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "4d6bd20a55c4f14e95692f0b311c7c438c514f21585bbd2592d4cf92071c43ef",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

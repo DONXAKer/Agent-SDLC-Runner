@@ -1,0 +1,15 @@
+diff --git a/src/format.mjs b/src/format.mjs
+index e8014d2..74d7c6d 100644
+--- a/src/format.mjs
++++ b/src/format.mjs
+@@ -1 +1,10 @@
+ export const protocolVersion = 1;
++
++export function csvRow(values) {
++  return values
++    .map((v) => {
++      const s = String(v);
++      return /[",\r\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s;
++    })
++    .join(',');
++}

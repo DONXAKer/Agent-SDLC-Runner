@@ -12,6 +12,9 @@
 import type { ArtifactKey, Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
 
 export interface ExecHooks {
+  onExecution?: (event: import('@sdlc-runner/shared').ExecutionOperation) => void;
+  onHarnessEvent?: (event: { kind: 'failure' | 'context-compaction' | 'context-overflow' | 'implementation-write'; reason?: string }) => void;
+  onQuestionValidated?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
   /** Текст ассистента по мере поступления. */
   onText: (text: string) => void;
   onThinking: (text: string) => void;
@@ -50,6 +53,20 @@ export interface ExecHooks {
        * единственной точки решения, иначе они держатся на послушании модели.
        */
       callerTools: readonly ToolName[];
+      /**
+       * Имя субагента, чей это вызов (`ExecRequest.callerAgent`); нет — вызов самого этапа.
+       * Задаёт только флоу `loop`: харнесс `sdk` вызывающего не называет. По нему политика
+       * сужает чтение конструкцией (`sdlc-claims` не видит авторский лист).
+       */
+      caller?: string;
+      /**
+       * Вызов исполнен харнессом Claude Code (флоу `sdk`) — задаёт ТОЛЬКО `SdkExecutor`.
+       * Правила, зависящие от флоу (`noArtifactReaddress`, `harnessResultsRoot`), решаются
+       * по вызову, а не по основному маршруту этапа: у маршрутов ансамбля флоу бывает
+       * другим. `sessionDir` — каталог ТЕКУЩЕЙ сессии (`transcript_path` без `.jsonl`), куда
+       * харнесс сохраняет длинный вывод инструментов; `null` — ещё не известен.
+       */
+      sdk?: { sessionDir: string | null };
     },
   ) => Promise<Decision>;
   onToolResult: (meta: {
@@ -59,9 +76,24 @@ export interface ExecHooks {
     durationMs: number;
     /** Текст ошибки инструмента, когда исполнитель его знает — см. `RunEvent.tool_result.detail`. */
     detail?: string;
+    /**
+     * Полный текст результата (оба флоу). Нужен там, где решение зависит от содержимого, а
+     * не от факта исполнения: ответ субагента-рецензента проходит тот же контракт
+     * `verify-review-v1`, что прямой прогон рантаймом (`reviewValidate.ts::parseReviewText`,
+     * вызывается через `acceptReviewText`).
+     */
+    resultText?: string;
   }) => void;
+  /** Runtime observer for successful subagent results; may return a fact to append to the caller. */
+  onSubagentResult?: (agent: string, text: string) => string | null | void;
   /** Вопрос человеку из инструмента `AskHuman`. Возвращает ответы по id вопроса. */
   onAskHuman: (call: NormalizedCall) => Promise<Record<string, string[]>>;
+  /**
+   * Шаг рантайма по полученным ответам (запись их в артефакт этапа — `ask`). Строка —
+   * пометка, которую исполнитель дописывает к ответу инструмента: что рантайм уже сделал
+   * с ответом и что осталось модели. `null` или отсутствие хука — ответ отдаётся как есть.
+   */
+  afterAskHuman?: (call: NormalizedCall, answers: Record<string, string[]>) => string | null;
   /**
    * Запись в отчёт этапа 6 (`RecordClaim`/`RecordFinding`) — принимает её рантайм.
    *
@@ -78,7 +110,7 @@ export interface ExecHooks {
    * ответа, а поля спрашиваются пачками параллельно — разница между печатями временем
    * запроса не является.
    */
-  onUsage: (usage: Usage, durationMs?: number) => void;
+  onUsage: (usage: Usage, durationMs?: number, work?: import('@sdlc-runner/shared').ModelWork) => void;
   /**
    * Диагностика, которая не роняет этап, но которую нельзя проглотить. Сюда попадает,
    * например, вызов инструмента, проскочивший мимо гейта одобрений.
@@ -153,7 +185,12 @@ export interface McpAccess {
 }
 
 export interface ExecRequest {
+  guidedEngineVersion?: import('@sdlc-runner/shared').GuidedEngineVersion;
   prompt: PreparedPrompt;
+  /** Checked approach and new evidence, also consumed by executors with their own narrow prompts. */
+  decisionContext?: string;
+  /** Durable structured proposals, only for the explicitly selected guided engine. */
+  progress?: import('../run/guidedProgress.ts').GuidedProgress;
   /** Корень целевого проекта — рабочий каталог агента. */
   cwd: string;
   model: string;
@@ -162,6 +199,8 @@ export interface ExecRequest {
   readOnlyDirs: readonly string[];
   /** Субагенты, доступные на этом этапе. */
   subagents: readonly SubagentDef[];
+  /** Имя субагента, которым исполняется этот вложенный прогон; нет — прогон самого этапа. */
+  callerAgent?: string;
   /** Внешние MCP-серверы. `null` — на этом этапе MCP не выдан. */
   mcp: McpAccess | null;
   /**
@@ -188,10 +227,11 @@ export interface ExecRequest {
    * Проактивное закрытие этапа (флоу `loop`), когда артефакт(ы) уже готовы к финализации,
    * а модель продолжает ход вместо того, чтобы его завершить.
    *
-   * Ловит два симптома одной природы (`docs/proposals/model-flow-improvements.md` §1.3):
-   * успешный `FinalizeArtifact` не останавливает модель, и она продолжает звать
-   * инструменты; либо правки уже сделали артефакт годным, а `FinalizeArtifact` не позван
-   * вовсе. Оба видны одинаково — «готов, а ход не кончается» — и лечатся одним детектором.
+   * Ловит два симптома одной природы (`docs/proposals/model-flow-improvements.md` §1.3,
+   * §2.1 п.1): успешный `FinalizeArtifact` не останавливает модель — тогда этап закрывается
+   * СРАЗУ после принятой заявки; либо правки уже сделали артефакт годным, а `FinalizeArtifact`
+   * не позван вовсе — тогда одно напоминание «артефакт готов», и если за K ходов
+   * (`READY_STALL_TURNS` в `LoopExecutor.ts`) заявки нет, этап закрывается по диску.
    *
    * Не задано (умолчание) или `false` — прежнее поведение: этап тянется до `maxTurns` или
    * до срабатывания анти-цикла. На chunk включать не стоит: журнал попытки может стать
@@ -260,6 +300,7 @@ export interface ExecRequest {
 }
 
 export interface StageResult {
+  failure?: import('@sdlc-runner/shared').GuidedFailure;
   ok: boolean;
   /** Последний текст ассистента — то, чем этап отчитался. */
   finalText: string;

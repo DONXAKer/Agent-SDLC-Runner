@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "expiry-policy",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-wT3pgO",
+    "baseCommit": "bdad8704925cefc355b0d4267af6032a427b366e",
+    "contract": {
+      "task": "Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/expiry-policy.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T18:07:17.063Z"
+  },
+  "finishedAt": "2026-10-14T18:08:54.390Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "All checks pass. Summary of what was done:\n\n**`src/expiry.mjs`** — added `expiresAt(createdAtMs, ttlMs)`:\n- Preserves existing `protocolVersion` export.\n- `createdAtMs` must be a finite number; otherwise throws `RangeError`.\n- `ttlMs` defaults to 45000 when `undefined`; must be a finite non-negative number (explicit `0` is allowed); `null` and any non-finite/negative value throw `RangeError`.\n- Returns `createdAtMs + ttlMs`; throws `RangeError` if the result is non-finite.\n\n**`test/expiry.test.mjs`** — 8 executable tests covering:\n- Basic arithmetic, explicit zero TTL preservation, default TTL behavior, all invalid input cases, and non-finite result guard.\n- Existing `test/existing.test.mjs` is untouched and still passes.",
+    "usage": {
+      "inputTokens": 22415,
+      "outputTokens": 1625,
+      "cacheReadTokens": 21394,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 95956
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "8386d3b09791784b76ee1b435f8eadb8983da2fdddbbd9365efc397e5781a929",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "8386d3b09791784b76ee1b435f8eadb8983da2fdddbbd9365efc397e5781a929",
+        "passed": true,
+        "output": "✔ existing public API (0.5584ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 88.6317\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "passed": true,
+        "output": "✔ existing public API (0.5899ms)\n✔ protocolVersion is preserved (1.2024ms)\n✔ expiresAt returns createdAtMs + ttlMs (0.1361ms)\n✔ expiresAt preserves explicit zero ttl (0.0954ms)\n✔ expiresAt uses default TTL of 45000 when ttlMs is undefined (0.1153ms)\n✔ expiresAt rejects invalid createdAtMs (0.4233ms)\n✔ expiresAt rejects invalid ttlMs (0.1976ms)\n✔ expiresAt throws when the result is nonfinite (0.1028ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.2278\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (0.9144ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 88.4118\n"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "question": "What is the default TTL (in milliseconds) to use when ttlMs is undefined in expiresAt(createdAtMs, ttlMs)?",
+        "header": "Default TTL",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "3600000 (1 hour)",
+            "description": "1 hour — common session/token default. Error if the production TTL is actually meant to be a different duration."
+          },
+          {
+            "label": "86400000 (24 hours)",
+            "description": "Use the standard 24-hour default."
+          },
+          {
+            "label": "I'll type the exact value",
+            "description": "Tell me the exact numeric value of the default TTL to use when ttlMs is undefined."
+          }
+        ]
+      }
+    ],
+    "metrics": {
+      "modelRequests": 9,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 39626.0054,
+      "firstCheckMs": 84551.48,
+      "humanWaitMs": 0.7168000000019674,
+      "activeMs": 96741.84700000001,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (0.9144ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 88.4118\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+            "passed": true,
+            "output": "✔ existing public API (0.5899ms)\n✔ protocolVersion is preserved (1.2024ms)\n✔ expiresAt returns createdAtMs + ttlMs (0.1361ms)\n✔ expiresAt preserves explicit zero ttl (0.0954ms)\n✔ expiresAt uses default TTL of 45000 when ttlMs is undefined (0.1153ms)\n✔ expiresAt rejects invalid createdAtMs (0.4233ms)\n✔ expiresAt rejects invalid ttlMs (0.1976ms)\n✔ expiresAt throws when the result is nonfinite (0.1028ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.2278\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "q1",
+      "question": "What is the default TTL (in milliseconds) to use when ttlMs is undefined in expiresAt(createdAtMs, ttlMs)?",
+      "source": "rule",
+      "tag": "ttl"
+    }
+  ],
+  "changed": [
+    "src/expiry.mjs",
+    "test/expiry.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "f743471a2e937bb925a755c314ead547edda6badb8f7f58f8ba5bec5fb800d72",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

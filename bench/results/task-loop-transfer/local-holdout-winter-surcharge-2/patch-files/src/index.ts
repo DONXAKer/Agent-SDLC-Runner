@@ -1,0 +1,10 @@
+/**
+ * Публичный контракт пакета.
+ *
+ * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга
+ * ссылаются напрямую, но потребитель знает только отсюда.
+ */
+
+export { FUEL_RATE_DL_PER_100KM, rateFor } from './rates.ts';
+
+export { FUEL_STEP_ML, WINTER_SURCHARGE_CENTIPERCENT, fuelMl, winterFuelMl } from './trip.ts';

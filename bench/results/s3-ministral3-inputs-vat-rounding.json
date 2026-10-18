@@ -1,0 +1,885 @@
+{
+  "run": {
+    "slug": "s3-ministral3-inputs-vat-rounding",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-inputs",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-inputs",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-25T12:27:22.057Z",
+    "finishedAt": "2026-09-25T12:39:22.935Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 8,
+        "modelRequests": 1
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-txUU7l\\.sdlc\\s3-ministral3-inputs-vat-rounding\\verification-report-1-attempt-1.md, C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-txUU7l\\.sdlc\\s3-ministral3-inputs-vat-rounding\\verification-report-1-attempt-1.md (строка пункта claim-1 содержит незаполненное место; нет строки пункта claim-2; нет строки пункта claim-3; нет строки пункта claim-4; нет строки пункта claim-5; нет строки пункта claim-6; нет строки пункта claim-7). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 28
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Scope: пути плана без правок» провалился (❌)",
+        "пункт приёмки claim-1 опровергнут (❌)",
+        "пункт приёмки claim-2 опровергнут (❌)",
+        "пункт приёмки claim-3 опровергнут (❌)",
+        "пункт приёмки claim-4 опровергнут (❌)",
+        "пункт приёмки claim-5 опровергнут (❌)",
+        "пункт приёмки claim-7 опровергнут (❌)",
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "нарушен инвариант: src/vat.ts:calculateVat — расчёт есть, поля в счёте нет",
+        "нарушен инвариант: `src/invoice.ts:17-26` (`interface Invoice`) — вне патча попытки, 5 полей; `src/vat.ts:12` — расчёт есть, поля в счёте нет",
+        "регрессия — откат ранее работавшего поведения: Регрессий нет: сборка грузит 7 из 7 модулей, все 10 существующих тестов зелёные, внешнее поведение `bill`/`buildInvoice` идентично базе `3be3bee` — `src/lines.ts:17-19` добавляет необязательное поле, существующие литералы `Line` остаются валидны, `src/vat.ts` никем не вызывается и ни на что не влияет. (`src/lines.ts:17-19` — `reduced?: boolean` (опционально); `chunk-1-attempt-1-tests.txt` — pass 10, fail 0)",
+        "путь плана «Три из пяти путей плана остались без правок» помечен «не сделано»",
+        "путь плана «Пути плана без правок» помечен «не сделано»",
+        "путь плана «Пути плана без правок» помечен «не сделано»",
+        "путь плана «Пути плана без правок» помечен «не сделано»",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 120739,
+          "outputTokens": 5125,
+          "cacheReadTokens": 93135,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 365066
+        },
+        "durationMs": 366323
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 26,
+          "outputTokens": 33470,
+          "cacheReadTokens": 408344,
+          "cacheWriteTokens": 108244,
+          "costUsd": 2.1796059999999997,
+          "durationMs": 346636
+        },
+        "durationMs": 354205
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 11,
+        "reminders": 2
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 38,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 143
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 260
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 186
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 285
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 190
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 86
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 42
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 43
+      }
+    ],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 1,
+        "approvals": 6,
+        "waitMs": 29
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 23,
+        "waitMs": 25
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 26
+      }
+    ],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "✅",
+        "treeChanged": true,
+        "scopeViolation": true
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Scope: пути плана без правок» провалился (❌)",
+      "пункт приёмки claim-1 опровергнут (❌)",
+      "пункт приёмки claim-2 опровергнут (❌)",
+      "пункт приёмки claim-3 опровергнут (❌)",
+      "пункт приёмки claim-4 опровергнут (❌)",
+      "пункт приёмки claim-5 опровергнут (❌)",
+      "пункт приёмки claim-7 опровергнут (❌)",
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "нарушен инвариант: src/vat.ts:calculateVat — расчёт есть, поля в счёте нет",
+      "нарушен инвариант: `src/invoice.ts:17-26` (`interface Invoice`) — вне патча попытки, 5 полей; `src/vat.ts:12` — расчёт есть, поля в счёте нет",
+      "регрессия — откат ранее работавшего поведения: Регрессий нет: сборка грузит 7 из 7 модулей, все 10 существующих тестов зелёные, внешнее поведение `bill`/`buildInvoice` идентично базе `3be3bee` — `src/lines.ts:17-19` добавляет необязательное поле, существующие литералы `Line` остаются валидны, `src/vat.ts` никем не вызывается и ни на что не влияет. (`src/lines.ts:17-19` — `reduced?: boolean` (опционально); `chunk-1-attempt-1-tests.txt` — pass 10, fail 0)",
+      "путь плана «Три из пяти путей плана остались без правок» помечен «не сделано»",
+      "путь плана «Пути плана без правок» помечен «не сделано»",
+      "путь плана «Пути плана без правок» помечен «не сделано»",
+      "путь плана «Пути плана без правок» помечен «не сделано»",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:939741ca-453d-42ad-a502-67d8649e66be",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:38979292-62cf-4419-9745-5f170079bc10",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/s3-ministral3-inputs-vat-rounding/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:95af9fd2-9a8c-4b6d-8e11-e34738adae1b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/s3-ministral3-inputs-vat-rounding/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:81648e26-3321-4d37-af69-f34e969e5263",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/vat.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:9f995d78-b7fb-4931-b447-6e07f9813705",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/lines.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:ede398d0-abf9-42c8-a757-27b36d200b86",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\s3-ministral3-inputs-vat-rounding\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_014UCMk9qjcR3TFTGhdADtYH",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01G1X6Sq9MBbjoA1GBPTACSD",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_016S1cRsbrHQb7xrkAUbaM4a",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01K6dspru5PuThy5YamJ1WV1",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019KqbcaAhFikM2T2q5CLYvr",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01V5vQAFybMosFEDTB7e5rqt",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019J3mC2kG4npB4FkfwsgseG",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_019iLDXgotZohszrHiUZgXww",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UL3rEkJvWNprSHAWeYQLwU",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XqWEk6aP6XWzTRZYWXMM8w",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01PSi7ZTuVZcguX6nwN26mKg",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01FqmcawVZGRrS9ybkoLBq2x",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01My5vYPrzgyGTXBetkK4aC8",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Wc9phXNVu3NJ4EdGGWDg8u",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_017dpgxyBPej5rziq9J2vQey",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01NVp9JrCisZMFDeR2StKh1d",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XnuQ8pcBnnLQJHxEXtL9gJ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01HbJ25zaSBbRxeghcZhKJQZ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Byi8RPgFnpDKnLXeGpx4eY",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013HpFax6CrzFqmHZPcbYLGT",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01TXGyyyL28TfK9LCNoaQQEL",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01CNbzKrymmFCznUTKw5jRFr",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-txUU7l\\.sdlc\\s3-ministral3-inputs-vat-rounding\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтверждение места правки?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12533,
+        "userChars": 15609,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11244,
+        "userChars": 31080,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-255060fb-37a5-46c7-8e26-06e39846d8d2-1",
+        "questionId": "q1",
+        "text": "Подтверждение места правки?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 8,
+    "pass": 3,
+    "fail": 5,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе позиций: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "not ok 3 - Pr1 [precision] (claim-2): Облагаемый счёт: НДС 20% от подытога 1000 → 200, итог 1200."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "not ok 4 - Pr2 [precision] (claim-3): Подытог 505: 505×20/100 = 101.0 ровно — округление не даёт лишнего +1 (ловит floor(x+0.5) vs ceil-подобные ошибки)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-1): Необлагаемый счёт (без опции): поля vat НЕТ вовсе — форма Invoice прежняя, итог равен подытогу. Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности формы, сигнал фичи несут Pr1/Pr2/H1-H3."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "not ok 6 - H1 [human] (claim-4): Все позиции льготные (reduced): ставка 10%. Подытог 105 → 105×10/100 = 10.5 → половина вверх 11, НЕ 10 (отбрасывание здесь — ошибка)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "not ok 7 - H2 [human] (claim-4): Смешанный счёт (одна позиция reduced, одна нет) — целиком по стандартным 20%."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "not ok 8 - H3 [human] (claim-4): Льготная ставка на ДРУГОМ подытоге: 1000, все reduced → 100, итог 1100 — ловит копирование числа H1 вместо пересчёта."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "3 из 8 скрытых тестов зелёные, но прогон успеха и не объявлял — это дефект кода (щуп «точность правки»), а не расхождение слов с фактом"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

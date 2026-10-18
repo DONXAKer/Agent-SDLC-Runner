@@ -81,6 +81,18 @@ describe('автозаполнение отчёта', () => {
     strictEqual(twice.text, once);
     strictEqual(twice.filled, 0);
   });
+
+  it('в v2 переносит проверки из intent дословными пунктами, не просит модель переписывать их', () => {
+    const { text } = autofillExplorationReport(REPORT.replace(
+      '> Этап 2. Заполняет агент. `SDLC.md` → этап 2.',
+      '> Этап 2. Заполняет агент. `SDLC.md` → этап 2.\n\n## Проверки\n\n- ‹сценарий или инвариант› — ‹как проверить и ожидаемый результат›',
+    ), {
+      title: 'Демо', brief: 'Цель.', stack, fillednessGate: 'debt',
+      checks: ['claim-1: сохраняет id и срок — сравнить с исходной бронью'],
+    });
+    ok(text.includes('- claim-1: сохраняет id и срок — сравнить с исходной бронью'), text);
+    ok(!text.includes('‹сценарий или инвариант›'), text);
+  });
 });
 
 describe('точечные правки полей', () => {
@@ -111,5 +123,10 @@ describe('плейсхолдеры без решений человека', () =
     const text = '- **Итог:** ‹что›\n- **Подтвердил:** ‹имя› ·\n  ‹дата›\n';
     strictEqual(countPlaceholdersExceptDecisions(text), 1);
     strictEqual(countPlaceholdersExceptDecisions('- **Подтвердил:** ‹имя›\n'), 0);
+  });
+  it('необязательное поле вида "‹...› / нет" считается заполненным', () => {
+    strictEqual(countPlaceholdersExceptDecisions('- Отклонено: ‹что и почему› / нечего\n'), 0);
+    strictEqual(countPlaceholdersExceptDecisions('- Открыто: ‹строки› / нет\n'), 0);
+    strictEqual(countPlaceholdersExceptDecisions('- Открыто: ‹строки› / ‹ещё›\n'), 2);
   });
 });

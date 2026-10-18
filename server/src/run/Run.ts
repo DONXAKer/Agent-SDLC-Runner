@@ -7,6 +7,18 @@
  */
 
 import { localResultBytes } from '../config/limits.ts';
+import {
+  isPreparationV2,
+  approvePreparation,
+  preparationReviewProblem,
+  preparationFingerprint,
+  preparation,
+  recordPreparationRead,
+  preparationExploreEvidenceProblem,
+} from '../artifacts/preparation.ts';
+import { seedPreparationForms } from './preparationForms.ts';
+import { preparationTools } from './preparationToolPolicy.ts';
+import { recordModelAnswers } from './stages/ask.ts';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -22,6 +34,8 @@ import type {
   RunEvent,
   RunStatus,
   StageId,
+  StageDecisionCheck,
+  Question,
   Usage,
   IterationSummary,
   RedCause,
@@ -31,10 +45,11 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 
 import {
+  DECISION,
   branchNameFromField,
   decisionValue,
   DecisionFormError,
@@ -42,38 +57,58 @@ import {
   countPlaceholdersExceptDecisions,
   hasNamedInvariants,
   readArtifact,
+  readDecision,
   readField,
   setDecision,
+  setLastDecision,
   writeArtifact,
 } from '../artifacts/artifact.ts';
+import { checkTemplateVersion } from '../artifacts/templateVersion.ts';
+import { SDLC_CONSTANTS } from '../config/constants.ts';
 import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
+import { repairErasedDecisions } from '../approval/destructive.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import { isWindowsStyle, pathsEqual, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
+
+function isRuntimeOwnedSeed(stage: StageId, path: string): boolean {
+  return stage === 'intent' && basename(path) === 'readiness.md';
+}
 import { countsTowardBudget, SpentLedger } from './spentLedger.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
 import { estimateTokens, selectTools } from '../mcp/select.ts';
 import type { McpToolInfo } from '../mcp/types.ts';
+import { historyBudgetFor } from '../exec/contextBudget.ts';
 import { cap } from '../exec/tools/index.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
 import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
+import { checkStageDecision, stageDecisionInstructions, stageDecisionTools } from '../exec/StageDecisionCheck.ts';
+import { RunFlowRecorder, flowReadDenied } from './runFlow.ts';
+import { stageInputs } from './stages/inputs.ts';
+import { guidedPrompt } from './guidedPrompt.ts';
+import { GuidedProgress } from './guidedProgress.ts';
+import { GuidedWorkloadStore } from './guidedWorkload.ts';
+import { captureInvariantBaseline, checkInvariants } from './guidedInvariants.ts';
+import { guidedRuntimeReadiness } from './guidedReadiness.ts';
+import { appendGuidedData, documentFacts, decisionData } from '../exec/guidedProtocol.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
 import type { TraceLabel } from '../provider/rawLog.ts';
 import type {
   ExecHooks,
+  ExecRequest,
   FrictionKind,
   McpAccess,
   StageExecutor,
@@ -82,13 +117,9 @@ import type {
 import { REVIEWER_AGENTS } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import {
-  configProblems,
-  gateKey,
-  parseGates,
-  unimplementedGates,
-} from '../gates/gatesFile.ts';
-import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
+import { gateKey } from '../gates/gatesFile.ts';
+import { readGatesCached } from '../gates/gatesCache.ts';
+import { describeBuild } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName } from '../gates/run.ts';
 import { git, hasCommits } from '../gates/git.ts';
@@ -109,11 +140,12 @@ import { ExploreExecutor } from '../exec/ExploreExecutor.ts';
 import { deriveClaimsBlind, intentSectionsForBlind, type BlindClaimsResult } from './claimsBlind.ts';
 import { briefFromIntent, titleFromIntent } from './exploreAutofill.ts';
 import { loadSubagent } from '../exec/subagents.ts';
-import { appendIteration, parseIterations } from './iterationsLog.ts';
+import { appendIteration, parseIterations, readIterationsText } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
+import { applyEnvRetryBudget, envRetryBudget, envRetryCount } from './envRetryBudget.ts';
 import type { Escalation } from './escalation.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -124,16 +156,25 @@ import {
   type PreconditionReport,
   type StageContext,
   type StageDef,
-  stageProducing,
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
+import { guidedExecutor } from './guidedExecutor.ts';
+import { GuidedAskExecutor } from '../exec/GuidedAskExecutor.ts';
+import { GuidedPlanExecutor } from '../exec/GuidedPlanExecutor.ts';
+import { PlanSelectionExecutor } from '../exec/PlanSelectionExecutor.ts';
+import { guidedRouteMatches } from '../config/profiles.ts';
+import { accountGuidedTime, digest, guidedBudgetReason, initGuided, readGuided, saveGuided } from './guidedState.ts';
+import { decideReviewScan, routeKey } from './reviewRoute.ts';
+import type { ReviewScanDecision } from './reviewRoute.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
-export { gatesForStep } from './stages/chunk/steps.ts';
+export { gatesForStep, pickStepFailure, plannedDependencyBlocker, plannedSameFileFollowup, plannedTestFollowup } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
+import { normalizeMetrics, readMetricsRaw } from './metricsSnapshot.ts';
+import { entryProblems, planFilesOnDisk } from './stages/entry.ts';
 import {
   ExploreState,
   exploreFillExecutor,
@@ -143,10 +184,10 @@ import {
 import { stageModule } from './stages/index.ts';
 import type { CommitOutcome } from './commitByRuntime.ts';
 import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf } from './stages/plan.ts';
+import { ensureIntentSnapshot } from './stages/intent.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 import {
-  REVIEW_GATE,
   earlyGateRows as earlyGateRowsOf,
   earlyGatesForModel,
   gateResultsForVerdict,
@@ -157,6 +198,7 @@ import {
   evidenceHaystack,
 } from './stages/verify/records.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
+import { readRunVerdict, stalePatchReason } from './verdictStore.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -181,8 +223,12 @@ export interface RunOptions {
 }
 
 export interface RunStageOptions {
+  executionMode?: 'legacy' | 'guided';
+  guidedEngineVersion?: 1 | 2 | 3 | 4;
   prompt?: PreparedPrompt;
   requirement?: string;
+  /** Только для нового витка: v3 по умолчанию; v1/v2 остаются для воспроизводимости. */
+  preparationVersion?: 1 | 2 | 3;
   extra?: string;
   /** Оператор объявил обрыв витка — handoff оформляется без зелёного вердикта. */
   abortHandoff?: boolean;
@@ -233,8 +279,43 @@ export function isFormattingFailure(note: string): boolean {
   );
 }
 
-/** Этапы, после которых запись ограничена одобренным планом. */
-const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
+/**
+ * Пересчёт стража завершения после доборов рантайма (`afterTurn`).
+ *
+ * Пересчитываются два класса провала:
+ *  - находка стража этапа (`note` совпадает с последней выданной `stageProblem`) — добор
+ *    мог закрыть именно её; оставшиеся находки идут в заметку свежим текстом;
+ *  - провал на ОФОРМЛЕНИИ (`isFormattingFailure`: лимит ходов, обрезка длины, застревание
+ *    финализации) при полностью заполненных артефактах (`formComplete`) — тот же случай,
+ *    что спасает `finishFormArtifact`: слабая модель сожгла ходы на таблице осей, добор её
+ *    закрыл. Здесь провал снимается, только если страж молчит; иначе исходная причина
+ *    остаётся — добор её не отменил.
+ * Бюджет, отказ политики, анти-цикл повтора остаются провалом со своей причиной. Прежде
+ * условие смотрело лишь на `!ok`, и план, упёршийся в бюджет при молчащем страже,
+ * становился зелёным, а причина провала затиралась (code-review-all 2026-09-23).
+ * Пересчёт — полным стражем, тем же, что видел исполнитель: добор мог и испортить форму.
+ * Закрытие помечается `closedBy: 'runtime'` — в отчёте bench это заслуга рантайма, не модели.
+ */
+export function recheckGuardAfterTopUp(
+  result: StageResult,
+  stageProblem: string | null,
+  guard: () => string | null,
+  formComplete: () => boolean = () => false,
+): StageResult {
+  if (result.ok || result.envFailure !== undefined) return result;
+  const guardFailure = stageProblem !== null && result.note === stageProblem;
+  const formatting = !guardFailure && isFormattingFailure(result.note) && formComplete();
+  if (!guardFailure && !formatting) return result;
+  const afterTopUp = guard();
+  if (afterTopUp === null) {
+    const note = guardFailure
+      ? 'страж завершения этапа закрыт добором рантайма после хода модели'
+      : `${result.note} — этап закрыт: доборы рантайма довели артефакт, страж завершения молчит`;
+    return { ...result, ok: true, note, closedBy: 'runtime' };
+  }
+  return guardFailure ? { ...result, note: afterTopUp } : result;
+}
+
 
 // Урезанный набор (`ModelDef.leanTools`) действует на этапах-документах — флаг модуля этапа
 // `StageModule.leanDocTools`, там же объяснение, почему не на chunk/verify/explore.
@@ -289,6 +370,12 @@ function inSdlcDir(root: string, userPath: string): boolean {
  */
 function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedPrompt {
   if (block === undefined || block === '' || prompt.user.includes(block)) return prompt;
+  if (prompt.guidedProtocol) {
+    const data = JSON.parse(prompt.user) as Record<string, unknown>;
+    const context = Array.isArray(data.runtimeUpdates) ? data.runtimeUpdates : [];
+    const value = decisionData(block);
+    return { ...prompt, user: appendGuidedData(prompt.user, 'runtimeUpdates', [...context, typeof value === 'string' ? documentFacts(value) : value]) };
+  }
   return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
 
@@ -306,6 +393,8 @@ function EMPTY_FRICTION(): {
 
 export class Run {
   readonly id = randomUUID();
+  private verdictCycle = randomUUID();
+  private recordedVerdictCycle: string | null = null;
   readonly project: ProjectConfig;
   readonly profile: ResolvedProfile;
   readonly slug: string;
@@ -313,7 +402,15 @@ export class Run {
 
   chunk = 1;
   attempt = 1;
-  status: RunStatus = 'idle';
+  private currentStatus: RunStatus = 'idle';
+  awaitingSince: number | null = null;
+
+  get status(): RunStatus { return this.currentStatus; }
+  set status(value: RunStatus) {
+    if (value === 'awaiting' && this.currentStatus !== 'awaiting') this.awaitingSince = Date.now();
+    if (value !== 'awaiting') this.awaitingSince = null;
+    this.currentStatus = value;
+  }
   totalUsage: Usage = emptyUsage();
 
   /**
@@ -327,6 +424,32 @@ export class Run {
   private readonly gate: ApprovalGate;
   private readonly askGate: AskGate;
   private readonly emit: EventSink;
+  private flowRecorder: RunFlowRecorder | null = null;
+  private flow(): RunFlowRecorder {
+    return this.flowRecorder ??= new RunFlowRecorder(this.paths, this.id);
+  }
+  flowHtml(): string { return this.flow().html(); }
+  executionPage(cursor: number, limit: number) { return this.flow().page(cursor, limit); }
+  executionReport() { return this.flow().report(); }
+  private recordDecisionCheck(check: StageDecisionCheck): void {
+    const state = readGuided(this.paths);
+    if (!state) throw new Error('Состояние guided исчезло при проверке решения');
+    state.decisionChecks = [...(state.decisionChecks ?? []), check];
+    saveGuided(this.paths, state);
+    this.flow().record('decision_check', check, 'Предварительное решение', 'Проверка оснований', check.stage);
+  }
+  private async askWithFlow(stage: StageId, questions: readonly Question[]): Promise<Record<string, string[]>> {
+    const requestId = `human:${randomUUID()}`;
+    this.flow().record('human_questions', { requestId, questions }, 'Модель / рантайм', 'Человек', stage);
+    try {
+      const answers = await this.askGate.ask({ runId: this.id, stage, questions: [...questions] });
+      this.flow().record('human_answers', { requestId, answers }, 'Человек', 'Рантайм / модель', stage);
+      return answers;
+    } catch (error) {
+      this.flow().record('human_answers', { requestId, ok: false, reason: (error as Error).message }, 'Человек', 'Рантайм', stage);
+      throw error;
+    }
+  }
   /**
    * Вызовы инструментов ТЕКУЩЕЙ ПОПЫТКИ — лента для рантаймных сверок фактов (честность
    * журнала, `verdict/honesty.ts`). Копится обёрткой вокруг `emit` в конструкторе: второго
@@ -352,6 +475,12 @@ export class Run {
   private attemptObservedFromStart = false;
   private aborter: AbortController | null = null;
   /**
+   * Отмена пришла, пока этап ещё не создал `aborter` (проба среды verify, сверка ветки):
+   * `abort()` было не на чем вызвать, и этап после этого исполнялся целиком. Флаг
+   * взводит `cancel`, а `runStage` гасит свежий `aborter` сразу (code-review-all 2026-09-23).
+   */
+  private cancelRequested = false;
+  /**
    * Состояние этапов, живущее между вызовами: записи и вердикт попытки этапа 6, кэш индекса
    * и слепой лист разведки, дерево попытки chunk. Владелец — виток; объяснения полей — в
    * классах состояния модулей этапов (`stages/verify/state.ts`, `stages/explore.ts`,
@@ -361,11 +490,17 @@ export class Run {
 
   /**
    * Итог последнего `commitByRuntime` за текущий вход в этап `handoff` — мост между
-   * `afterStart` (делает коммит) и `mechanicalJobs` (заполняет поле «Коммит» отчёта),
+   * `afterStart` (делает коммит) и `mechanicalJobs` (заполняет строку `commit:` отчёта),
    * которые видят РАЗНЫЕ объекты `this.host` (геттер пересоздаёт литерал на каждый вызов),
    * но оба читают/пишут это одно поле экземпляра `Run` (ревью code-review-all, 2026-09-19).
    */
   private lastCommitOutcome: CommitOutcome | null = null;
+
+  /**
+   * Текущий вход в этап — обрыв витка (`RunStageOptions.abortHandoff`): `mechanicalJobs`
+   * зовутся и из `finishFormArtifact`, куда опции входа не доезжают, — тот же мост, что выше.
+   */
+  private currentAbortHandoff = false;
 
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
   private get host(): StageHost {
@@ -377,6 +512,7 @@ export class Run {
       emit: this.emit,
       writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
       head: () => this.head(),
+      baseSha: () => this.baseSha(),
       commitOutcome: () => this.lastCommitOutcome,
       recordCommitOutcome: (outcome) => {
         this.lastCommitOutcome = outcome;
@@ -387,7 +523,12 @@ export class Run {
       trace: (stage, mode) => this.trace(stage, mode),
       accountOffPathUsage: (stage, usage, currency) => this.accountOffPathUsage(stage, usage, currency),
       syntheticRequestId: (prefix) => `${prefix}-${this.salvageSeq++}`,
-      requestApproval: (req) => this.gate.request(req),
+      requestApproval: async (req) => {
+        this.flow().record('tool_request', { requestId: req.requestId, toolName: req.toolName, rawInput: req.rawInput, call: req.call }, 'Рантайм', 'Политика', req.stage);
+        const decision = await this.gate.request(req);
+        this.flow().record('tool_resolved', { requestId: req.requestId, decision }, 'Политика / человек', 'Рантайм', req.stage);
+        return decision;
+      },
       askHuman: async (stage, questions) => {
         // Тот же переход статуса, что и у модельного `onAskHuman` (ниже по файлу): без
         // него `run.status` остаётся `'running'` на всё время ожидания ответа человека, и
@@ -396,7 +537,7 @@ export class Run {
         // 2026-09-19).
         this.status = 'awaiting';
         try {
-          return await this.askGate.ask({ runId: this.id, stage, questions: [...questions] });
+          return await this.askWithFlow(stage, questions);
         } finally {
           this.status = 'running';
         }
@@ -419,24 +560,24 @@ export class Run {
       carryForward: () => this.carryForward,
       markReviewerRan: () => this.markReviewerRan(),
       toolsFor: (stage) => this.toolsFor(stage),
-      executorFor: (stage, route) => this.executorFor(stage, route),
+      executorFor: (stage, route, preparationForms) => this.executorFor(stage, route, preparationForms),
       mcpAccess: (stage) => this.mcpAccess(stage),
       maxTurnsFor: (stage) => this.maxTurnsFor(stage),
       readOnlyRoots: () => this.readOnlyRoots,
       maxBudgetUsd: this.project.maxBudgetUsd,
       spentBefore: (currency) => this.spent.spent(currency),
       verifyRoute: () => this.profile.routes.verify,
+      reviewScan: () => this.reviewScanRoute(),
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
-      envBlockedAttempts: () => this.envBlockedAttempts,
       metrics: () => this.metrics,
+      resetAttemptState: () => this.resetAttemptState(),
       ctx: () => this.ctx,
       attemptToolEvents: () => this.attemptToolEvents,
       attemptObservedFromStart: () => this.attemptObservedFromStart,
       chunkState: this.state.chunk,
       detectNoProgress: () => this.detectNoProgress(),
-      computeStageVerdict: (noProgress) => {
-        this.computeStageVerdict(noProgress);
-      },
+      computeStageVerdict: (noProgress) => this.computeStageVerdict(noProgress),
+      beginVerification: () => { this.verdictCycle = randomUUID(); },
       profile: () => this.profile,
     };
   }
@@ -453,7 +594,10 @@ export class Run {
    * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
    * невосстановимым.
    */
-  private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
+  private readonly stageStats = new Map<
+    StageId,
+    { runs: number; usage: Usage; durationMs: number; requestDurationsMs: number[] }
+  >();
   private readonly attemptsByChunk = new Map<number, number>();
 
   /**
@@ -515,14 +659,6 @@ export class Run {
   private mcpImageSeq = 0;
   /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
   private salvageSeq = 0;
-  /**
-   * Сколько попыток этого chunk'а закончились «красным из-за окружения».
-   *
-   * Вычитается из счётчика при сверке с бюджетом: методология требует, чтобы дефект среды
-   * не занимал попытку, а хранение этого через НЕувеличение номера стоило бы перезаписи
-   * улик предыдущей попытки. Сбрасывается вместе с номером на новом chunk'е.
-   */
-  private envBlockedAttempts = 0;
   /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
   private seeded: string[] = [];
   /**
@@ -536,39 +672,59 @@ export class Run {
   private verdictCount = 0;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
-  /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
-  private gatesCache: { mtimeMs: number; parsed: GatesFile } | null = null;
   /** Чей расход копится в бюджет (`RunOptions.budgetStages`). `null` — все этапы. */
   private readonly budgetStages: ReadonlySet<StageId> | null;
 
   constructor(o: RunOptions) {
     this.config = o.config;
     this.project = o.project;
-    this.profile = o.profile;
+    this.profile = structuredClone(o.profile);
     this.slug = o.slug;
     this.gate = o.gate;
     this.askGate = o.askGate;
     this.budgetStages = o.budgetStages ?? null;
     this.emit = (e) => {
+      this.flow().event(e);
       if (e.type === 'tool_result' || e.type === 'tool_request') this.attemptToolEvents.push(e);
       // `artifact_written` несёт уже посчитанный грепом `‹` счётчик плейсхолдеров —
       // пересчитывать файл вторым способом значит дать двум местам разойтись.
       if (e.type === 'artifact_written') this.noteArtifactGap(e.path, e.placeholders);
       o.emit(e);
+      if (e.type === 'stage_done' || e.type === 'error') {
+        try { this.flow().writeHtml(); }
+        catch (error) { console.error(`[flow] HTML не записан: ${(error as Error).message}`); }
+      }
     };
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
     this.restoreMetrics();
+    // Служебные файлы раннера (`.runner/`) — состояние этой машины, не артефакты
+    // методологии: каталог игнорируется git'ом сам, чтобы после коммита handoff дерево не
+    // оставалось грязным (ревью). Ошибка записи не роняет виток.
+    try {
+      const ignore = join(this.paths.runnerDir, '.gitignore');
+      if (!existsSync(ignore)) {
+        mkdirSync(this.paths.runnerDir, { recursive: true });
+        writeFileSync(ignore, '*\n', 'utf8');
+      }
+    } catch {
+      /* наблюдаемость, не условие корректности */
+    }
     this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
-    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки. Если вердикт по ней уже записан,
-    // она закончена и отвергнута — свежий прогон продолжает со СЛЕДУЮЩЕЙ. Живой виток
-    // ta-13: новый прогон восстановил K=2 и перезаписал улики уже отревьюенной попытки 2
-    // уликами попытки 3 — след попытки для рецензента и таблицы попыток был затёрт.
-    while (artifactExists(this.paths.verificationReport(this.chunk, this.attempt))) {
-      this.attempt += 1;
-    }
+    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки, и виток остаётся на ней, каким бы ни
+    // был её вердикт. Сдвиг за красной попыткой при восстановлении обходил `/advance`:
+    // после `escalate` получалась «попытка 4 из 3», после `blocked_env` — попытка без патча,
+    // на которой verify повторить нельзя (code-review-all 2026-09-23). Улики отвергнутой
+    // попытки (живой виток ta-13) бережёт предусловие chunk, а не номер: следующая попытка
+    // начинается «Новой попыткой», которая проверяет бюджет.
+    //
+    // Вердикт попытки восстанавливается с диска (`verdictStore.ts`): по нему `nextAttempt`
+    // решает, растёт ли номер (после `blocked_env` — нет: та же K).
+    const restored = readRunVerdict(this.paths, this.chunk, this.attempt);
+    this.state.verify.verdict =
+      restored === null ? null : { passed: restored.passed, action: restored.action, reasons: restored.reasons };
   }
 
   get ctx(): StageContext {
@@ -600,6 +756,7 @@ export class Run {
         runs: v.runs,
         usage: v.usage,
         durationMs: v.durationMs,
+        requestDurationsMs: v.requestDurationsMs,
       })),
       verdicts: { total: this.verdictCount, red: this.redCount },
       redByCause: [...this.redByCause.entries()].map(([kind, count]) => ({ kind, count })),
@@ -707,24 +864,17 @@ export class Run {
    * которых в старом снапшоте нет (они появились позже), просто не будет.
    */
   private restoreMetrics(): void {
-    const a = readArtifact(this.paths.metrics);
-    if (!a.exists) return;
-    let m: Partial<RunMetrics>;
-    try {
-      m = JSON.parse(a.text) as Partial<RunMetrics>;
-    } catch {
-      return;
-    }
-    if (m === null || typeof m !== 'object') return;
-    const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    // Формат и места файла знает один читатель (`metricsSnapshot.ts`) — его же зовёт дашборд.
+    const r = readMetricsRaw(this.paths);
+    if (r === null) return;
+    const m = normalizeMetrics(r.raw);
 
-    for (const s of list<RunMetrics['stages'][number]>(m.stages)) {
-      if (typeof s?.stage !== 'string') continue;
+    for (const s of m.stages) {
       this.stageStats.set(s.stage, {
-        runs: num(s.runs),
-        usage: { ...emptyUsage(), ...(typeof s.usage === 'object' && s.usage !== null ? s.usage : {}) },
-        durationMs: num(s.durationMs),
+        runs: s.runs,
+        usage: s.usage,
+        durationMs: s.durationMs,
+        requestDurationsMs: s.requestDurationsMs,
       });
     }
     // Расход витка восстанавливается ВМЕСТЕ с разбивкой по этапам. Пока он оставался
@@ -735,61 +885,28 @@ export class Run {
     for (const st of this.stageStats.values()) this.totalUsage = addUsage(this.totalUsage, st.usage);
     // Суммы по валютам — служебное поле снапшота, а не часть `RunMetrics`: гард сверяет
     // потраченное в валюте СВОЕГО маршрута, и складывать рубли с долларами нельзя.
-    const spent = (m as { spent?: unknown }).spent;
-    if (typeof spent === 'object' && spent !== null) this.spent.restore(spent as Record<string, unknown>);
-    this.verdictCount = num(m.verdicts?.total);
-    this.redCount = num(m.verdicts?.red);
+    if (r.spent !== null) this.spent.restore(r.spent);
+    this.verdictCount = m.verdicts.total;
+    this.redCount = m.verdicts.red;
     this.redByCause.clear();
-    for (const c of list<RunMetrics['redByCause'][number]>(m.redByCause)) {
-      if (typeof c?.kind !== 'string') continue;
-      this.redByCause.set(c.kind as RedCauseKind, num(c.count));
-    }
+    for (const c of m.redByCause) this.redByCause.set(c.kind, c.count);
     this.attemptsByChunk.clear();
-    for (const c of list<RunMetrics['attemptsByChunk'][number]>(m.attemptsByChunk)) {
-      if (typeof c?.chunk !== 'number') continue;
-      this.attemptsByChunk.set(c.chunk, num(c.attempts));
-    }
+    for (const c of m.attemptsByChunk) this.attemptsByChunk.set(c.chunk, c.attempts);
     this.friction.clear();
-    for (const f of list<RunMetrics['friction'][number]>(m.friction)) {
-      if (typeof f?.stage !== 'string') continue;
-      this.friction.set(f.stage, { ...EMPTY_FRICTION(), ...f });
+    for (const f of m.friction) {
+      const { stage, ...counters } = f;
+      this.friction.set(stage, { ...EMPTY_FRICTION(), ...counters });
     }
     this.gateAgg.clear();
-    for (const g of list<RunMetrics['gates'][number]>(m.gates)) {
-      if (typeof g?.gate !== 'string') continue;
-      this.gateAgg.set(g.gate, {
-        gate: g.gate,
-        runs: num(g.runs),
-        red: num(g.red),
-        skippedWhileEnabled: num(g.skippedWhileEnabled),
-        durationMs: num(g.durationMs),
-      });
-    }
+    for (const g of m.gates) this.gateAgg.set(g.gate, g);
     this.humanAgg.clear();
-    for (const h of list<RunMetrics['human'][number]>(m.human)) {
-      if (typeof h?.stage !== 'string') continue;
-      this.humanAgg.set(h.stage, {
-        questions: num(h.questions),
-        approvals: num(h.approvals),
-        waitMs: num(h.waitMs),
-      });
+    for (const h of m.human) {
+      this.humanAgg.set(h.stage, { questions: h.questions, approvals: h.approvals, waitMs: h.waitMs });
     }
     this.artifactGapsByFile.clear();
-    for (const g of list<RunMetrics['artifactGaps'][number]>(m.artifactGaps)) {
-      if (typeof g?.artifact !== 'string') continue;
-      this.artifactGapsByFile.set(g.artifact, num(g.placeholders));
-    }
+    for (const g of m.artifactGaps) this.artifactGapsByFile.set(g.artifact, g.placeholders);
     this.chunkEvidenceAgg.clear();
-    for (const e of list<ChunkEvidenceMetric>(m.chunkEvidence)) {
-      if (typeof e?.chunk !== 'number' || typeof e?.attempt !== 'number') continue;
-      this.chunkEvidenceAgg.set(`${e.chunk}:${e.attempt}`, {
-        chunk: e.chunk,
-        attempt: e.attempt,
-        testsStatus: e.testsStatus === '✅' || e.testsStatus === '❌' || e.testsStatus === '⏭' ? e.testsStatus : '⏭',
-        treeChanged: e.treeChanged === true,
-        scopeViolation: e.scopeViolation === true,
-      });
-    }
+    for (const e of m.chunkEvidence) this.chunkEvidenceAgg.set(`${e.chunk}:${e.attempt}`, e);
   }
 
   /**
@@ -836,7 +953,7 @@ export class Run {
    * запасным вариантом на случай, когда записать журнал не удалось.
    */
   get iterations(): IterationSummary[] {
-    const a = readArtifact(this.paths.iterations);
+    const a = readIterationsText(this.paths);
     if (!a.exists) return [...this.iterationLog];
     const fromDisk = parseIterations(a.text);
     return fromDisk.length >= this.iterationLog.length ? fromDisk : [...this.iterationLog];
@@ -861,7 +978,7 @@ export class Run {
   private recordIteration(verdict: Verdict, noProgress: boolean): void {
     try {
       const patch = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
-      const existing = readArtifact(this.paths.iterations);
+      const existing = readIterationsText(this.paths);
       const text = appendIteration(existing.exists ? existing.text : '', {
         chunk: this.chunk,
         attempt: this.attempt,
@@ -907,20 +1024,14 @@ export class Run {
    * витка меняет стоимость и поведение, и решает это человек.
    */
   get escalation(): Escalation {
-    // КРАЙНИЕ значения ансамбля, ровно как в `checkReviewerRule`: сильнейший исполнитель
-    // против слабейшего рецензента. Пока брался первый маршрут, предложение «поднять chunk
-    // до X, правило рецензента сохраняется» приводило к профилю, который сам же
-    // `resolveStartableProfile` отказывался стартовать — совет, ломающий запуск.
+    if (readGuided(this.paths)) return { kind: 'none', why: 'guided закрепляет одну модель; при неудаче требуется пересмотр задачи или плана' };
+    // Escalate above the strongest chunk route so a retry can change models.
     const chunkRoutes = this.profile.ensemble.chunk ?? [this.profile.routes.chunk];
-    const verifyRoutes = this.profile.ensemble.verify ?? [this.profile.routes.verify];
     const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b), this.profile.routes.chunk);
-    const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b), this.profile.routes.verify);
     return suggestEscalation({
       failedClaimsByAttempt: this.failedClaimsByAttempt,
       chunkModelId: chunk.modelId,
       chunkRank: chunk.rank,
-      verifyModelId: verify.modelId,
-      verifyRank: verify.rank,
       models: this.config.models.models,
     });
   }
@@ -942,6 +1053,7 @@ export class Run {
     label: string;
     /** `false` — решение отрицательное: методология требует записывать и отказ. */
     granted: boolean;
+    preparationFingerprint?: string;
     /** Что именно решил человек. Дописывается к подписи, а не вместо неё. */
     note?: string;
     /** Chunk и попытка, к которым относится решение: клиент называет их явно. */
@@ -963,6 +1075,11 @@ export class Run {
     // Порча/отсутствие формы — типизированно: вызывающие (bench-драйвер) отличают её от
     // программных поломок раннера классом, а не регуляркой по тексту сообщения.
     if (!current.exists) throw new DecisionFormError(`нет артефакта ${path} — решение записывать некуда`);
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted && isPreparationV2(this.paths)) {
+      if (o.preparationFingerprint !== preparationFingerprint(this.paths)) throw new DecisionFormError('редакция проработки изменилась или не указана; перечитай требования и план перед подтверждением');
+      const problem = preparationReviewProblem(this.paths);
+      if (problem !== null) throw new DecisionFormError(problem);
+    }
 
     const signature = decisionValue(this.config.runner.operator, new Date());
     const note = (o.note ?? '').trim();
@@ -974,7 +1091,27 @@ export class Run {
         : `${signature} — ${note}`
       : `**не одобрено** — ${note === '' ? 'причина не названа' : note} · ${signature}`;
 
-    writeArtifact(path, setDecision(current.text, o.label, value));
+    // Handoff ведёт секции по виткам, и подпись «Приёмка» ложится в ПОСЛЕДНЮЮ (`SDLC.md` →
+    // «Раскладка артефактов»): первая «Приёмка» файла — прошлого витка той же задачи.
+    const next = o.artifact === 'handoff' ? setLastDecision(current.text, o.label, value) : setDecision(current.text, o.label, value);
+    writeArtifact(path, next);
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted) {
+      approvePreparation(this.paths, this.config.runner.operator, new Date());
+    }
+    // Одобрение плана снимает снимок секций задачи заново (`SDLC.md` → «Вердикт», восьмое
+    // условие): дополнение листа по находке гейта этапа 4 к этому моменту сделано человеком,
+    // и с этого момента задача снова неизменяема до конца витка.
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted) {
+      try {
+        ensureIntentSnapshot(this.host, 'plan', {
+          force: true,
+          why: 'план одобрен — снимок секций задачи снят заново: до конца витка intent.md неизменяем',
+        });
+      } catch (e) {
+        // Снимок — страховка этапов 4/6, не условие записи решения: отказ называется, а не роняет запись.
+        this.emit({ type: 'warning', runId: this.id, stage: 'plan', message: `снимок секций задачи не снят: ${(e as Error).message}` });
+      }
+    }
     // Счётчик перечитывается с диска, а не объявляется нулём: подпись под одним полем не
     // закрывает остальные `‹…›` артефакта, а обёртка `emit` принимает это число за
     // измерение — и долг plan.md исчезал из метрик от решения по одному полю (ревью).
@@ -991,11 +1128,49 @@ export class Run {
 
   /** Каталоги вне проекта, открытые агенту только на чтение. */
   get readOnlyRoots(): string[] {
-    return [
-      `${this.config.runner.methodologyDir}/templates`,
-      this.config.runner.methodologyDir,
-      this.config.runner.skillsDir,
-    ];
+    // Пустой путь (эталон не задан) корнем чтения не становится: он резолвился бы от cwd.
+    const m = this.config.runner.methodologyDir;
+    return [...(typeof m !== 'string' || m === '' ? [] : [`${m}/templates`, m]), this.config.runner.skillsDir].filter(
+      (p) => typeof p === 'string' && p !== '',
+    );
+  }
+
+  /**
+   * Почему виток нельзя продвинуть — `null`, если можно. Решение по вердикту на ДИСКЕ
+   * (переживает рестарт) и по бюджету попыток. Прежде `/advance` не проверял ничего:
+   * «Новая попытка (4 из 3)» после эскалации, новая попытка поверх зелёной, двойной клик,
+   * съедавший номер и диагноз прошлой попытки (code-review-all 2026-09-23).
+   */
+  advanceProblem(to: 'attempt' | 'chunk'): string | null {
+    const verdict = readRunVerdict(this.paths, this.chunk, this.attempt);
+    if (to === 'chunk') {
+      // Зелёный, но уже не о текущем патче — следующий chunk лёг бы поверх непроверенного.
+      return verdict?.passed === true
+        ? stalePatchReason(this.paths, this.chunk, this.attempt, verdict)
+        : `chunk ${this.chunk} не принят: следующий chunk — только после зелёного вердикта попытки ${this.attempt}`;
+    }
+    if (verdict === null || verdict.passed) {
+      if (verdict?.passed) {
+        const stale = stalePatchReason(this.paths, this.chunk, this.attempt, verdict);
+        if (stale !== null) return stale;
+      }
+      return verdict !== null
+        ? `попытка ${this.attempt} принята — новая попытка не нужна, дальше следующий chunk или передача`
+        : `попытка ${this.attempt} ещё не проверена вердиктом этапа 6 — новая попытка поверх неё стёрла бы её диагноз`;
+    }
+    if (verdict.action === 'escalate') {
+      const envFailures = envRetryCount(this.paths, this.chunk);
+      if (envFailures > 0) {
+        return `вердикт попытки ${this.attempt} — escalate: среда не восстановлена за ${envFailures} прогонов Verify подряд. ` +
+          'Восстанови среду и повтори Verify; решение о продолжении — за человеком. ' +
+          'Другие варианты: обрыв витка или правка строки «Бюджет средовых повторов» в .sdlc/gates.md и повтор Verify';
+      }
+      return (
+        `вердикт попытки ${this.attempt} — escalate: решение за человеком — ` +
+        'обрыв витка или правка бюджета в .sdlc/gates.md'
+      );
+    }
+    return null;
   }
 
   /**
@@ -1013,15 +1188,18 @@ export class Run {
       this.state.verify.lastVerdictInput === null
         ? null
         : buildRetryBrief(this.state.verify.lastVerdictInput, this.state.verify.lastGateResults, retryDetail(this.host));
-    // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
-    // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
-    // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
-    // счётчик, и следующий проход затирал их — вопреки докстрингу этого же метода.
-    //
-    // Поэтому номер растёт всегда, а «не занимает попытку» реализовано вычетом: бюджет
-    // считается по попыткам, где работа действительно проверялась.
-    if (this.state.verify.verdict?.action === 'blocked_env') this.envBlockedAttempts += 1;
-    this.attempt += 1;
+    // Средовой красный не занимает номер попытки: `SDLC.md` («blocked_env в этот счёт не
+    // входит») — следующий прогон после закрытия долга среды — та же попытка K, не K+1, а
+    // журнал итераций получает вторую строку с тем же K. Улики попытки K при этом
+    // перезаписываются заново из того же дерева: работа исполнителя живёт в дереве, а
+    // «запись о тестах» блокированной попытки по построению говорит лишь «инструмента
+    // нет» — терять там нечего. Прежняя схема (номер растёт, бюджет считается вычетом)
+    // расходилась с журналом chunk'а терминальной сессии, где та же попытка — та же K.
+    const blockedByEnv = readRunVerdict(this.paths, this.chunk, this.attempt)?.action === 'blocked_env';
+    // После `blocked_env` выжимка «что не сошлось» адресована человеку/среде, не исполнителю
+    // (`SDLC.md`: retry_instruction = «прогнать гейты в среде X») — в промпт chunk'а не идёт.
+    if (blockedByEnv) this.carryForward = null;
+    if (!blockedByEnv) this.attempt += 1;
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;
@@ -1054,7 +1232,6 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
-    this.envBlockedAttempts = 0;
     // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
     this.carryForward = null;
     this.failedClaimsByAttempt = [];
@@ -1086,12 +1263,20 @@ export class Run {
    * которая ещё не запускалась.
    */
   private resetAttemptState(): void {
+    this.verdictCycle = randomUUID();
     this.state.verify.lastGateResults = [];
     this.state.verify.lastGatesAborted = false;
     this.state.verify.verdict = null;
     this.state.verify.lastVerdictInput = null;
     this.state.verify.redCause = null;
     this.state.verify.reviewerRan = false;
+    // Факты попытки — тоже свойство ПОПЫТКИ: без сброса `reviewJson` попытки K уезжал бы в
+    // `.chunk-N-attempt-(K+1)-review.json`, когда на K+1 ревью шло записями модели (ревью).
+    this.state.verify.reviewJson = null;
+    this.state.verify.reviewText = null;
+    this.state.verify.evidenceFact = undefined;
+    this.state.verify.intentTamperFact = undefined;
+    this.state.verify.diffFactMatchesTree = null;
     // Близость к прошлому патчу — свойство ПОПЫТКИ. Пока её тут не было, шапка новой
     // попытки до самого вердикта показывала совпадение от предыдущей, то есть янтарным
     // предупреждала о топтании там, где ещё ничего не сделано.
@@ -1106,28 +1291,10 @@ export class Run {
 
   /** Набор гейтов проекта. `null` — файла нет. */
   get gatesFile(): GatesFile | null {
-    // Кэш по времени правки: один `GET /api/runs/:id` спрашивал набор семь раз (по разу
-    // на этап в `blockers` плюс бюджет попыток), и каждый раз это было чтение файла и
-    // полный разбор всех его таблиц — синхронно, в том же цикле событий, что и поток
-    // WebSocket. Набор — файл проекта: он меняется раз в месяцы, а не раз в запрос.
-    let mtimeMs: number;
-    try {
-      mtimeMs = statSync(this.paths.gates).mtimeMs;
-    } catch {
-      this.gatesCache = null;
-      return null;
-    }
-
-    if (this.gatesCache?.mtimeMs === mtimeMs) return this.gatesCache.parsed;
-
-    const a = readArtifact(this.paths.gates);
-    if (!a.exists) {
-      this.gatesCache = null;
-      return null;
-    }
-    const parsed = parseGates(a.text);
-    this.gatesCache = { mtimeMs, parsed };
-    return parsed;
+    // Кэш по времени правки и размеру — ОДИН на рантайм и дашборд (`gates/gatesCache.ts`):
+    // один `GET /api/runs/:id` спрашивал набор семь раз, а два кэша одного файла с разными
+    // ключами давали живой странице и дашборду разные блокеры.
+    return readGatesCached(this.paths.gates);
   }
 
   /** Строка набора гейта «Разбор последствий» — решение живёт в модуле этапа 4 (`stages/plan.ts`). */
@@ -1145,9 +1312,9 @@ export class Run {
     return earlyGateRowsOf(this.host);
   }
 
-  /** Бюджет попыток из набора гейтов, умолчание методологии — 3. */
+  /** Бюджет попыток из набора гейтов, умолчание методологии — `sdlc-constants.json`. */
   get attemptBudget(): number {
-    const DEFAULT = 3;
+    const DEFAULT = SDLC_CONSTANTS.attempt_default_budget;
     const row = this.gatesFile?.rows.find((r) => /бюджет итераций/i.test(r.name));
 
     // Число берётся ТОЛЬКО у включённой строки. Пока читалась любая, проза выключенной
@@ -1170,10 +1337,7 @@ export class Run {
    * выключился бы молча. Такой виток не продолжается (см. `blockers`).
    */
   planFilesFor(stage: StageId): readonly string[] | null {
-    if (!PLAN_SCOPED_STAGES.includes(stage)) return null;
-    const plan = readArtifact(this.paths.plan);
-    if (!plan.exists) return null;
-    return extractFilesToTouch(plan.text);
+    return planFilesOnDisk(this.ctx, stage);
   }
 
   policyContext(stage: StageId): PolicyContext {
@@ -1224,13 +1388,59 @@ export class Run {
    */
   private readDeniedFor(stage: StageId): string[] {
     if (stage !== 'verify') return [];
-    const out: string[] = [];
+    const out: string[] = flowReadDenied(this.paths, this.id);
     for (let attempt = 1; attempt < this.attempt; attempt++) {
       for (const route of this.profile.ensemble.verify.keys()) {
         out.push(relOf(this.ctx, this.paths.verificationReport(this.chunk, attempt, route)));
       }
     }
     return out;
+  }
+
+  /** Блокер по версии формы существующих артефактов этапа; `null` — формы совпадают. */
+  private templateVersionBlocker(stage: StageId, existing: readonly string[]): string | null {
+    const dir = this.config.runner.methodologyDir;
+    if (typeof dir !== 'string' || dir === '') return null;
+    const problems: string[] = [];
+    for (const path of existing) {
+      const check = checkTemplateVersion(path, dir);
+      if (check.kind === 'mismatch') {
+        problems.push(
+          `${path}: форма ${check.artifact.name} v${check.artifact.v}, а эталон — ${check.template.name} v${check.template.v}; ` +
+            'артефакт снят другой версией формы — перенеси содержимое в новую форму или откати эталон',
+        );
+      } else if (check.kind === 'unversioned') {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `${path}: у артефакта нет строки версии формы (эталон — ${check.template.name} v${check.template.v}); виток снят до её появления, сверка формы не делалась`,
+        });
+      }
+    }
+    return problems.length === 0 ? null : problems.join('\n');
+  }
+
+  /**
+   * Маркеры терминального hook'а (`sdlc-guard.py`) в каталоге витка снимаются с
+   * предупреждением: рантайм держит границу scope и замок ревью сам.
+   */
+  private clearGuardMarkers(stage: StageId): void {
+    for (const name of ['.scope.json', '.review-lock', '.claims-lock']) {
+      const p = join(this.paths.dir, name);
+      if (!existsSync(p)) continue;
+      try {
+        unlinkSync(p);
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `снят маркер терминальной сессии ${name} из каталога витка: границу scope и замок ревью здесь держит рантайм`,
+        });
+      } catch (e) {
+        this.emit({ type: 'warning', runId: this.id, stage, message: `маркер ${name} не снят: ${(e as Error).message}` });
+      }
+    }
   }
 
   /**
@@ -1247,11 +1457,38 @@ export class Run {
   }
 
   /**
+   * База diff'а витка — тем же источником, что у `attempt-evidence.py` методологии: поле
+   * «База» плана (его пишет рантайм при одобрении, `autofillPlan`), затем «База» журнала
+   * chunk'а (виток, начатый с chunk'а по снимку), затем HEAD. Патч попытки, сверка этапа 6
+   * и терминальный инструмент обязаны считать diff от одного коммита — иначе сверка «патч
+   * совпал с деревом» сравнивает разные вещи.
+   */
+  private async baseSha(): Promise<{ sha: string | null; source: 'plan' | 'journal' | 'head' | 'none'; why: string }> {
+    const fromField = (text: string): string | null => {
+      const v = readField(text, 'База');
+      // Только голый sha первым словом: `/[0-9a-f]{7,40}/` по значению принимал дату
+      // («2026-09-24» → «20260924») за базу, и `git diff` падал на этапе 5 (ревью).
+      const m = v === null ? null : /^`?([0-9a-fA-F]{7,40})`?(?=\s|$)/.exec(v.trim());
+      return m === null ? null : m[1]!;
+    };
+    const plan = readArtifact(this.paths.plan);
+    const fromPlan = plan.exists ? fromField(plan.text) : null;
+    if (fromPlan !== null) return { sha: fromPlan, source: 'plan', why: '' };
+    const journal = readArtifact(this.paths.chunkJournal(this.chunk));
+    const fromJournal = journal.exists ? fromField(journal.text) : null;
+    if (fromJournal !== null) return { sha: fromJournal, source: 'journal', why: '' };
+    const head = await this.head();
+    return head.sha === null ? { sha: null, source: 'none', why: head.why } : { sha: head.sha, source: 'head', why: '' };
+  }
+
+  /**
    * Запись автозаполнения с обновлением снимка бланка: без снимка страж «бланк байт-в-байт»
    * ослеп бы от нашей же записи, и этап, не сделавший ничего, выглядел бы поработавшим.
    */
   private writeAutofilled(path: string, text: string, seeded: { path: string; snapshot?: string }[]): void {
+    this.flow().watch([path]);
     writeArtifact(path, text);
+    this.flow().changes();
     const seed = seeded.find((s) => s.path === path);
     if (seed !== undefined) seed.snapshot = text;
   }
@@ -1268,9 +1505,9 @@ export class Run {
     stage: StageId,
     seeded: { path: string; snapshot?: string }[],
   ): Promise<void> {
-    // Задания — у модулей этапов (`StageModule.mechanicalJobs`); у chunk/verify/handoff их
+    // Задания — у модулей этапов (`StageModule.mechanicalJobs`); у chunk/verify их
     // нет, и повторный вызов из `finishFormArtifact` для них ничего не делает.
-    const jobs = stageModule(stage).mechanicalJobs?.(this.host) ?? [];
+    const jobs = stageModule(stage).mechanicalJobs?.(this.host, this.currentAbortHandoff ? { abortHandoff: true } : {}) ?? [];
 
     let total = 0;
     for (const job of jobs) {
@@ -1305,14 +1542,28 @@ export class Run {
   }
 
   /**
-   * Учёт расхода для запросов ВНЕ `executor.run()` — `reviewFill`/`claimFill` зовут
-   * провайдера напрямую, минуя `hooks.onUsage` (`Run.runStage`), и без этого метода их
-   * токены/стоимость были бы «бесплатными» для `SpentLedger`/`maxBudgetUsd` и не попадали
-   * бы ни в `metrics.json`, ни в событие `usage` — тот же учёт, тем же приёмом.
+   * Учёт расхода для запросов ВНЕ `executor.run()` — `reviewFill`/`claimFill`/
+   * `planAxisFill`/`exploreFill` зовут провайдера напрямую, минуя `hooks.onUsage`
+   * (`Run.runStage`), и без этого метода их токены/стоимость были бы «бесплатными» для
+   * `SpentLedger`/`maxBudgetUsd` и не попадали бы ни в `metrics.json`, ни в событие `usage`
+   * — тот же учёт, тем же приёмом.
+   *
+   * `usage.durationMs` (провайдер ставит его на КАЖДЫЙ запрос, `emptyUsage()` — 0) идёт в
+   * `requestDurationsMs` тем же приёмом, что и в основном хуке `onUsage` ниже — иначе
+   * критерий 2 квалификации рецензента (`docs/proposals/reviewer-qualification.md`,
+   * зависший запрос топит бюджет этапа) был бы слеп именно к `reviewFill` — пайплайну,
+   * чьё зависание на `qwen3.6-27b-iq4` (2026-09-27) и стало поводом завести это поле
+   * (найдено code-review-all в этой же сессии: без этой правки метрика не видела ни одного
+   * запроса `reviewFill`/`claimFill`/`planAxisFill`/`exploreFill` вовсе).
    */
   private accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void {
+    this.flow().record('model_work', { usage, durationMs: usage.durationMs, currency: currency ?? 'USD' }, 'Модель', 'Учёт', stage);
+    if (readGuided(this.paths)?.engineVersion === 4) new GuidedWorkloadStore(this.paths).usage(usage, usage.durationMs);
     const st = this.stageStats.get(stage);
-    if (st !== undefined) st.usage = addUsage(st.usage, usage);
+    if (st !== undefined) {
+      st.usage = addUsage(st.usage, usage);
+      if (usage.durationMs > 0) st.requestDurationsMs.push(usage.durationMs);
+    }
     this.totalUsage = addUsage(this.totalUsage, usage);
     if (countsTowardBudget(this.budgetStages, stage)) {
       this.spent.add(currency ?? 'USD', usage.costUsd);
@@ -1455,7 +1706,7 @@ export class Run {
       params: route.params,
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
       currency: route.providerDef.currency ?? 'USD',
-      compact: route.compactForms === 'fill' || route.compactForms === 'all',
+      compact: readGuided(this.paths) !== null || route.compactForms === 'fill' || route.compactForms === 'all',
       // Образец граничного пункта — из примера эталона, читается в рантайме:
       // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
       // называла только формат (`artifacts/edgeExample.ts`).
@@ -1516,7 +1767,7 @@ export class Run {
    * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
    * разрешены на этапе», потому что права не выдавал никто.
    */
-  private toolsFor(stage: StageId): readonly ToolName[] {
+  private toolsFor(stage: StageId, preparationV2 = isPreparationV2(this.paths)): readonly ToolName[] {
     const all = stageById(stage).tools;
     // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
     // ГИПОТЕЗА журнала, а не замер: «сокращение числа инструментов» стоит в списке
@@ -1526,14 +1777,15 @@ export class Run {
     // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
     const route = this.profile.routes[stage];
     const leaned =
-      route.leanTools && stageModule(stage).leanDocTools
+      route.leanTools && stageModule(stage).leanDocTools && !preparationV2
         ? all.filter((t) => LEAN_TOOLS.has(t))
         : all;
     // FillField выдаётся ТОЛЬКО при включённой ручке (compactForms 'fill'|'all') — иначе
     // замер этой ручки перестал бы быть замером «одной ручки»: право появлялось бы у всех
     // моделей стадии сразу, без записи в config/models.json, которую и сравнивает журнал.
-    const fillFieldOn = route.compactForms === 'fill' || route.compactForms === 'all';
-    const base = fillFieldOn ? leaned : leaned.filter((t) => t !== 'FillField');
+    const compactFillRoute = route.compactForms === 'fill' || route.compactForms === 'all';
+    const base = preparationTools(leaned, stage, preparationV2, compactFillRoute);
+    if (preparationV2) return base;
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
 
@@ -1685,7 +1937,9 @@ export class Run {
    * попытки; сам дамп выключен, пока не задан `SDLC_RAW_LOG_DIR`.
    */
   private trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel {
-    return { slug: this.slug, stage, mode, attempt: this.attempt };
+    return { slug: this.slug, stage, mode, attempt: this.attempt,
+      onRequest: request => this.flow().record('model_request', { ...request, mode }, 'Рантайм', 'Модель', stage),
+      onResponse: exchange => this.flow().record('model_http', { ...exchange, mode, attempt: this.attempt }, 'Модель', 'Рантайм', stage) };
   }
 
   /**
@@ -1696,7 +1950,16 @@ export class Run {
    * модели инструменты, которых в поштучном запросе нет, — замер 2026-09-04 показал, чем
    * это кончается (`BuildPromptInput.formFill`).
    */
-  private usesFormFill(stage: StageId, route: ResolvedRoute): boolean {
+  private usesFormFill(stage: StageId, route: ResolvedRoute, preparationForms = true): boolean {
+    if (readGuided(this.paths) && route.flow === 'loop' && ['verify', 'handoff'].includes(stage)) return true;
+    if (preparationForms && isPreparationV2(this.paths)) {
+      // Preparation v2 owns document construction: every supported document stage uses
+      // bounded field answers rather than asking the model to edit a growing Markdown file.
+      // Plan waits for verified exploration evidence; intent does not need that prerequisite.
+      return route.flow === 'loop' && (stage === 'intent' || stage === 'plan') &&
+        stageModule(stage).formFillExecutor &&
+        (stage !== 'plan' || preparationExploreEvidenceProblem(this.paths) === null);
+    }
     return route.formFill && stageModule(stage).formFillExecutor;
   }
 
@@ -1714,8 +1977,57 @@ export class Run {
     });
   }
 
-  private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
+  /**
+   * Маршрут независимого скана ревью этапа 6 и право его находок ронять вердикт
+   * (`reviewRoute.ts::decideReviewScan`): отдельный `reviewModel` из конфига раннера либо
+   * маршрут этапа verify; скан той же моделью, что исполнитель (chunk), — справочный
+   * (advisory). Резолвится ВНЕ профиля, поэтому инвариант «одна локальная модель в
+   * guided» (проверка маршрутов профиля выше) его не видит — это и есть единственное
+   * допустимое исключение из него.
+   *
+   * В guided конвейерные ручки ревью принудительно включаются и на заданном
+   * `reviewModel` — тем же правилом, что для маршрутов verify профиля (ниже в
+   * `runStage`): свободный ход субагента на локальной модели не проходит по бюджету.
+   */
+  private reviewScanRoute(): ReviewScanDecision {
+    const decision = decideReviewScan({
+      reviewModelId: this.config.runner.reviewModel,
+      models: this.config.models,
+      executor: this.profile.routes.chunk,
+      verifyRoute: this.profile.routes.verify,
+    });
+    if (readGuided(this.paths) === null) return decision;
+    const route = decision.route;
+    if (route === this.profile.routes.verify || route.flow !== 'loop') return decision;
+    return {
+      ...decision,
+      route: { ...route, reviewFill: true, claimFill: true, skipTurnAfterReviewFill: true },
+    };
+  }
+
+  private executorFor(stage: StageId, forRoute?: ResolvedRoute, preparationForms = true): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
+    if (stage === 'plan' && this.profile.planSelection && readGuided(this.paths) === null)
+      throw new Error('planSelection требует guided; эксперимент не применён');
+    if (stage === 'chunk' && this.profile.chunkSelection && readGuided(this.paths) === null)
+      throw new Error('chunkSelection требует guided; эксперимент не применён');
+    if (stage === 'chunk' && (this.profile.guidedImprovements?.consumerContext || this.profile.guidedImprovements?.evidenceRepair) && readGuided(this.paths)?.engineVersion !== 4)
+      throw new Error('guidedImprovements требует guided v4; эксперимент не применён');
+    if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route, this.profile.chunkSelection, this.profile.guidedImprovements);
+    if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
+      provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop')),
+      params: route.params, contextWindow: route.contextWindow ?? 16384 });
+    if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null && this.profile.planSelection && this.profile.planSelection.candidates !== 1) {
+      const selection = this.profile.planSelection;
+      return new PlanSelectionExecutor({ paths: this.paths, slug: this.slug, candidates: selection.candidates === 2 ? 2 : 3,
+        generator: { provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+          params: route.params, contextWindow: route.contextWindow ?? 16384 },
+        judge: { provider: createProvider(selection.judge.provider, selection.judge.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'planJudge')),
+          model: selection.judge.model, params: selection.judge.params, contextWindow: selection.judge.contextWindow ?? 16384 } });
+    }
+    if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null) return new GuidedPlanExecutor({
+      paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+      params: route.params, contextWindow: route.contextWindow ?? 16384 });
     if (route.flow === 'sdk') {
       // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
       // и молчаливое игнорирование выглядело бы как «настройка не сработала», не как
@@ -1745,12 +2057,12 @@ export class Run {
     // Этап 2 конвейером рантайма (`ModelDef.exploreFill`): индекс, карточки, закрытые
     // вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан в
     // `runStage` (`runClaimsBlind`, хук модуля explore) и лежит в `exploreState.claims`.
-    if (stage === 'explore' && usesExploreFill(route)) return exploreFillExecutor(this.host, route);
+    if (stage === 'explore' && (usesExploreFill(route) || (preparationForms && isPreparationV2(this.paths)))) return exploreFillExecutor(this.host, route);
 
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
     // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
     // а не выводится из входов; chunk/verify — тем более.
-    if (this.usesFormFill(stage, route)) {
+    if (this.usesFormFill(stage, route, preparationForms) || (['verify', 'handoff'].includes(stage) && readGuided(this.paths) !== null)) {
       return new FormFillExecutor({
         provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
         maxResultBytes: localResultBytes(limits),
@@ -1763,8 +2075,13 @@ export class Run {
         // (code-review-all, 2026-09-14).
         ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
         currency: route.providerDef.currency ?? 'USD',
-        // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
-        compact: route.compactForms === 'fill' || route.compactForms === 'all',
+        // Preparation v2 uses schema-guided answers for all model routes. Outside v2,
+        // keep the per-model compactForms setting.
+        compact: isPreparationV2(this.paths) || route.compactForms === 'fill' || route.compactForms === 'all',
+        preparationV2: isPreparationV2(this.paths),
+        reviewIntentClaims: stage === 'intent' && readGuided(this.paths) !== null,
+        reviewIntentContract: stage === 'intent' && readGuided(this.paths) !== null,
+        intentRequests: preparation(this.paths)?.requests ?? [],
         // Образец граничного пункта — из примера эталона, читается в рантайме:
         // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
         // называла только формат (`artifacts/edgeExample.ts`).
@@ -1777,7 +2094,7 @@ export class Run {
     // один шаг без tool-use. Только chunk — на других этапах шагов плана нет. Карта шагов
     // показывается оператору ДО старта: это замена подтверждению места правки человеком
     // (Phase 2 методологии), которого в режиме без `AskHuman` нет.
-    if (stage === 'chunk' && route.stepFill) return stepFillExecutor(this.host, route);
+    if (stage === 'chunk' && route.stepFill && !isPreparationV2(this.paths)) return stepFillExecutor(this.host, route);
 
     return new LoopExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop')),
@@ -1792,7 +2109,13 @@ export class Run {
       temperature: null,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
-      historyBudgetBytes: route.historyBudgetBytes ?? limits.localHistoryBudgetBytes,
+      // Явная ручка записи (`ModelDef.historyBudgetBytes`) побеждает; без неё — по окну
+      // маршрута, если оно заявлено (`historyBudgetFor`), иначе прежний плоский потолок.
+      historyBudgetBytes:
+        route.historyBudgetBytes ??
+        (route.contextWindow === undefined
+          ? limits.localHistoryBudgetBytes
+          : historyBudgetFor(route.contextWindow, limits.localHistoryBudgetBytes)),
       // Расчёт `max_tokens` по остатку окна (`LoopExecutor.paramsFor`) — то же поле,
       // которым уже сверяется загрузка LM Studio (`lmstudioContext.ts`), не второе знание.
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
@@ -1812,7 +2135,7 @@ export class Run {
    * Готовит промпт этапа, не запуская его. Отдельный шаг, потому что оператор вправе
    * отредактировать промпт до отправки — а значит, он должен увидеть его раньше.
    */
-  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string } = {}): PreparedPrompt {
+  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3; decisionCheck?: boolean } = {}): PreparedPrompt {
     // Диагноз прошлой попытки попадает уже в собранный промпт, а не подклеивается позже:
     // промпт уходит в шину и редактируется оператором, и всё, что уйдёт в модель, должно
     // быть видно ему до запуска. Проверка на вхождение — от второго экземпляра, когда
@@ -1834,20 +2157,35 @@ export class Run {
     // Один разбор plan.md на сборку промпта: и для describeBuild, и для prefetch ниже.
     const chunkPlanFiles = stage === 'chunk' ? (this.planFilesFor(stage) ?? []) : [];
     const ecosystem = this.ecosystemFor(stage);
-    const prompt = buildPrompt({
+    const preparationV2 = isPreparationV2(this.paths) || (stage === 'intent' && opts.preparationVersion !== 1 && !readArtifact(this.paths.intent).exists && !readArtifact(this.paths.plan).exists && !readArtifact(this.paths.explorationReport).exists);
+    const structuredPreparation = preparationV2 && route.flow === 'loop' &&
+      (stage === 'intent' || stage === 'explore' || stage === 'plan');
+    let prompt = buildPrompt({
       runner: this.config.runner,
       stage: def,
       ctx: this.ctx,
       flow: route.flow,
       slug: this.slug,
-      compactForms: route.compactForms,
+      preparationV2,
+      // Preparation v2 usually keeps its authored forms verbatim. If this route
+      // uses the runtime-owned structured form, keep the matching field-answer prompt
+      // enabled for every model route.
+      compactForms:
+        structuredPreparation
+          ? 'fill'
+          : preparationV2
+            ? 'off'
+            : route.compactForms,
       // Тем же условием, каким выбирается исполнитель: промпт обязан знать, что
       // инструментов в запросах этого этапа не будет.
-      formFill: this.usesFormFill(stage, route) || (stage === 'explore' && usesExploreFill(route)),
+      formFill: structuredPreparation || (!preparationV2 && stage === 'explore' && usesExploreFill(route)),
+      // Guided decision-check получает промпт без field-инструкций, чтобы system JSON
+      // {decision,next} не конфликтовал с user-инструкциями JSON-массива полей.
+      decisionCheck: opts.decisionCheck === true,
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
-      tools: this.toolsFor(stage).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
+      tools: (structuredPreparation ? [] : this.toolsFor(stage, preparationV2)).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
       now: new Date(),
       ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
       ...(opts.extra === undefined ? {} : { extra: opts.extra }),
@@ -1874,6 +2212,7 @@ export class Run {
       // читает и парсит plan.md с диска.
       ...(chunkPlanFiles.length > 0 ? { planFiles: chunkPlanFiles } : {}),
     });
+    if (readGuided(this.paths)) prompt = guidedPrompt(stage, this.ctx, prompt, opts.requirement, opts.extra);
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
   }
@@ -1906,70 +2245,23 @@ export class Run {
     precomputed?: PreconditionReport,
     withBlame = true,
   ): { text: string; blamed: StageId | null }[] {
-    const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, { ...opts, withArtifacts: withBlame });
-    const blame =(path: string | null): StageId | null =>
-      withBlame && path !== null ? stageProducing(path, stage, this.ctx) : null;
-    const problems: { text: string; blamed: StageId | null }[] = report.details.map((d) => ({
-      text: d.text,
-      blamed: blame(d.artifact),
-    }));
-    const by = (blamed: StageId | null) => (text: string) => ({ text, blamed });
+    // Тело — `stages/entry.ts::entryProblems`: дашборд считает те же блокеры по диску без `Run`.
+    return entryProblems(stage, this.ctx, this.gatesFile, {
+      ...(opts.abortHandoff === undefined ? {} : { abortHandoff: opts.abortHandoff }),
+      withBlame,
+      ...(precomputed === undefined ? {} : { precomputed }),
+    });
+  }
 
-    if (PLAN_SCOPED_STAGES.includes(stage)) {
-      const files = this.planFilesFor(stage);
-      if (files !== null && files.length === 0) {
-        problems.push(
-          by(blame(this.paths.plan))(
-            `план ${this.paths.plan} есть, но files_to_touch пуст: PlanScope выключился бы молча, ` +
-              `и запись перестала бы быть ограниченной планом. Заполни секцию files_to_touch.`,
-          ),
-        );
-      }
-    }
-
-    // Обязательная пятёрка проверяется на старте КАЖДОГО этапа, кроме первого: именно
-    // на первом набор и собирают. Проверять её только на этапе 6 значило бы узнавать
-    // о несобранном наборе, потратив весь виток.
-    //
-    // Объявленный обрыв витка из-под этой проверки выведен намеренно: handoff при обрыве —
-    // единственный способ оставить запись о том, почему виток бросили, и запирать его
-    // тем же несобранным набором значило бы лишить виток последнего легального выхода.
-    if (stage !== 'intent' && !(stage === 'handoff' && opts.abortHandoff === true)) {
-      const gates = this.gatesFile;
-      const gatesBlame = blame(this.paths.gates);
-      if (gates === null) {
-        problems.push(
-          by(gatesBlame)(
-            `нет набора гейтов ${this.paths.gates}. Без него не определены ни «сделано», ни ` +
-              `условия вердикта — виток не стартует.`,
-          ),
-        );
-      } else {
-        problems.push(...configProblems(gates).map(by(gatesBlame)));
-        // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
-        // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` (`stages/verify/gates.ts`) — тем
-        // же путём, каким и реально считается на прогоне (см. `runVerifyGates` в
-        // `stages/verify/gates.ts`). Без этого исключения витки с обычным для
-        // минимума набором никогда бы не проходили дальше intent.
-        problems.push(
-          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by(gatesBlame)),
-        );
-      }
-    }
-
-    // Последний ИЗВЕСТНЫЙ (не обязательно свежий — см. `lastPreflightBlockers`)
-    // pre-flight-статус песочницы: без этого GET-ручки, которые как раз для того и зовут
-    // `blockers()`, чтобы показать оператору «почему этап нельзя начать» ДО клика «Старт»,
-    // никогда не видели провал пробы среды — он всплывал только ошибкой уже начавшегося
-    // `runStage`. Отдельная ветка от `preflightBlockers` (не встроена в неё саму) — та
-    // асинхронна (ходит в Docker), а `blockers()` обязан остаться синхронным: он вызывается
-    // на каждый опрос списка витков, и дёргать Docker на каждый такой опрос было бы дороже
-    // самой проблемы, которую чинит.
-    if (stage === 'verify') {
-      problems.push(...this.state.verify.lastPreflightBlockers.map(by(null)));
-    }
-
-    return problems;
+  /**
+   * Последний ИЗВЕСТНЫЙ (не обязательно свежий) провал пробы среды этапа — для GET-ручек,
+   * чтобы оператор видел его ДО клика «Старт». Не блокер: при запуске этапа проба
+   * повторяется (`resetOnEnter` verify), а среди `blockers()` он выключал кнопку запуска
+   * и после починки среды — навсегда до рестарта (code-review-all 2026-09-23). Синхронный
+   * кэш, а не сама проба: она ходит в Docker, а список витков опрашивается постоянно.
+   */
+  envNotes(stage: StageId): string[] {
+    return stage === 'verify' ? [...this.state.verify.lastPreflightBlockers] : [];
   }
 
   /** Прогон автоматических гейтов этапа 6 рантаймом до ревью — `stages/verify/gates.ts`. */
@@ -2017,14 +2309,31 @@ export class Run {
     if (blocks.length === 0) return null;
 
     const written: string[] = [];
+    const skipped: string[] = [];
     for (const b of blocks) {
-      const call: NormalizedCall = { kind: 'write', path: b.path, content: b.content };
+      // Бланк, напечатанный текстом, почти всегда идёт без полей решения человека — модель
+      // их не заполняла и в свой пересказ не перенесла. Это запись РАНТАЙМА, не модели, и
+      // стёртое поле возвращается здесь безусловно, а не по ручке `restoreErasedDecisions`:
+      // живой прогон (ollama:gpt-oss-20b-agent, rename-field, 2026-09-24) — журнал на 5 834
+      // токена ушёл в `Write` без «Подтвердил», гейт отклонил «стирание поля», и ход вместе
+      // с попыткой сгорели, хотя содержимое было годным. Поле, которое вернуть нельзя
+      // (массовая потеря, сломанная структура), — блок пропускается: писать документ без
+      // решения человека нельзя, а гейт лишь повторил бы тот же отказ.
+      const draft: NormalizedCall = { kind: 'write', path: b.path, content: b.content };
+      const erased = repairErasedDecisions(draft, this.project.projectRoot);
+      const lost = erased.loss?.decisionsLost ?? [];
+      if (erased.repair === null && lost.length > 0) {
+        skipped.push(`${b.path} — стёрто поле решения человека (${lost.map((l) => `«${l}»`).join(', ')}), вернуть его в текст не удалось`);
+        continue;
+      }
+      const draftContent = erased.repair === null ? b.content : erased.repair.content;
+      const call: NormalizedCall = { kind: 'write', path: b.path, content: draftContent };
       const decision = await this.gate.request({
         runId: this.id,
         stage,
         requestId: `salvage-${this.salvageSeq++}`,
         toolName: 'Write',
-        rawInput: { file_path: b.path, content: b.content },
+        rawInput: { file_path: b.path, content: draftContent },
         call,
         ctx: this.policyContext(stage),
       });
@@ -2034,15 +2343,18 @@ export class Run {
       // значило бы записать на диск не то, что он подтвердил, — при том что сообщение в
       // журнал утверждает «записано через гейт одобрения».
       const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
-      const content = typeof edited === 'string' ? edited : b.content;
+      const content = typeof edited === 'string' ? edited : draftContent;
       writeArtifact(b.path, content);
       written.push(b.path);
     }
 
-    if (written.length === 0) return null;
+    const skippedNote = skipped.length === 0 ? '' : `; не спасено: ${skipped.join('; ')}`;
+    if (written.length === 0) {
+      return skipped.length === 0 ? null : `содержимое артефакта было напечатано в ответ, а не записано инструментом${skippedNote}`;
+    }
     return (
       `содержимое артефакта было напечатано в ответ, а не записано инструментом — ` +
-      `рантайм записал его через гейт одобрения: ${written.join(', ')}`
+      `рантайм записал его через гейт одобрения: ${written.join(', ')}${skippedNote}`
     );
   }
 
@@ -2066,7 +2378,15 @@ export class Run {
     // Расчёт — `stages/verify/verdict.ts`; здесь учёт попытки в метриках витка и событие.
     const computed = stageVerdict(this.host, noProgress);
     if (computed === null) return null;
-    const { verdict: withNotes, input } = computed;
+    const { verdict: rawVerdict, input } = computed;
+    const withNotes = applyEnvRetryBudget(this.paths, this.chunk, this.verdictCycle, rawVerdict, envRetryBudget(this.gatesFile));
+    this.state.verify.verdict = withNotes;
+    // Журнал отражает каждый завершённый Verify, включая повтор на той же попытке.
+    // Чистый пересчёт внутри одного прогона строку не удваивает.
+    if (this.recordedVerdictCycle !== this.verdictCycle) {
+      this.recordIteration(withNotes, noProgress);
+      this.recordedVerdictCycle = this.verdictCycle;
+    }
 
     // Статистика попытки учитывается РОВНО ОДИН РАЗ. Пересчёт вердикта на той же попытке
     // (оператор поправил набор гейтов и запустил verify снова) обязан обновить сам
@@ -2077,7 +2397,6 @@ export class Run {
       // Гейт-агрегаты — по тем же статусам, что ушли в вердикт: рантайм видел прогон
       // рецензента своими глазами, и `⏭`, стоявшее там до его вызова, метрикой не является.
       for (const g of gateResultsForVerdict(this.host)) this.recordGateResult(g);
-      this.recordIteration(withNotes, noProgress);
       this.verdictCount += 1;
       if (!withNotes.passed) this.redCount += 1;
       if (this.state.verify.redCause !== null) {
@@ -2086,9 +2405,13 @@ export class Run {
       // `manual` сюда не идёт: пункт, освобождённый человеком от автоматической проверки,
       // «не закрывается вторую попытку подряд» по построению, и предложение поднять модель
       // из-за него — совет лечить то, что не болеет.
-      this.failedClaimsByAttempt.push(
-        input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
-      );
+      // `blocked_env` ничего не проверял (`SDLC.md`): его ⚠ по пунктам, держащимся на тестах,
+      // в счёт «второй красный подряд» для эскалации не идут (ревью).
+      if (rawVerdict.action !== 'blocked_env') {
+        this.failedClaimsByAttempt.push(
+          input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
+        );
+      }
     }
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
@@ -2123,6 +2446,7 @@ export class Run {
 
   /** Отменяет текущий этап: и исполнителя, и всё, что ждёт ответа оператора. */
   cancel(reason: string): void {
+    this.cancelRequested = true;
     this.aborter?.abort();
     this.gate.cancelRun(this.id, reason);
     this.askGate.cancelRun(this.id);
@@ -2141,11 +2465,45 @@ export class Run {
   }
 
   async runStage(stage: StageId, opts: RunStageOptions = {}): Promise<StageResult> {
+    if (opts.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(opts.guidedEngineVersion)) throw new Error('Неизвестная версия движка guided');
+    const existingGuided = readGuided(this.paths);
+    if (opts.guidedEngineVersion !== undefined && existingGuided && opts.guidedEngineVersion !== (existingGuided.engineVersion ?? 1)) throw new Error('Версия движка закреплена за задачей');
+    if (opts.guidedEngineVersion !== undefined && !existingGuided && opts.executionMode !== 'guided') throw new Error('guidedEngineVersion требует executionMode=guided');
+    if (opts.executionMode !== undefined && opts.executionMode !== 'legacy' && opts.executionMode !== 'guided') throw new Error('Неизвестный режим исполнения');
+    if (opts.executionMode === 'legacy' && readGuided(this.paths)) throw new Error('Режим задачи уже закреплён как guided');
+    if (opts.executionMode === 'guided' && !readGuided(this.paths)) {
+      if (!stageModule(stage).def.startsTask || readArtifact(this.paths.intent).exists) throw new Error('guided выбирается при создании новой задачи');
+      if (opts.preparationVersion !== undefined && opts.preparationVersion !== 3) throw new Error('guided требует preparationVersion=3');
+      const selected = this.profile.routes.intent;
+      const routes = Object.values(this.profile.ensemble).flat();
+      if (routes.some(r => !guidedRouteMatches(this.profile, r, `${selected.provider}:${selected.model}`))) {
+        throw new Error('guided требует одну локальную модель на всех этапах и маршрутах ревью');
+      }
+      initGuided(this.paths, `${selected.provider}:${selected.model}`, opts.guidedEngineVersion ?? 1);
+      if (opts.guidedEngineVersion === 4) captureInvariantBaseline(this.paths, this.project.projectRoot);
+    }
+    const guided = readGuided(this.paths);
+    if (guided) {
+      opts = { ...opts, preparationVersion: 3 };
+      if ([...Object.values(this.profile.routes), ...Object.values(this.profile.ensemble).flat()].some(r =>
+        !guidedRouteMatches(this.profile, r, guided.modelId))) throw new Error('Локальная модель guided-задачи изменена');
+      if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: guidedBudgetReason(guided) };
+      for (const r of [this.profile.routes.verify, ...this.profile.ensemble.verify]) {
+        r.reviewFill = true;
+        r.claimFill = true;
+        r.skipTurnAfterReviewFill = true;
+        r.formFill = true;
+      }
+    }
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
+    this.flow().beginStage(stage, { stage, provider: route.provider, model: route.model, chunk: this.chunk, attempt: this.attempt });
+    this.currentAbortHandoff = opts.abortHandoff === true;
+    this.cancelRequested = false;
     const mod = stageModule(stage);
-    const inv = mod.begin?.(this.host, route) ?? {};
+    mod.initialize?.(this.host, opts);
+    const inv = mod.begin?.(this.host, route, abortOpts) ?? {};
 
     // Сброс состояния этапа на входе — ДО блокеров: устаревший кэш прошлого прохода
     // (pre-flight verify, индекс explore) иначе заблокировал бы или подменил этот проход.
@@ -2166,9 +2524,20 @@ export class Run {
     }
 
     if (report.skip !== null) {
+      if (guided) this.recordDecisionCheck({ stage, at: new Date().toISOString(), inputRevision: digest(report.skip),
+        decision: 'Пропустить условный этап по проверенным предусловиям', evidence: [{ source: 'runtime-preconditions', quote: report.skip }],
+        uncertainties: [], action: 'proceed', reason: report.skip, status: 'ready', changed: false, checkedBy: 'runtime' });
+      // Условный этап закрывается артефактом всегда (`SDLC.md`: «нет артефакта — нет
+      // шага»): этап 3 без вопросов оставляет отчёт «по существу пусто», а не пустоту.
+      await inv.onSkip?.(report.skip);
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: true, note: report.skip });
       return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
     }
+
+    // Маркеры терминальной реализации (`hooks/sdlc-guard.py`: `.scope.json`, `.review-lock`,
+    // `.claims-lock`) в каталоге витка — состояние ЧУЖОЙ сессии: границу scope и замок
+    // ревью здесь держит рантайм, а оставленный маркер запер бы следующий терминальный шаг.
+    this.clearGuardMarkers(stage);
 
     // Блокер среды этапа (pre-flight песочницы verify) — после проверки пропуска, до старта
     // попытки: несоответствие среды не должно съедать попытку.
@@ -2207,7 +2576,7 @@ export class Run {
         runId: this.id,
         stage,
         message:
-          `не найдены определения субагентов: ${missing.join(', ')} (каталог ${this.config.runner.agentsDir}). ` +
+          `не найдены определения субагентов: ${missing.join(', ')} (каталог ${this.config.runner.agentsDir === '' ? 'не задан — нет methodologyDir/agentsDir' : this.config.runner.agentsDir}). ` +
           (mod.missingSubagentsNote ??
             'Этап пойдёт без независимого агента: ограничение прав держится на промпте, ' +
               'а не на конструкции.'),
@@ -2226,312 +2595,453 @@ export class Run {
     });
     this.status = 'running';
     this.aborter = new AbortController();
+    if (this.cancelRequested) this.aborter.abort();
 
     // Метрики этапа копятся на витке: сколько раз он запускался, сколько это стоило и
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
     // старое, и считать по нему длительность значило бы терять её на длинных витках.
     const stageStartedAt = Date.now();
-    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0 };
+    let guidedTick = Date.now();
+    const chargeGuided = (): void => {
+      const now = Date.now();
+      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running')) this.aborter?.abort(new Error(guidedBudgetReason(readGuided(this.paths) ?? guided)));
+      guidedTick = now;
+    };
+    const guidedTimer = guided ? setInterval(() => {
+      try { chargeGuided(); }
+      catch (error) { this.aborter?.abort(error); }
+    }, 1000) : null;
+    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
+    const workload = guided?.engineVersion === 4 ? new GuidedWorkloadStore(this.paths) : null;
+    workload?.start();
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
-    await inv.afterStart?.();
+    // `try` начинается ЗДЕСЬ, сразу после `stage_started` и `running`: всё ниже —
+    // `afterStart` (baseline chunk, коммит handoff), `enterFacts` (гейты verify),
+    // раскладка и автозаполнение форм, сборка промпта — бросает на сбое диска или git,
+    // и вне `try` этап оставался `running` навсегда: без `stage_done`, без снапшота
+    // метрик, с неснятыми ожиданиями одобрения (code-review-all 2026-09-23).
+    try {
+      await inv.afterStart?.();
 
-    // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
-    // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
-    //
-    // Подклеиваются ВСЕГДА, в том числе к промпту, который оператор редактировал.
-    // Условие «только если промпт собран рантаймом» на практике не выполнялось никогда:
-    // интерфейс отправляет содержимое textarea при каждом запуске, поэтому рецензент не
-    // получал итогов гейтов ни разу, а оператор на каждом прогоне видел предупреждение
-    // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
-    // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
-    let extra = opts.extra;
-    /** Что подклеил сам рантайм — только это дописывается к промпту, отредактированному
-     *  оператором. Раньше признак был выражен условием `stage === 'verify'` в месте
-     *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
-    let appended: string | undefined;
+      // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
+      // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
+      //
+      // Подклеиваются ВСЕГДА, в том числе к промпту, который оператор редактировал.
+      // Условие «только если промпт собран рантаймом» на практике не выполнялось никогда:
+      // интерфейс отправляет содержимое textarea при каждом запуске, поэтому рецензент не
+      // получал итогов гейтов ни разу, а оператор на каждом прогоне видел предупреждение
+      // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
+      // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
+      let extra = opts.extra;
+      /** Что подклеил сам рантайм — только это дописывается к промпту, отредактированному
+       *  оператором. Раньше признак был выражен условием `stage === 'verify'` в месте
+       *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
+      let appended: string | undefined;
 
-    // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
-    // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
-    for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
-      appended = appended === undefined ? block : `${appended}
+      // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
+      // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
+      for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
+        appended = appended === undefined ? block : `${appended}\n\n${block}`;
+        extra = extra === undefined ? block : `${extra}\n\n${block}`;
+      }
 
-${block}`;
-      extra = extra === undefined ? block : `${extra}
+      // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
+      // оператору, обязан быть тем же, что уйдёт в модель, а он зависит от того, какие
+      // серверы реально ответили.
+      const mcp = await this.mcpAccess(stage);
 
-${block}`;
-    }
+      // Формы раскладываются ДО этапа: «заполни бланк» — задача другого класса, чем «создай
+      // документ по форме», и на локальных моделях это ровно тот шаг, где они вставали.
+      // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
+      // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
+      // считается.
+      // Подготовка этапа до раскладки форм (снимок рабочего дерева chunk).
+      await inv.beforeSeed?.();
 
-    // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
-    // оператору, обязан быть тем же, что уйдёт в модель, а он зависит от того, какие
-    // серверы реально ответили.
-    const mcp = await this.mcpAccess(stage);
+      // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
+      // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
+      // не попадал вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения, а
+      // приписка в постмортеме обещала читателю строку «Вызовов: 0», которой не бывало.
+      if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
 
-    // Формы раскладываются ДО этапа: «заполни бланк» — задача другого класса, чем «создай
-    // документ по форме», и на локальных моделях это ровно тот шаг, где они вставали.
-    // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
-    // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
-    // считается.
-    // Подготовка этапа до раскладки форм (снимок рабочего дерева chunk).
-    await inv.beforeSeed?.();
+      const produced = def.produces(this.ctx);
+      this.flow().watch([...produced, ...stageInputs(stage, this.ctx).map(a => a.path), ...(this.planFilesFor(stage) ?? [])]);
+      const missingBefore = missingNow(produced);
+      const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
+      seedPreparationForms(this.paths, seeded);
+      this.seeded = seeded.map((s) => s.path);
 
-    // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
-    // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
-    // не попадал вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения, а
-    // приписка в постмортеме обещала читателю строку «Вызовов: 0», которой не бывало.
-    if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
+      // Версия формы (`<!-- sdlc-template: X vN -->`): артефакт, снятый другой версией
+      // формы, этап не заполняет — его механика написана под текущую. Без строки версии
+      // (старый виток) — только предупреждение: старые витки дочитываются.
+      const versionProblem = this.templateVersionBlocker(stage, produced.filter((p) => !this.seeded.includes(p)));
+      if (versionProblem !== null) {
+        this.status = 'failed';
+        this.emit({ type: 'error', runId: this.id, stage, message: versionProblem });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: versionProblem };
+      }
 
-    const produced = def.produces(this.ctx);
-    const missingBefore = missingNow(produced);
-    const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
-    this.seeded = seeded.map((s) => s.path);
+      // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
+      // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
+      // Снимок после подстановки уходит в `SeededArtifact.snapshot` — страж «бланк байт-в-байт»
+      // сравнивает с ним, и этап, не сделавший ничего, по-прежнему виден.
+      await inv.autofill?.(seeded);
+      await this.autofillMechanicalFields(stage, seeded);
 
-    // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
-    // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
-    // Снимок после подстановки уходит в `SeededArtifact.snapshot` — страж «бланк байт-в-байт»
-    // сравнивает с ним, и этап, не сделавший ничего, по-прежнему виден.
-    await inv.autofill?.(seeded);
-    await this.autofillMechanicalFields(stage, seeded);
-
-    // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
-    // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
-    const notDone = (): string[] => [
-      ...stillMissing(produced, missingBefore),
-      ...untouchedSeeds(seeded),
-      ...(inv.extraNotDone?.() ?? []),
-    ];
-    for (const path of this.seeded) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage,
-        message: `форма разложена под артефакт ${path} — этап заполняет её, а не создаёт заново`,
-      });
-    }
-
-    // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
-    // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
-    // приходит отдельными полями `system`/`user`.
-    const prompt =
-      opts.prompt === undefined
-        ? this.preparePrompt(stage, {
-            ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
-            ...(extra === undefined ? {} : { extra }),
-          })
-        : withExtra(opts.prompt, appended);
-    if (opts.prompt !== undefined) {
-      this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
-    }
-
-    // `let`, не `const`: одобренный `request_scope_extension` дописывает `plan.md` на диске
-    // и пересчитывает `ctx` из него же — без переприсвоения политика этого же прогона
-    // видела бы старый `files_to_touch` до самого конца этапа, и одобренная человеком
-    // правка всё равно отклонялась бы следующим же `Write` в тот же путь.
-    let ctx = this.policyContext(stage);
-    /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
-    const pendingReviewer = new Set<string>();
-    /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
-     * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
-    const pendingBash = new Map<string, string>();
-    /**
-     * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
-     * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
-     * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
-     * повторами модель успела записать половину кода. `pendingWrites` — requestId
-     * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
-     *
-     * ЯВНО: счётчик подключается ко ВСЕМ исполнителям этапа chunk, не только к `stepFill`
-     * (`StepExecutor` его вообще не читает — у него свой ограничитель, `REPAIRS_PER_STEP`).
-     * Отсрочка при повторе одинакового вызова, если с начала серии был хоть один принятый
-     * вызов, — намеренное послабление антицикла и для обычного `LoopExecutor`, а не побочный
-     * эффект правки под `stepFill`: причины откатывать его для НЕ-stepFill моделей нет —
-     * критерий «есть реальный прогресс» не завязан на конкретный исполнитель.
-     */
-    const pendingWrites = new Set<string>();
-    let acceptedWrites = 0;
-    /**
-     * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
-     *
-     * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
-     * в имени: гейт минимальной пятёрки не может зажигаться от того, как модель назвала
-     * вызванного агента. Пусто — рецензента этап не объявлял, и зажечь гейт нечем.
-     */
-    const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
-
-    const hooks: ExecHooks = {
-      onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
-      onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
-      // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
-      // план и файл целиком; разбору «что спросили и что ответили» хватает начала.
-      onExchange: ({ question, answer }) =>
+      // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
+      // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
+      const notDone = (): string[] => [
+        ...stillMissing(produced, missingBefore),
+        ...untouchedSeeds(seeded).filter((path) => !isRuntimeOwnedSeed(stage, path)),
+        ...(inv.extraNotDone?.() ?? []),
+      ];
+      for (const path of this.seeded) {
         this.emit({
-          type: 'model_exchange',
+          type: 'warning',
           runId: this.id,
           stage,
-          question: clip(question, EXCHANGE_QUESTION_CHARS),
-          answer: clip(answer, EXCHANGE_ANSWER_CHARS),
-        }),
+          message: `форма разложена под артефакт ${path} — этап заполняет её, а не создаёт заново`,
+        });
+      }
 
-      onToolRequest: async (call, meta) => {
-        this.status = 'awaiting';
-        try {
-          const decision = await this.gate.request({
+      // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
+      // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
+      // приходит отдельными полями `system`/`user`.
+      const prompt =
+        opts.prompt === undefined
+          ? this.preparePrompt(stage, {
+              ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
+              ...(extra === undefined ? {} : { extra }),
+            })
+          : withExtra(guided ? guidedPrompt(stage, this.ctx, opts.prompt, opts.requirement, extra) : opts.prompt, appended);
+      if (opts.prompt !== undefined) {
+        this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
+      }
+
+      // `let`, не `const`: одобренный `request_scope_extension` дописывает `plan.md` на диске
+      // и пересчитывает `ctx` из него же — без переприсвоения политика этого же прогона
+      // видела бы старый `files_to_touch` до самого конца этапа, и одобренная человеком
+      // правка всё равно отклонялась бы следующим же `Write` в тот же путь.
+      let ctx = this.policyContext(stage);
+      /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
+      const pendingReviewer = new Set<string>();
+      /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
+       * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
+      const pendingBash = new Map<string, string>();
+      const pendingReads = new Map<string, { path: string; stage: StageId }>();
+      /**
+       * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
+       * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
+       * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
+       * повторами модель успела записать половину кода. `pendingWrites` — requestId
+       * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
+       *
+       * ЯВНО: счётчик подключается ко ВСЕМ исполнителям этапа chunk, не только к `stepFill`
+       * (`StepExecutor` его вообще не читает — у него свой ограничитель, `REPAIRS_PER_STEP`).
+       * Отсрочка при повторе одинакового вызова, если с начала серии был хоть один принятый
+       * вызов, — намеренное послабление антицикла и для обычного `LoopExecutor`, а не побочный
+       * эффект правки под `stepFill`: причины откатывать его для НЕ-stepFill моделей нет —
+       * критерий «есть реальный прогресс» не завязан на конкретный исполнитель.
+       */
+      const pendingWrites = new Set<string>();
+      let acceptedWrites = 0;
+      /**
+       * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
+       *
+       * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
+       * в имени: гейт минимальной пятёрки не может зажигаться от того, как модель назвала
+       * вызванного агента. Пусто — рецензента этап не объявлял, и зажечь гейт нечем.
+       */
+      const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
+
+      let skippedApprovedLocationAsk = false;
+      // This capability is scoped to the awaited checkpoint, never caller-supplied metadata.
+      const checkpointTools = stageDecisionTools(stage, def.tools);
+      let checkingDecision = false;
+      const hooks: ExecHooks = {
+        onQuestionValidated: result => this.emit({ type: 'question_validation', runId: this.id, stage, ...result }),
+        onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
+        onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
+        // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
+        // план и файл целиком; разбору «что спросили и что ответили» хватает начала.
+        onExchange: ({ question, answer }) =>
+          this.emit({
+            type: 'model_exchange',
+            runId: this.id,
+            stage,
+            question: clip(question, EXCHANGE_QUESTION_CHARS),
+            answer: clip(answer, EXCHANGE_ANSWER_CHARS),
+          }),
+
+        onToolRequest: async (call, meta) => {
+          this.flow().record('tool_request', { requestId: meta.requestId, toolName: meta.toolName, rawInput: meta.rawInput, call, caller: meta.caller ?? null }, 'Модель', 'Политика', stage);
+          chargeGuided();
+          if (guided) this.aborter?.signal.throwIfAborted();
+          this.status = 'awaiting';
+          try {
+            const decision = await this.gate.request({
+              runId: this.id,
+              stage,
+              requestId: meta.requestId,
+              toolName: meta.toolName,
+              rawInput: meta.rawInput,
+              call,
+              // Права вызывающего СУЖАЮТ права этапа, но никогда их не расширяют:
+              // пересечение, а не подстановка. Вложенный субагент не может получить больше
+              // этапа, а объявленный без права записи разведчик не получает `Write` только
+              // потому, что модель его назвала.
+              ctx: {
+                ...ctx,
+                allowedTools: (checkingDecision ? checkpointTools : ctx.allowedTools).filter((t) => meta.callerTools.includes(t)),
+                // Слепота второго агента разведки — конструкцией, не просьбой (`sdlc-explore`
+                // Phase 1, `.claims-lock` терминального hook'а): субагенту `sdlc-claims`
+                // закрыты на чтение задача и отчёт разведки — авторский лист он не видит по
+                // построению шага. Только флоу `loop`: харнесс `sdk` вызывающего не называет.
+                ...(meta.caller === 'sdlc-claims'
+                  ? {
+                      readDenied: [
+                        ...(ctx.readDenied ?? []),
+                        ...flowReadDenied(this.paths, this.id),
+                        this.paths.intent,
+                        this.paths.explorationReport,
+                        // Готовность обсуждает лист, лента несёт промпты этапов 1–2 с задачей
+                        // целиком, план и передачи прошлых витков цитируют пункты (ревью).
+                        this.paths.readiness,
+                        this.paths.plan,
+                        this.paths.handoff,
+                        this.paths.events,
+                        this.paths.intentSections,
+                      ].map((p) => relOf(this.ctx, p)),
+                    }
+                  : {}),
+                // Флоу — по ВЫЗОВУ, а не по основному маршруту этапа: маршрут ансамбля verify
+                // может идти другим флоу (code-review-all 2026-09-23).
+                noArtifactReaddress: meta.sdk !== undefined,
+                ...(meta.sdk?.sessionDir == null ? {} : { harnessResultsRoot: meta.sdk.sessionDir }),
+              },
+            });
+            this.flow().record('tool_resolved', { requestId: meta.requestId, decision }, 'Политика / человек', 'Инструмент', stage);
+            if (decision.allowed && call.kind === 'read' && mod.tracksPreparationReads === true) {
+              const read = decision.updatedInput === null ? call : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              if (read.kind === 'read') pendingReads.set(meta.requestId, { path: read.path, stage });
+            }
+            // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
+            // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
+            // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
+            // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
+            if (decision.allowed && call.kind === 'subagent' && call.agent === 'sdlc-claims' && meta.sdk !== undefined) {
+              this.emit({
+                type: 'warning',
+                runId: this.id,
+                stage,
+                message:
+                  'субагент sdlc-claims во флоу sdk: слепота к авторскому листу конструкцией не гарантирована — хук харнесса не отличает чтения субагента от чтений этапа; независимый лист выводит и рантайм (deriveClaimsBlind)',
+              });
+            }
+            if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
+              pendingReviewer.add(meta.requestId);
+            }
+            // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
+            // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
+            // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
+            // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
+            // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
+            // Путь — фактически исполняемый: гейт мог перенаправить запись своего артефакта
+            // (`approval/artifactAddress.ts`) из корня в `.sdlc`, и журнал chunk'а, записанный
+            // «не по адресу», иначе засчитывался правкой кода (code-review-all 2026-09-23).
+            const written =
+              decision.allowed && decision.updatedInput !== null && (call.kind === 'write' || call.kind === 'edit')
+                ? normalize(meta.toolName, decision.updatedInput as Record<string, unknown>)
+                : call;
+            if (
+              decision.allowed &&
+              (written.kind === 'write' || written.kind === 'edit') &&
+              !inSdlcDir(this.ctx.paths.projectRoot, written.path)
+            ) {
+              pendingWrites.add(meta.requestId);
+            }
+            if (decision.allowed && call.kind === 'bash') {
+              // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
+              // исполнится: оператор мог поправить команду через approve-with-edit
+              // (`decision.updatedInput`), и оба исполнителя (`SdkExecutor`/`LoopExecutor`)
+              // запускают именно правленый ввод. `recordBashResult` считает повторы по
+              // фактически исполненной команде — иначе три РАЗНЫЕ команды, которые оператор
+              // одну за другой правил после провала, засчитывались бы как одна и та же.
+              const effective =
+                decision.updatedInput === null
+                  ? call
+                  : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              pendingBash.set(meta.requestId, effective.kind === 'bash' ? effective.command : call.command);
+            }
+            // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
+            // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
+            // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
+            // а не версию, посчитанную в начале этапа.
+            if (decision.allowed && call.kind === 'request_scope_extension') {
+              const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
+              const planText = readArtifact(this.paths.plan).text;
+              const updated = appendScopeExtension(planText, call.path, note);
+              if (updated === null) {
+                // Одобрение человека остаётся в силе (решение о том, что расширение —
+                // хорошая идея, не отменяется), но САМ вызов инструмента не выполнен —
+                // технически дописать план не удалось. Раньше здесь возвращался исходный
+                // `decision` (allowed: true) без изменений, и модель получала текст «путь
+                // добавлен — теперь можно писать» безусловно, хотя `ctx.planFiles` не
+                // обновился и следующий Write в этот путь всё равно падал на planScope —
+                // модель узнавала о провале только на попытке записи, без объяснения
+                // противоречия. Честнее — отказать ЭТОМУ вызову сейчас, с причиной: тот же
+                // канал (`decision.reason`), которым уже пользуется отказ политики.
+                const message =
+                  `человек одобрил расширение scope на «${call.path}», но в plan.md не нашлась ` +
+                  `строка «Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
+                  `Путь НЕ добавлен в files_to_touch; поправь plan.md вручную или попроси ` +
+                  `человека сделать это, прежде чем повторять запрос.`;
+                this.emit({ type: 'warning', runId: this.id, stage, message });
+                const denied: Decision = { allowed: false, reason: message, by: 'policy' };
+                return denied;
+              }
+              writeArtifact(this.paths.plan, updated);
+              ctx = this.policyContext(stage);
+            }
+            if (decision.allowed) {
+              const effective = decision.updatedInput === null ? call : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              if (effective.kind === 'write' || effective.kind === 'edit') this.flow().watch([effective.path]);
+            }
+            return decision;
+          } finally {
+            guidedTick = Date.now();
+            this.status = 'running';
+          }
+        },
+
+        onToolResult: (meta) => {
+          this.flow().record('tool_data', meta, 'Инструмент', 'Модель', stage);
+          this.flow().changes(meta.requestId);
+          this.countFriction(stage, 'toolCalls');
+          const pendingRead = pendingReads.get(meta.requestId);
+          if (pendingRead !== undefined && meta.ok && meta.resultText !== undefined) {
+            recordPreparationRead(this.paths, pendingRead.stage, pendingRead.path, meta.resultText);
+          }
+          pendingReads.delete(meta.requestId);
+          // Гейт «Ревью независимым агентом» зеленеет только по состоявшемуся ревью: вызов
+          // дошёл до результата без ошибки И ответ прошёл планки этапа (`reviewAccepted` —
+          // у verify те же, что у прямого прогона). Прежде здесь хватало `ok` — пустой ответ
+          // субагента зеленил гейт (code-review-all 2026-09-23). Этап без хука — прежнее
+          // правило «состоялся вызов».
+          if (meta.ok && pendingReviewer.has(meta.requestId)) {
+            if (inv.reviewAccepted?.(meta.resultText ?? '') ?? true) this.markReviewerRan();
+          }
+          pendingReviewer.delete(meta.requestId);
+          if (pendingWrites.has(meta.requestId)) {
+            if (meta.ok) {
+              acceptedWrites += 1;
+              this.gate.noteTreeChanged(this.id);
+            }
+            pendingWrites.delete(meta.requestId);
+          }
+
+          const bashCommand = pendingBash.get(meta.requestId);
+          if (bashCommand !== undefined) {
+            this.gate.recordBashResult(this.id, bashCommand, meta.ok);
+            pendingBash.delete(meta.requestId);
+          }
+
+          this.emit({
+            type: 'tool_result',
             runId: this.id,
             stage,
             requestId: meta.requestId,
-            toolName: meta.toolName,
-            rawInput: meta.rawInput,
-            call,
-            // Права вызывающего СУЖАЮТ права этапа, но никогда их не расширяют:
-            // пересечение, а не подстановка. Вложенный субагент не может получить больше
-            // этапа, а объявленный без права записи разведчик не получает `Write` только
-            // потому, что модель его назвала.
-            ctx: {
-              ...ctx,
-              allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
-            },
+            ok: meta.ok,
+            summary: meta.summary,
+            durationMs: meta.durationMs,
+            ...(meta.detail === undefined ? {} : { detail: meta.detail }),
           });
-          // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
-          // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
-          // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
-          // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
-          if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
-            pendingReviewer.add(meta.requestId);
+        },
+
+        onSubagentResult: (agent, response) => mod.subagentResult?.(this.host, agent, response, seeded) ?? null,
+
+        onAskHuman: async (call) => {
+          if (call.kind !== 'ask_human') return {};
+          if (inv.locationAlreadyApproved?.(call.questions)) {
+            skippedApprovedLocationAsk = true;
+            return {};
           }
-          // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
-          // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
-          // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
-          // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
-          // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
-          if (
-            decision.allowed &&
-            (call.kind === 'write' || call.kind === 'edit') &&
-            !inSdlcDir(this.ctx.paths.projectRoot, call.path)
-          ) {
-            pendingWrites.add(meta.requestId);
+          chargeGuided();
+          if (guided) this.aborter?.signal.throwIfAborted();
+          this.status = 'awaiting';
+          try {
+            return await this.askWithFlow(stage, call.questions);
+          } finally {
+            guidedTick = Date.now();
+            this.status = 'running';
           }
-          if (decision.allowed && call.kind === 'bash') {
-            // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
-            // исполнится: оператор мог поправить команду через approve-with-edit
-            // (`decision.updatedInput`), и оба исполнителя (`SdkExecutor`/`LoopExecutor`)
-            // запускают именно правленый ввод. `recordBashResult` считает повторы по
-            // фактически исполненной команде — иначе три РАЗНЫЕ команды, которые оператор
-            // одну за другой правил после провала, засчитывались бы как одна и та же.
-            const effective =
-              decision.updatedInput === null
-                ? call
-                : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
-            pendingBash.set(meta.requestId, effective.kind === 'bash' ? effective.command : call.command);
+        },
+
+        afterAskHuman: (call, answers) => {
+          if (call.kind !== 'ask_human') return null;
+          if (skippedApprovedLocationAsk) {
+            skippedApprovedLocationAsk = false;
+            return 'Точки правки уже входят в одобренный актуальный план и проверены рантаймом. Повторное подтверждение места не требуется; реализуй план через инструменты редактирования файлов. Вопросы о поведении и требованиях по-прежнему задавай человеку.';
           }
-          // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
-          // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
-          // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
-          // а не версию, посчитанную в начале этапа.
-          if (decision.allowed && call.kind === 'request_scope_extension') {
-            const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
-            const planText = readArtifact(this.paths.plan).text;
-            const updated = appendScopeExtension(planText, call.path, note);
-            if (updated === null) {
-              // Одобрение человека остаётся в силе (решение о том, что расширение —
-              // хорошая идея, не отменяется), но САМ вызов инструмента не выполнен —
-              // технически дописать план не удалось. Раньше здесь возвращался исходный
-              // `decision` (allowed: true) без изменений, и модель получала текст «путь
-              // добавлен — теперь можно писать» безусловно, хотя `ctx.planFiles` не
-              // обновился и следующий Write в этот путь всё равно падал на planScope —
-              // модель узнавала о провале только на попытке записи, без объяснения
-              // противоречия. Честнее — отказать ЭТОМУ вызову сейчас, с причиной: тот же
-              // канал (`decision.reason`), которым уже пользуется отказ политики.
-              const message =
-                `человек одобрил расширение scope на «${call.path}», но в plan.md не нашлась ` +
-                `строка «Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
-                `Путь НЕ добавлен в files_to_touch; поправь plan.md вручную или попроси ` +
-                `человека сделать это, прежде чем повторять запрос.`;
-              this.emit({ type: 'warning', runId: this.id, stage, message });
-              const denied: Decision = { allowed: false, reason: message, by: 'policy' };
-              return denied;
-            }
-            writeArtifact(this.paths.plan, updated);
-            ctx = this.policyContext(stage);
+          return isPreparationV2(this.paths) ? recordModelAnswers(this.host, call.questions, answers) : (inv.afterAskHuman?.(call.questions, answers) ?? null);
+        },
+
+        // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
+        // одним `Write` после хода, обычным путём через политику и гейт.
+        // Записи той же модели, что исполнитель (маршрут этапа совпадает с chunk), —
+        // справочные (advisory): саморевью уровнем вердикта не является.
+        onRecord: (call) => acceptRecord(this.host, call, {
+          advisory: routeKey(route) === routeKey(this.profile.routes.chunk),
+        }),
+
+        onUsage: (usage, durationMs, work) => {
+          this.flow().record('model_work', { usage, durationMs, work, currency: route.providerDef.currency ?? 'USD' }, 'Модель', 'Учёт', stage);
+          workload?.usage(usage, durationMs, work);
+          const st = this.stageStats.get(stage);
+          if (st !== undefined) {
+            st.usage = addUsage(st.usage, usage);
+            // Отдельно от суммы: критерий квалификации рецензента (пункт 2,
+            // `docs/proposals/reviewer-qualification.md`) судит по ОДНОМУ запросу, не по
+            // сумме — зависший на 20 минут запрос топит получасовой бюджет этапа, а сумма
+            // это не покажет.
+            // `> 0`, не только `!== undefined` — тот же порог, что `accountOffPathUsage`
+            // выше по файлу (её докстринг уже утверждает «тем же приёмом»; до этой правки
+            // приёмы расходились — `0` сюда прошёл бы, туда нет — code-review-all,
+            // 2026-09-28).
+            if (durationMs !== undefined && durationMs > 0) st.requestDurationsMs.push(durationMs);
           }
-          return decision;
-        } finally {
-          this.status = 'running';
-        }
-      },
+          this.totalUsage = addUsage(this.totalUsage, usage);
+          // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
+          // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
+          //
+          // В бюджет идёт не всякий расход: `budgetStages` (стенд) сужает учёт до
+          // измеряемых этапов. В `totalUsage` и в события расход попадает ВСЕГДА — счёт
+          // прогона обязан быть полным, сужается только то, по чему гард рубит виток.
+          if (countsTowardBudget(this.budgetStages, stage)) {
+            this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
+          }
+          this.emit({
+            type: 'usage',
+            runId: this.id,
+            stage,
+            usage,
+            total: this.totalUsage,
+            ...(durationMs === undefined ? {} : { durationMs }),
+          });
+        },
 
-      onToolResult: (meta) => {
-        this.countFriction(stage, 'toolCalls');
-        // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
-        // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
-        if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
-        pendingReviewer.delete(meta.requestId);
-        if (pendingWrites.has(meta.requestId)) {
-          if (meta.ok) acceptedWrites += 1;
-          pendingWrites.delete(meta.requestId);
-        }
+        onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
 
-        const bashCommand = pendingBash.get(meta.requestId);
-        if (bashCommand !== undefined) {
-          this.gate.recordBashResult(this.id, bashCommand, meta.ok);
-          pendingBash.delete(meta.requestId);
-        }
+        onFriction: (kind) => this.countFriction(stage, kind),
+        onHarnessEvent: event => {
+          workload?.event(event);
+          if (workload) this.flow().record('guided_workload', event, 'Рантайм', 'Рантайм', stage);
+        },
+        onExecution: event => this.flow().record('execution_operation', event, 'Рантайм', 'Рантайм', stage),
+      };
 
-        this.emit({
-          type: 'tool_result',
-          runId: this.id,
-          stage,
-          requestId: meta.requestId,
-          ok: meta.ok,
-          summary: meta.summary,
-          durationMs: meta.durationMs,
-          ...(meta.detail === undefined ? {} : { detail: meta.detail }),
-        });
-      },
-
-      onAskHuman: async (call) => {
-        if (call.kind !== 'ask_human') return {};
-        this.status = 'awaiting';
-        try {
-          return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
-        } finally {
-          this.status = 'running';
-        }
-      },
-
-      // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
-      // одним `Write` после хода, обычным путём через политику и гейт.
-      onRecord: (call) => acceptRecord(this.host, call),
-
-      onUsage: (usage, durationMs) => {
-        const st = this.stageStats.get(stage);
-        if (st !== undefined) st.usage = addUsage(st.usage, usage);
-        this.totalUsage = addUsage(this.totalUsage, usage);
-        // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
-        // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
-        //
-        // В бюджет идёт не всякий расход: `budgetStages` (стенд) сужает учёт до
-        // измеряемых этапов. В `totalUsage` и в события расход попадает ВСЕГДА — счёт
-        // прогона обязан быть полным, сужается только то, по чему гард рубит виток.
-        if (countsTowardBudget(this.budgetStages, stage)) {
-          this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
-        }
-        this.emit({
-          type: 'usage',
-          runId: this.id,
-          stage,
-          usage,
-          total: this.totalUsage,
-          ...(durationMs === undefined ? {} : { durationMs }),
-        });
-      },
-
-      onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
-
-      onFriction: (kind) => this.countFriction(stage, kind),
-    };
-
-    try {
       // Исполнитель создаётся ВНУТРИ try: `createProvider` бросает при отсутствии ключа
       // и на нереализованном маршруте, а к этому моменту уже отправлен `stage_started`,
       // выставлен статус `running` и — для этапа 6 — прогнаны все гейты, то есть сборка
@@ -2539,44 +3049,98 @@ ${block}`;
       // навсегда оставался `running`, `stage_done` не приходил, и кнопка запуска в
       // интерфейсе не разблокировалась до перезагрузки страницы.
       // Шаг рантайма до создания исполнителя (слепой лист разведки).
+      let checkedPrompt = prompt;
+      let decisionUsage = emptyUsage();
+      let decisionRequests = 0;
+      let decisionContext: string | undefined;
+      if ((guided?.engineVersion ?? 1) >= 3) {
+        const readiness = guidedRuntimeReadiness(stage, prompt);
+        this.recordDecisionCheck(readiness);
+        if (readiness.status === 'blocked') {
+          this.status = 'failed';
+          this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: readiness.reason });
+          return { ok: false, note: readiness.reason, finalText: '', usage: emptyUsage(), modelRequests: 0 };
+        }
+      } else if (guided) {
+        const decisionSignal = this.aborter.signal;
+        let checked: Awaited<ReturnType<typeof checkStageDecision>>;
+        checkingDecision = true;
+        try {
+        checked = await checkStageDecision({ cwd: this.project.projectRoot, model: route.model,
+          prompt, allowedTools: checkpointTools, signal: decisionSignal,
+          maxTurns: this.maxTurnsFor(stage), maxBudgetUsd: this.project.maxBudgetUsd }, hooks, {
+          stage, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'decisionCheck')),
+          params: route.params ?? null, contextWindow: route.contextWindow ?? 16384,
+          lookupPolicy: { ...ctx, allowedTools: checkpointTools },
+          spent: () => this.spent.spent(route.providerDef.currency ?? 'USD'),
+          record: check => {
+            this.recordDecisionCheck(check);
+            hooks.onText(`${stage}: ${check.status}: ${check.decision}\n`);
+          },
+        });
+        } finally { checkingDecision = false; }
+        decisionUsage = checked.usage; decisionRequests = checked.modelRequests ?? 0;
+        decisionContext = checked.block ?? undefined;
+        if (!checked.ok) {
+          this.status = 'failed';
+          this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: checked.note });
+          return checked;
+        }
+        checkedPrompt = withExtra(prompt, checked.block ?? '');
+        this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt: checkedPrompt });
+      }
       await inv.beforeExecutor?.();
 
       const executor = this.executorFor(stage);
 
       // Шаг рантайма до хода модели (независимое ревью verify): его блок подклеивается к
       // промпту хода, а готовый исход, если он есть, заменяет сам ход.
-      const pre = (await inv.preTurn?.(prompt, agents, hooks)) ?? { block: null, skip: null };
-      const stagePrompt = pre.block === null ? prompt : withExtra(prompt, pre.block);
+      const pre = (await inv.preTurn?.(checkedPrompt, agents, hooks)) ?? { block: null, skip: null };
+      const stagePrompt = pre.block === null ? checkedPrompt : withExtra(checkedPrompt, pre.block);
 
-      let result: StageResult = pre.skip !== null
-        ? pre.skip
-        : await executor.run(
-        {
+      // Последняя находка собственной проверки этапа, выданная стражем. Нужна пересчёту
+      // после доборов ниже: переворачивать исход можно, только если этап упал ИМЕННО на
+      // ней, — иначе провал по бюджету, лимиту ходов или анти-циклу при молчащем страже
+      // становился бы зелёным (code-review-all 2026-09-23).
+      let lastStageProblem: string | null = null;
+      // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
+      // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
+      const finishGuard = (): string | null => {
+        if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+          const invariants = checkInvariants(this.paths, this.project.projectRoot);
+          if (!invariants.passed) return invariants.result;
+        }
+        const missing = notDone();
+        if (missing.length > 0) {
+          return (
+            `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
+            `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
+          );
+        }
+        // Своя проверка этапа в его же ходу (полнота intent, фактичность карты разведки,
+        // разбор последствий плана): находка нужна модели, пока она ещё здесь.
+        lastStageProblem = inv.finishProblem?.() ?? null;
+        return lastStageProblem;
+      };
+
+      await inv.beforeModel?.(hooks, seeded);
+      const execRequest: ExecRequest = {
+          ...(guided ? { guidedEngineVersion: guided.engineVersion ?? 1 } : {}),
+          ...((guided?.engineVersion ?? 1) >= 2 ? { progress: new GuidedProgress(this.paths,
+            summary => this.flow().record('guided_progress', summary, 'Рантайм', 'Рантайм', stage)) } : {}),
           prompt: stagePrompt,
+          ...(decisionContext === undefined ? {} : { decisionContext }),
           cwd: this.project.projectRoot,
           model: route.model,
           allowedTools: this.toolsFor(stage),
           readOnlyDirs: this.readOnlyRoots,
           subagents: agents,
           mcp,
-          // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
-          // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
-          finishGuard: () => {
-            const missing = notDone();
-            if (missing.length > 0) {
-              return (
-                `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
-                `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
-              );
-            }
-            // Своя проверка этапа в его же ходу (полнота intent, фактичность карты разведки,
-            // разбор последствий плана): находка нужна модели, пока она ещё здесь.
-            return inv.finishProblem?.() ?? null;
-          },
+          finishGuard,
           // Спасение напечатанного артефакта: модель составила его правильно, но не
           // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
           salvageFromText: (text) => this.salvageFromText(text, produced, stage),
-          maxTurns: this.maxTurnsFor(stage),
+          maxTurns: this.maxTurnsFor(stage) - decisionRequests,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
           // Сигнал прогресса анти-цикла — у этапа свой (записи отчёта verify, принятые правки
@@ -2593,23 +3157,52 @@ ${block}`;
           // до диска (LoopExecutor кладёт его в ToolContext, SdkExecutor — в свой MCP-сервер).
           stageArtifacts: this.stageArtifacts(stage),
           signal: this.aborter.signal,
-        },
-        hooks,
-      );
+        };
+      let result: StageResult = pre.skip !== null ? pre.skip : await executor.run(execRequest, hooks);
+      this.flow().record('executor_result', result, 'Исполнитель', 'Рантайм', stage);
 
       // Доборы рантайма после хода, до дозаполнения по полям и ансамбля (добор пунктов и
       // записи отчёта verify, добор осей plan): оба обязаны видеть уже внесённое.
       await inv.afterTurn?.(stagePrompt, this.aborter.signal);
+
+      // Страж завершения (`finishProblem`) отвечал ВНУТРИ исполнителя — ДО доборов
+      // `afterTurn`, и его вердикт про записанное добором ничего не знает: строки уже в
+      // артефакте, а этап падает со списком находок, снятым до добора (живой замер
+      // test24e, 2026-09-22: `planAxisFill` дописал все 6 осей в plan.md — запись
+      // `axis-fill-0` одобрена гейтом, — а этап отчитался «нет строк для осей» протухшим
+      // текстом стража). Пересчёт только там, где есть И страж, И добор (сегодня это
+      // `plan`), и ход не сломан по среде: добор, закрывший последнюю находку, этап
+      // спасает; оставшиеся находки идут в заметку свежим текстом. Какие провалы
+      // пересчитываются — см. `recheckGuardAfterTopUp`.
+      if (inv.afterTurn !== undefined && !this.aborter.signal.aborted) {
+        // Провал на оформлении спасается здесь только у этапа без своего дозаполнения
+        // (`formFinish`, сегодня это plan): у остальных его спасает `finishFormArtifact` ниже
+        // — со своими проверками честности и правки кода, которые здесь обходить нельзя.
+        const formComplete =
+          inv.formFinish === undefined
+            ? () =>
+                produced.every((p) => {
+                  const a = readArtifact(p);
+                  return a.exists && countPlaceholdersExceptDecisions(a.text) === 0;
+                })
+            : () => false;
+        result = recheckGuardAfterTopUp(result, lastStageProblem, finishGuard, formComplete);
+      }
 
       // Дозаполнение артефакта этапа по полям (`ModelDef.formFill`) — ПОСЛЕ хода: модель с
       // готовым содержанием не должна сгорать на оформлении бланка. Что дозаполнять и на
       // каких условиях, говорит этап (`formFinish`); этап закрывается ТОЛЬКО если исполнитель
       // упал именно на оформлении и после дозаполнения на диске всё на месте.
       const finish = inv.formFinish?.(result) ?? null;
+      const handoffPlaceholderRescue = finish !== null && mod.guidedPlaceholderRescue === true && guided !== null &&
+        countPlaceholdersExceptDecisions(readArtifact(finish.path).text) === 1;
       if (
         finish !== null &&
+        // Guided executors own their bounded repair loops; a failed judgment must
+        // not fall through to legacy form filling (nor become a success there).
+        (guided === null || result.ok || handoffPlaceholderRescue) &&
         route.flow === 'loop' &&
-        (route.formFill || finish.forced) &&
+        (route.formFill || finish.forced) && (!isPreparationV2(this.paths) || guided !== null) &&
         !this.aborter.signal.aborted
       ) {
         result = await this.finishFormArtifact(
@@ -2631,12 +3224,29 @@ ${block}`;
       }
 
       await inv.afterForm?.(prompt, def, agents, hooks);
+      // A substantive review finding is repair feedback, not a terminal format
+      // failure. Only a new independent review may approve the repaired revision.
+      if (result.ok && pre.skip === null && mod.repairFeedback !== undefined) {
+        for (let revision = 0; revision < 2 && !this.aborter.signal.aborted; revision++) {
+          const feedback = mod.repairFeedback(this.host);
+          if (feedback === null) break;
+          this.emit({ type: 'warning', runId: this.id, stage, message: `${feedback} (${revision + 1}/2)` });
+          const remainingTurns = execRequest.maxTurns - (result.modelRequests ?? 0);
+          if (remainingTurns <= 0) break;
+          const repaired = await executor.run({ ...execRequest, maxTurns: remainingTurns }, hooks);
+          this.flow().record('executor_result', repaired, 'Исполнитель', 'Рантайм', stage);
+          result = { ...repaired, usage: addUsage(result.usage, repaired.usage), modelRequests: (result.modelRequests ?? 0) + (repaired.modelRequests ?? 0) };
+          if (!repaired.ok) break;
+          await inv.afterForm?.(prompt, def, agents, hooks);
+        }
+      }
 
       // Отмена проверяется ДО записи улик. Иначе отменённый этап затирал патч предыдущего
       // состояния снимком наполовину сделанного дерева (а при прерванном сигнале git
       // отдаёт пустой вывод, то есть улика подменялась ложным «правок нет») и запускал
       // тест-сьют, который уже некому ждать.
       const cancelled = this.aborter?.signal.aborted === true;
+      if (decisionRequests) result = { ...result, usage: addUsage(decisionUsage, result.usage), modelRequests: decisionRequests + (result.modelRequests ?? result.turns ?? 0) };
 
       // Улики этапа производит рантайм, а не исполнитель (патч и тесты chunk) — и только у
       // неотменённого этапа.
@@ -2646,13 +3256,21 @@ ${block}`;
 
       if (cancelled) {
         this.status = 'cancelled';
-        const note = 'этап отменён оператором';
+        const reason: unknown = this.aborter?.signal.reason;
+        const note = this.cancelRequested ? 'этап отменён оператором'
+          : `этап прерван рантаймом: ${reason instanceof Error ? reason.message : String(reason ?? 'причина не указана')}`;
         this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note });
         return { ...result, ok: false, note };
       }
 
       // Вердикт этапа (verify) — сразу после хода, по только что записанному отчёту.
       await inv.verdict?.();
+      if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+        const invariants = checkInvariants(this.paths, this.project.projectRoot);
+        this.flow().record('guided_invariants', invariants, 'Рантайм', 'Рантайм', stage);
+        if (!invariants.passed) result = { ...result, ok: false, note: invariants.result,
+          failure: { kind: 'checks', origin: 'chunk', retryStage: 'chunk', reason: invariants.result } };
+      }
 
       // Последнее слово об исходе — за диском, а не за исполнителем. Модель, объявившая
       // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,
@@ -2672,11 +3290,20 @@ ${block}`;
           ? { ...result, ok: false, note: stageProblem }
           : result;
 
+      chargeGuided();
+      if (guided) this.aborter?.signal.throwIfAborted();
       this.status = outcome.ok ? 'done' : 'failed';
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
       return outcome;
     } catch (e) {
       const message = (e as Error).message;
+      if (this.cancelRequested && this.aborter?.signal.aborted) {
+        this.status = 'cancelled';
+        this.gate.cancelRun(this.id, 'этап отменён оператором');
+        this.askGate.cancelRun(this.id);
+        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: 'этап отменён оператором' });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: 'этап отменён оператором' };
+      }
       this.status = 'failed';
       this.gate.cancelRun(this.id, `этап оборван: ${message}`);
       this.askGate.cancelRun(this.id);
@@ -2692,11 +3319,16 @@ ${block}`;
         ...(e instanceof ProviderEnvError ? { envFailure: message } : {}),
       };
     } finally {
+      if (guidedTimer) { clearInterval(guidedTimer); chargeGuided(); }
+      if ((guided?.engineVersion ?? 1) >= 2) this.flow().record('guided_progress', new GuidedProgress(this.paths).summary(), 'Рантайм', 'Рантайм', stage);
       stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;
       // Снапшот после КАЖДОГО этапа: виток переживает пересоздание `Run`, и метрики
       // обязаны переживать его вместе с ним.
       this.writeMetricsSnapshot();
+      this.flow().changes();
+      try { this.flow().writeHtml(); }
+      catch (error) { console.error(`[flow] HTML не записан: ${(error as Error).message}`); }
     }
   }
 

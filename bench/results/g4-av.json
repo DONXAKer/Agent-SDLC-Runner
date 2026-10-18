@@ -1,0 +1,582 @@
+{
+  "run": {
+    "slug": "g4-av",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-selfreview",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T04:24:56.650Z",
+    "finishedAt": "2026-10-03T04:30:24.756Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 20
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "шаг 1 адресован src/index.ts, но его действие описывает src/validate.ts; перепиши действие для файла карточки.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 64
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 18761,
+          "outputTokens": 1082,
+          "cacheReadTokens": 14537,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 112326
+        },
+        "durationMs": 61515,
+        "requestDurationsMs": [
+          17852,
+          19358,
+          20655,
+          3138,
+          5644,
+          11351,
+          1648,
+          3505,
+          16887,
+          10343,
+          1953
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 112812,
+          "outputTokens": 1448,
+          "cacheReadTokens": 83375,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 98302
+        },
+        "durationMs": 82398,
+        "requestDurationsMs": [
+          23200,
+          8794,
+          5337,
+          4782,
+          2536,
+          1861,
+          1616,
+          1801,
+          1866,
+          2064,
+          1969,
+          2107,
+          1937,
+          1587,
+          922,
+          2985,
+          4610,
+          7640,
+          8429,
+          10165,
+          2107
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 385034,
+          "outputTokens": 3430,
+          "cacheReadTokens": 365389,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 369641
+        },
+        "durationMs": 183020,
+        "requestDurationsMs": [
+          5822,
+          17548,
+          19713,
+          2027,
+          3395,
+          4873,
+          2975,
+          7155,
+          9234,
+          2208,
+          3589,
+          5052,
+          2328,
+          4386,
+          7403,
+          1981,
+          3636,
+          5209,
+          2299,
+          4457,
+          6052,
+          1565,
+          2937,
+          4703,
+          2171,
+          4196,
+          6452,
+          1810,
+          3222,
+          4793,
+          2266,
+          4377,
+          6739,
+          2284,
+          3747,
+          5251,
+          1398,
+          3248,
+          13386,
+          4862,
+          6391,
+          8331,
+          8160,
+          13598,
+          20616,
+          1806,
+          3642,
+          5411,
+          1664,
+          5919,
+          7489,
+          2224,
+          4982,
+          7980,
+          3827,
+          5840,
+          9460,
+          6523,
+          12327,
+          14288,
+          3048,
+          5253,
+          8300,
+          1855
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 11
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 17
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 25
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:30a9124c-db90-4a11-9176-35999764f4c8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:8c4ccb42-eda6-4138-a3ee-c62723e52a53",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:c6fbb5a3-e746-42da-a0ab-2f9576dc23a7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:c1d49c22-2783-46f8-9f0c-e3e948b033af",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:2c7cf821-3642-42db-bb61-16c914217fbc",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:c641d9a9-ca66-4725-8100-e325ee5d3b9b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:fe91da67-f4e9-4413-8040-41601543549d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\g4-av\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Открытый вопрос задавай лишь о решении, которого нет в задаче и предоставленных исходниках."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11101,
+        "userChars": 4126,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9409,
+        "userChars": 14804,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 19141,
+        "userChars": 17766,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-41b7ec04-2253-4abc-975f-04fde0f31bdd-1",
+        "questionId": "intent-open-0",
+        "text": "Открытый вопрос задавай лишь о решении, которого нет в задаче и предоставленных исходниках."
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "c3b4ba81d550df89c6cade5af2361281abb708965699c638f7026346dfd7fb47",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "215c50f923fc50eb45c78f002bb84a032f06f8d24649b1b6e9fef309e8ae0e9c",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 2700000
+    },
+    "workspaceHash": "44e6f25eb312647f7acb4db62a0b3dadf0859c951e36e4bb3d3fefbc0a0165cc",
+    "state": "finished",
+    "capturedAt": "2026-10-03T04:30:24.779Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-03T04:30:24.753Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "633850b36427b3bad3f7c221c01692bc482b87d49b5d04f284976ba717596396",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "b02da0481deb494cc4054df8b18222b48df6ed2e449703d99893defdc735f5fd",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "35c4d930402010e0c5d2acbf1d32a5c32bb795c5c861e7a4d533395b4e1b4342",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "04bd083a1b581ee2f96d92bf25e8e5038c262e96f903bb11281056f43f101cee",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "071ae754094f77f1ed504b2c7737605ddad13b03efe8e0b5dbfe51cf576f9f49",
+        "placeholders": 25,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "5bf7778472127c5331ed071f606d41f2667f8ff8a655efef65b716cb5a3353c4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

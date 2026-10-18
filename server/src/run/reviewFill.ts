@@ -34,7 +34,9 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
 import type { AxisName } from '../artifacts/planAxes.ts';
 import { normalize } from '../exec/normalize.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { packForClaim, splitHunks, topFileForClaim, type Hunk } from './claimEvidence.ts';
+import { guidedReview } from './guidedVerificationProtocol.ts';
 
 /** Строка осей плана, как её видит конвейер: имя, затронута ли по плану, исход как есть. */
 export interface AxisAsk {
@@ -44,6 +46,10 @@ export interface AxisAsk {
 }
 
 export interface ReviewFillInput {
+  onValidation?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
+  guided?: boolean;
+  taskData?: unknown;
+  sourceHunks?: Hunk[];
   provider: ChatProvider;
   model: string;
   params: Record<string, unknown> | null;
@@ -276,7 +282,13 @@ export function parseAxisAnswer(
   return call.kind === 'record_finding' ? call : null;
 }
 
-function systemPrompt(taskContext: string): string {
+/**
+ * Экспортирована для рецензентских кейсов пробы (`probe.ts`, критерий 3 квалификации
+ * рецензента, `docs/proposals/reviewer-qualification.md`): проба обязана задавать РОВНО
+ * тот же вопрос, что реальный `reviewFill`, а не похожий текст — иначе она предсказывает
+ * не тот протокол, который потом измеряется дорогим прогоном.
+ */
+export function systemPrompt(taskContext: string): string {
   return [
     'Ты — независимый рецензент правки кода. Твоя цель — опровергнуть, что сделано нужное,',
     'но только по тому, что видно в показанном фрагменте: не гадай о коде, которого не видишь.',
@@ -288,7 +300,8 @@ function systemPrompt(taskContext: string): string {
   ].join('\n');
 }
 
-function hunkQuestion(h: Hunk, n: number, total: number): string {
+/** Экспортирована для рецензентских кейсов пробы — см. докстринг `systemPrompt` выше. */
+export function hunkQuestion(h: Hunk, n: number, total: number): string {
   return [
     `## Фрагмент ${n} из ${total} — файл \`${h.file}\``,
     '',
@@ -311,9 +324,8 @@ function hunkQuestion(h: Hunk, n: number, total: number): string {
 function axisBlock(n: number, axis: AxisAsk, pack: string): string {
   const declared = axis.affected === true;
   return [
-    declared
-      ? `### ${n}. Ось «${axis.name}» — в плане объявлена ЗАТРОНУТОЙ`
-      : `### ${n}. Ось «${axis.name}» — в плане объявлена НЕ затронутой`,
+    `### ${n}. Ось «${axis.name}» — ${axis.affected === null ? 'не указана в плане' : declared ? 'в плане объявлена затронутой' : 'в плане объявлена незатронутой'}`,
+    axis.affected === null ? 'Статус отсутствует: самостоятельно определи по diff, затрагивает ли правка эту ось.' : '',
     '',
     `Что считается затрагиванием: ${axisHint(axis.name)}.`,
     axis.outcomeRaw.trim() === '' ? '' : `Исход по плану: ${axis.outcomeRaw.trim()}`,
@@ -357,6 +369,9 @@ function axesCombinedQuestion(axes: readonly AxisAsk[], packs: readonly string[]
     'для незатронутой — «правка эту ось не трогает».',
     '`N. да | что именно | файл:строка` — для затронутой: что НЕ покрыто заявленным исходом;',
     'для незатронутой: что именно трогает эту ось.',
+    'В «что именно» назови конкретный эффект по определению оси и его причинную связь с кодом.',
+    'Само добавление функции или константы не означает изменения совместимости: укажи прежний публичный контракт, вызывающего или формат данных, на который оно влияет.',
+    'Не заменяй описание эффекта пересказом diff. Если такого эффекта по этой оси нет, ответь `N. нет`.',
     'Ничего, кроме этих строк, не пиши.',
   ].join('\n');
 }
@@ -420,14 +435,20 @@ const REVIEW_PARALLEL = 3;
  * не объединяются — разбиение по хункам защищает recall, а не время (докстринг модуля).
  */
 export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResult> {
-  const hunks = splitHunks(i.diff);
+  const hunks = i.sourceHunks ?? splitHunks(i.diff);
   const slices = sliceHunks(hunks, i.hunkBudgetBytes);
-  const system = systemPrompt(i.taskContext);
+  if (i.guided) return guidedReview(i, slices, DEFECT_CHECKLIST, axisHint);
+  const system = systemPrompt(i.taskContext) + (i.sourceHunks ? '\nПравок нет. Показаны текущие исходники. Проверь существующее поведение по требованиям; не считай показанный код новым изменением.' : '');
   const findings: NormalizedCall[] = [];
   let hunksAnswered = 0;
   let axesAnswered = 0;
 
-  const ask = async (user: string): Promise<string | null> => {
+  // Мишень корпуса `reviewFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
+  // `bench/src/corpus.ts`): до этой правки трасса писалась (`host.trace('verify',
+  // 'reviewFill')`), а метку не ставил никто — три из пяти заявленных обучаемых режимов
+  // были структурно недостижимы (code-review-all, 2026-09-27). Возвращает путь дампа вместе
+  // с текстом — вызывающий размечает его САМ, зная свой оракул (по хунку или по осям).
+  const ask = async (user: string): Promise<{ text: string; rawLogPath: string | null } | null> => {
     try {
       const r = await i.provider.chat({
         model: i.model,
@@ -441,7 +462,7 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
         params: i.params,
       });
       i.onUsage?.(r.usage);
-      return r.text;
+      return { text: r.text, rawLogPath: r.rawLogPath ?? null };
     } catch (e) {
       i.onProgress?.(`вопрос не отвечен: ${(e as Error).message}`);
       return null;
@@ -464,7 +485,18 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
       const answer = a.status === 'fulfilled' ? a.value : null;
       if (answer === null) continue;
       hunksAnswered++;
-      findings.push(...parseFindingAnswer(answer, h.file));
+      const parsed = parseFindingAnswer(answer.text, h.file);
+      // Оракул — механический: «нет» в закрытой форме или хотя бы одна разобравшаяся
+      // находка. Непустой ответ без единой распознанной строки — класс «оформитель»
+      // (докстринг модуля), а не пропущенный дефект: нормализатор его не примет, но и
+      // отличать от «дефектов нет» корпусу нужно.
+      annotateExchange(answer.rawLogPath, {
+        accepted: isNoAnswer(answer.text) || parsed.length > 0,
+        oracle: 'record-finding-parse',
+        target: 'review-fill-hunk',
+        reason: isNoAnswer(answer.text) ? 'accepted' : parsed.length > 0 ? 'accepted' : 'unparsed',
+      });
+      findings.push(...parsed);
     }
   }
 
@@ -479,13 +511,23 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
     i.onProgress?.(`оси одним запросом: ${i.axes.map((a) => a.name).join(', ')}`);
     const answer = await ask(axesCombinedQuestion(i.axes, packs));
     if (answer !== null) {
-      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer, fallbackFiles);
+      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer.text, fallbackFiles);
       // Успешный ОТВЕТ (запрос не упал) засчитывает конвейеру ВСЕ оси — контракт
       // `axesAnswered`/`axesAsked` про «рантайм провёл обмен», а не «модель ответила
       // по форме на каждую строку»; см. докстринг `ReviewFillInput.onUsage` — тот же
       // принцип уже действует для `hunksAnswered` (падение самого запроса, не разбора).
       axesAnswered = i.axes.length;
       findings.push(...axisFindings);
+      // Метка корпуса — по строгому контракту формы («ровно N строк, в том же порядке»,
+      // см. `axesCombinedQuestion`): каждая ось обязана попасть в `answeredIdx` независимо
+      // от да/нет содержимого строки. Неполный разбор — тот же класс «оформитель», что и у
+      // хунков выше, просто на всю пачку осей одним обменом.
+      annotateExchange(answer.rawLogPath, {
+        accepted: answeredIdx.size === i.axes.length,
+        oracle: 'record-finding-parse',
+        target: 'review-fill-axes',
+        reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
+      });
       if (answeredIdx.size < i.axes.length) {
         i.onProgress?.(`ответ по осям неполон: разобрано ${answeredIdx.size} из ${i.axes.length} строк`);
       }

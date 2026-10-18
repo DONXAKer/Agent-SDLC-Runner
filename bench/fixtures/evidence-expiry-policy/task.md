@@ -1,0 +1,2 @@
+Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.
+Preserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.

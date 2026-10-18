@@ -14,7 +14,10 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { isPreparationV2, preparationContext } from '../artifacts/preparation.ts';
+import { preparationFieldInstructions, preparationInstructions } from './preparation.ts';
 import { capBytes } from './bytes.ts';
+import { TASK_INDEPENDENT_IMPLEMENTATION } from './implementationPolicy.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../explore/render.ts';
 import { BYTES_PER_TOKEN_ESTIMATE } from '../exec/contextBudget.ts';
 import type { ExploreIndexView } from '../explore/view.ts';
@@ -76,6 +79,7 @@ export interface BuildPromptInput {
   tools?: readonly ToolName[];
   /** Формулировка задачи от человека — только на этапе 1, где артефакта ещё нет. */
   requirement?: string;
+  preparationV2?: boolean;
   /** `retry_instruction` и `carry_forward` при возврате с этапа 6, и подобное. */
   extra?: string;
   /**
@@ -143,6 +147,14 @@ export interface BuildPromptInput {
    */
   formFill?: boolean;
   /**
+   * Промпт для предварительной проверки решения в guided-режиме. В этом режиме рантайм сам
+   * задаёт узкие вопросы по полям, поэтому инструкции по заполнению полей (`formFill`) не
+   * должны попадать в тот же промпт, где system требует JSON `{decision,next}`: слабые
+   * модели воспринимают это как конфликт форматов и возвращают `blocked` вместо оценки
+   * готовности (qwen3.8-27b-iq4, v5).
+   */
+  decisionCheck?: boolean;
+  /**
    * Индекс проекта для этапа 2 (`ModelDef.exploreIndex`/`exploreFill`): дерево, символы,
    * файлы-кандидаты, кандидаты на переиспользование и механизмы по осям — считает
    * `stages/explore.ts::exploreIndexFor`, здесь только рендер под потолок флоу (`INDEX_BLOCK_BYTES`).
@@ -164,15 +176,64 @@ export interface BuildPromptInput {
 }
 
 export function readSkillBody(skillsDir: string, skill: string): string {
+  if (skillsDir === '') {
+    throw new Error(
+      'не задан каталог текстов этапов: нет ни skillsDir, ни methodologyDir. Задай путь к эталону ' +
+        'методологии в config/runner.local.json (methodologyDir) или в SDLC_METHODOLOGY_DIR — ' +
+        'тексты этапов берутся из его implementations/claude-code/skills.',
+    );
+  }
   const file = join(skillsDir, skill, 'SKILL.md');
   if (!existsSync(file)) {
     throw new Error(
       `не найден текст этапа: ${file}\n` +
         `Рантайм читает этапы из эталона методологии, а не хранит свои копии. ` +
-        `Проверь skillsDir в config/runner.json.`,
+        `Проверь methodologyDir/skillsDir в config/runner.local.json (или SDLC_METHODOLOGY_DIR/SDLC_SKILLS_DIR).`,
     );
   }
-  return stripFrontmatter(readFileSync(file, 'utf8'));
+  return stripRunnerMarkers(stripFrontmatter(readFileSync(file, 'utf8')), MECHANICAL_DONE);
+}
+
+/**
+ * Механика скилла, которую рантайм уже делает сам, — ключи маркеров
+ * `<!-- runner:mechanical:<ключ> -->` в эталоне. Блок с ключом отсюда вырезается из текста
+ * этапа; с ключом из `MECHANICAL_KEYS`, но не отсюда — остаётся модели: иначе поле, которое
+ * никто не заполнит, останется плейсхолдером и покраснит страж.
+ */
+export const MECHANICAL_DONE: ReadonlySet<string> = new Set([
+  'branch-field',
+  'run-dates',
+  'seed-files-to-touch',
+  'readiness-run1-header',
+]);
+
+/** Все ключи, которые эталон вправе ставить; неизвестный ключ — ошибка теста по реальным скиллам. */
+export const MECHANICAL_KEYS: ReadonlySet<string> = new Set([
+  ...MECHANICAL_DONE,
+  'gates-implemented-by',
+  'readiness-run1-checks',
+  'readiness-run2-checks',
+  'plan-callers',
+  'handoff-readiness-table',
+  'handoff-observations',
+]);
+
+const RUNNER_SKIP_RE = /<!--\s*runner:skip\s*-->[\s\S]*?<!--\s*\/runner:skip\s*-->/g;
+const RUNNER_MECHANICAL_RE = /<!--\s*runner:mechanical:([\w-]+)\s*-->[\s\S]*?<!--\s*\/runner:mechanical\s*-->/g;
+
+/**
+ * Вырезает из текста этапа блоки, которые под раннером не исполняются: `runner:skip` —
+ * всегда (команды `python`-инструментов, Task-субагенты, `ExitPlanMode` — под раннером это
+ * рантайм; verify получал 36 KB текста с Phase 0–4, уже сделанными программой), `runner:
+ * mechanical:<ключ>` — только при ключе из `done`. Незакрытый маркер остаётся как есть:
+ * регулярка ленивая до закрывающего, без него совпадения нет — текст не портится.
+ */
+export function stripRunnerMarkers(text: string, done: ReadonlySet<string>): string {
+  return text
+    .replace(RUNNER_SKIP_RE, '')
+    .replace(RUNNER_MECHANICAL_RE, (full, key: string) => (done.has(key) ? '' : full))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** YAML-шапка скилла — метаданные для Claude Code, модели она не нужна. */
@@ -203,23 +264,35 @@ function adapterBlock(i: BuildPromptInput): string {
     'Текст этапа выше — эталонный; ниже отличия, которые надо учесть.',
     '',
     `- Slug витка: \`${i.slug}\`. Артефакты витка: \`${sdlcDir}/\`, набор гейтов: \`.sdlc/gates.md\`.`,
-    `- Формы артефактов лежат в \`${templates}\` — это каталог МЕТОДОЛОГИИ, он открыт только ` +
-      `на чтение. Артефакты витка пишутся в \`${sdlcDir}/\` и больше никуда: копировать формы ` +
-      'в проект не надо, читай их на месте.',
+    // Абсолютный путь к формам печатается только когда бланки НЕ разложены: при разложенных
+    // модель брала этот путь за корень витка — `FinalizeArtifact D:/…/agent-sdlc/.sdlc/…`
+    // (gpt-oss-20b, 2026-09-24: 7 отказов «не артефакт этого этапа» за три прогона).
     ...((i.seededArtifacts ?? []).length > 0
       ? [
           `- Формы уже разложены по местам: ${(i.seededArtifacts ?? []).join(', ')}. Это пустые ` +
             'бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — ' +
-            'своё содержимое. Создавать документ заново не нужно.',
+            'своё содержимое. Создавать документ заново не нужно; каталог методологии открыт ' +
+            `только на чтение, артефакты витка пишутся в \`${sdlcDir}/\` и больше никуда.`,
         ]
-      : []),
+      : [
+          `- Формы артефактов лежат в \`${templates}\` — это каталог МЕТОДОЛОГИИ, он открыт только ` +
+            `на чтение. Артефакты витка пишутся в \`${sdlcDir}/\` и больше никуда: копировать формы ` +
+            'в проект не надо, читай их на месте.',
+        ]),
     `- Вместо \`AskUserQuestion\` вызывай \`${askTool}\`: этап встаёт на паузу, пока человек не ` +
       'ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, ' +
       'один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.',
     `- Вместо \`ExitPlanMode\` бери одобрение тем же \`${askTool}\`.`,
-    '- Решение человека записывай полем в артефакт: молчание одобрением не считается, ' +
+    // Поля решений записывает оператор после этапа (`Run.recordDecision`), а модели такая
+    // запись отклоняется гейтом (`humanDecision.ts`). Прежняя строка «эти значения подставляй
+    // в поля решений» велела делать ровно то, что запрещено: gpt-oss-20b, 2026-09-24 —
+    // 7+5 отказов `[humanDecision]` за прогон и один испорченный бланк.
+    `- Решение человека получай через \`${askTool}\`: молчание одобрением не считается, ` +
       'а одобрение, оставшееся в переписке, для следующего этапа не существует.',
-    `- Оператор: **${i.runner.operator}**. Сегодня: **${date}**. Эти значения подставляй в поля решений.`,
+    '- Поля решений человека (**Подтвердил**, **Одобрение**, **Решение человека о полноте**, ' +
+      '**Приёмка**, «Кто утвердил») НЕ заполняй и их строки не трогай — их записывает оператор ' +
+      'после этапа своим решением.',
+    `- Оператор: **${i.runner.operator}**. Сегодня: **${date}** — только для справки в тексте.`,
     `- Текущий chunk: **${i.ctx.chunk}**, попытка: **${i.ctx.attempt}**.`,
     ...(i.formFill === true
       ? [
@@ -296,6 +369,42 @@ function adapterBlock(i: BuildPromptInput): string {
     // который читают и скиллы `/sdlc-*`.
     ...(i.stage.id === 'chunk'
       ? [
+          // Гейт «Scope: пути плана без правок» (planCoverageGate) полностью механический:
+          // читает git diff против files_to_touch и роняет вердикт `❌`, минуя `⏭` — строка
+          // объяснения в отчёте его не зеленит (проверено по коду: ⏭-override строкой
+          // неприменимости применим только к гейту со статусом `⏭`, а этот гейт при
+          // непокрытом пути возвращает `❌` напрямую). Модель узнавала об этом только
+          // постфактум красным вердиктом (s3-gptoss-inputs-rename-field, 2026-09-25).
+          // Прежняя версия правила советовала «спроси AskHuman, чтобы путь сняли из
+          // плана» — на chunk такого механизма нет: ни `onAskHuman`, ни
+          // `RequestScopeExtension` (умеет только ДОБАВЛЯТЬ путь) `files_to_touch` не
+          // редактируют. Совет тратил один из ограниченных вопросов и оставлял гейт
+          // красным (code-review-all, 2026-09-26) — исправлено на факт, а не выдуманный
+          // путь снятия.
+          '- Каждый путь из `files_to_touch` плана обязан получить РЕАЛЬНУЮ правку до конца ' +
+            'этапа — гейт «Scope: пути плана без правок» падает механически по git diff, и ' +
+            'никакое объяснение в отчёте это не отменяет. Путь оказался не нужен — это ' +
+            `расхождение с одобренным планом, а не то, что снимается по ходу: \`${askTool}\` ` +
+            'здесь `files_to_touch` не редактирует, снять путь может только новая редакция ' +
+            'плана с новым одобрением человека. Не можешь сделать по нему реальную правку — ' +
+            'честно запиши это в журнале и продолжай остальные пункты; гейт останется ' +
+            'красным до правки плана, и это ожидаемо, а не повод выдумывать правку ради галочки.',
+          // «Тесты» гоняет всю команду одной строкой и не отличает свою регрессию от чужой
+          // — с3-ministral3-vat-rounding уронил `node --test` собственным новым файлом
+          // (`ReferenceError: deno is not defined`), 2026-09-25.
+          '- Новый тестовый файл — прогони его ОТДЕЛЬНО (`Bash`, `node --test <файл>`) и ' +
+            'убедись, что он зелёный и не ломает импорты, прежде чем считать ход законченным: ' +
+            'гейт «Тесты» гоняет всю команду разом и падает от твоего же файла наравне с ' +
+            'чужой регрессией.',
+          // 8 из 13 отказов записи в s3-gptoss-inputs-rename-field (2026-09-25) были
+          // попытками сохранить сам патч отдельным файлом — путь вне files_to_touch,
+          // planScope отклоняет их той же политикой, что и любую другую запись не по плану.
+          '- Не сохраняй патч/diff своей правки отдельным файлом (`*.patch`, `*-diff.*`) — ' +
+            'итоговый патч попытки собирает рантайм сам. Такой путь не входит в ' +
+            '`files_to_touch` и будет отклонён записью, как любой другой путь не по плану.',
+          `- Место правки покажи одним \`${askTool}\` (файл:символ по точкам плана) и продолжай; ` +
+            'строку «Подтвердил» в журнале не редактируй — её заполнит решение оператора; ' +
+            'повторно о том же не спрашивай.',
           '- Прежде чем закончить этап, просмотри СВОЙ diff по углам ревью: построчно (что ' +
             'ломает каждую изменённую строку), удалённое поведение (какой инвариант держала ' +
             'каждая убранная строка и где он восстановлен), вызывающие изменённых функций, ' +
@@ -370,7 +479,7 @@ function adapterBlock(i: BuildPromptInput): string {
     // Без этой строки модель честно пытается исполнить инструкцию скилла, получает отказ
     // `Edit` и застревает в цикле «правка → отказ → „начать план?“» — измеренный #9
     // (`docs/model-runs.md`, 25 ходов на одном витке).
-    ...(i.stage.id === 'ask'
+    ...(i.stage.id === 'ask' && !isPreparationV2(i.ctx.paths)
       ? [
           '- `intent.md` защищён от записи на этом этапе — не пытайся закрывать чек-бокс ' +
             '«Открытые вопросы» задачи инструментом `Edit`, попытка отклонится. Как только ' +
@@ -410,8 +519,10 @@ function adapterBlock(i: BuildPromptInput): string {
           '- Часть шагов эталонного текста здесь УЖЕ ВЫПОЛНЕНА рантаймом, и повторять их ' +
             'нечем — оболочки на этом этапе нет: (1) патч попытки перегенерирован из ' +
             'рабочего дерева и сверен с артефактом этапа 5; (2) автоматические гейты набора ' +
-            'прогнаны, их фактический итог приложен ниже отдельным блоком; (3) таблица ' +
-            '«Гейты» и механические поля шапки отчёта уже заполнены фактами прогона; ' +
+            'прогнаны, их фактический итог приложен ниже отдельным блоком; (3) в таблице ' +
+            '«Гейты» строки прогнанных гейтов уже заполнены фактами прогона — тебе остаётся ' +
+            'строка «Ревью независимым агентом», если она есть; номера chunk и попытки в ' +
+            'шапке проставлены; ' +
             '(4) вердикт по таблице методологии считает рантайм, скрипт `flow-verdict.py` ' +
             'запускать не надо.',
           '- Пункты приёмки и находки записывай инструментами `RecordClaim` и ' +
@@ -423,12 +534,17 @@ function adapterBlock(i: BuildPromptInput): string {
             'доказательство, независимое ревью, scope в обе стороны, инварианты, регрессии. ' +
             'Статусы гейтов из приложенного блока переноси как есть, своим мнением их не ' +
             'переписывай.',
+          '- Среди входов ниже может быть `clarification-report.md` (этап 3) — ответы ' +
+            'человека на блокирующие вопросы задачи. Код обязан следовать этим ответам, а не ' +
+            'дословному тексту пункта приёмки, если ответ его уточнил (льгота, порог, формат): ' +
+            'разошёлся код с текстом claim-N, но совпал с ответом человека — назови это как ' +
+            'находку «приёмочный лист не обновлён после ответа», а не как расхождение claim-N.',
         ]
       : []),
     // Этап 7: эталонный текст велит агенту самому сделать «локальный коммит» (`SDLC.md` →
     // этап 7: «Делаю: локальный коммит…») — здесь это уже сделал рантайм, ДО хода модели
     // (`handoffModule.begin().afterStart`, `commitByRuntime`), и результат уже лежит в поле
-    // «Коммит» шапки этого отчёта. `Bash` на этапе не убран (другие пункты передачи его
+    // `commit:` секции «Состояние» этого отчёта. `Bash` на этапе не убран (другие пункты передачи его
     // используют), и без этой строки модель, честно следуя эталону, тратит ход на `git add`/
     // `git commit`, которому нечего коммитить, либо путается, увидев в истории чужой коммит
     // (ревью code-review-all, 2026-09-19 — тот же класс, что уже закрыт для `intent.md` на
@@ -437,8 +553,8 @@ function adapterBlock(i: BuildPromptInput): string {
       ? [
           '- Локальный коммит для этого витка уже сделан рантаймом ДО твоего хода — не ' +
             'пытайся коммитить сама `git add`/`git commit`: результат (sha или причина, ' +
-            'почему коммита не было) уже стоит в поле «Коммит» шапки этого отчёта, читай ' +
-            'его оттуда, а не выполняй заново.',
+            'почему коммита не было) уже стоит в строке `commit:` секции «Состояние» этого ' +
+            'отчёта, читай его оттуда, а не выполняй заново.',
         ]
       : []),
     // Остальные строки блока описывают то, что обеспечено конструкцией рантайма. Эта — про
@@ -491,7 +607,8 @@ function fillFieldFewShot(i: BuildPromptInput, path: string, text: string): stri
   );
   if (key === undefined) return null;
   const schema = deriveSchema(text, templateNameFor(path));
-  const field = modelFields(schema, i.stage.id)[0];
+  const fields = modelFields(schema, i.stage.id);
+  const field = fields[0];
   if (field === undefined) return null;
   const callJson = JSON.stringify({
     tool: 'FillField',
@@ -506,6 +623,12 @@ function fillFieldFewShot(i: BuildPromptInput, path: string, text: string): stri
     '  Метку поля («- **Метка:** …») в значении повторять не надо — рантайм сам найдёт ' +
       'место и нарисует разметку. Когда в артефакте не осталось `‹…›` — вызови ' +
       '`FinalizeArtifact` с путём артефакта.',
+    ...(i.stage.id === 'plan'
+      ? [
+          '- Допустимые точные `field` ID этого плана (используй их буквально; подписи в шаблоне могут повторяться): ' +
+            fields.map((item) => `\`${item.id}\``).join(', ') + '.',
+        ]
+      : []),
     '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе, самому вписывать `|` или ' +
       '`**`, спрашивать человека о том, что видно из кода.',
   ];
@@ -794,15 +917,20 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
     // потолка по байтам у него не было; на окне 16k локального контура он конкурирует за
     // то же место, что и план. Режется тем же потолком, что и патч прошлой попытки —
     // тело и обрезка посчитаны выше, до блока «Индекс проекта» (см. комментарий там).
-    parts.push('## Что чинить в этой попытке', '', extraBlockText);
+    // Бриф несёт свой заголовок («## Что не сошлось…»); вторая шапка над ним давала
+    // пустую секцию «Что чинить в этой попытке» — в трассах gpt-oss читалась как «чинить
+    // нечего».
+    parts.push(...(/^#{1,6}\s/.test(extraBlockText) ? [] : ['## Что чинить в этой попытке', '']), extraBlockText);
   }
 
   return parts.join('\n\n');
 }
 
 export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
-  const skillBody = readSkillBody(i.runner.skillsDir, i.stage.skill);
-  const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
+  const v2 = i.preparationV2 ?? isPreparationV2(i.ctx.paths);
+  const preparing = ['intent', 'explore', 'ask', 'plan'].includes(i.stage.id);
+  const skillBody = v2 && preparing ? preparationInstructions(i.runner.methodologyDir, i.stage.id, i.formFill === true) : readSkillBody(i.runner.skillsDir, i.stage.skill);
+  const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}\n\n${TASK_INDEPENDENT_IMPLEMENTATION}`;
 
   const specs = specsFor(i.tools ?? i.stage.tools);
   const tools = [
@@ -828,7 +956,14 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
           'не показан — всё остальное, что уйдёт в модель, видно ниже.'
         : null,
     system,
-    user: userMessage(i, Buffer.byteLength(system, 'utf8')),
+    user: [
+      userMessage(i, Buffer.byteLength(system, 'utf8')),
+      ...(v2 ? [
+        preparationContext(i.ctx.paths, i.stage.id),
+        ...(i.formFill === true && i.decisionCheck !== true ? [preparationFieldInstructions(i.stage.id)] : []),
+        ...(!preparing ? [preparationInstructions(i.runner.methodologyDir, i.stage.id)] : []),
+      ] : []),
+    ].filter(Boolean).join('\n\n'),
     tools,
     editedByOperator: false,
   };

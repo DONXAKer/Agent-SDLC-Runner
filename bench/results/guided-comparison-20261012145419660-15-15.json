@@ -1,0 +1,337 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 158602,
+    "remainingMs": 3441398,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T16:13:54.280Z",
+        "inputRevision": "23530cc48a2d9a83cf719303297e61c740b3ad8de3d6fa8e750dffda02adad9b",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "The intent request clearly specifies the new requirement to add a default due‑days configuration and the priority logic for setting it on invoices. The description contains all necessary business rules without contradictions or missing context for proceeding with implementation.",
+        "status": "ready",
+        "changed": false
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T16:16:26.734Z",
+        "inputRevision": "768b41a5b94cf7902487b77bc33e95a45fe0f7da3da52376ad7fd83b668ca6de",
+        "decision": "Решение ещё не получено",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012145419660-15-15",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T16:13:47.079Z",
+    "finishedAt": "2026-10-12T16:16:26.761Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 26231,
+          "outputTokens": 8131,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 213302
+        },
+        "durationMs": 146539,
+        "requestDurationsMs": [
+          6407,
+          6357,
+          14452,
+          26878,
+          15122,
+          31259,
+          42993,
+          11526,
+          27444,
+          30877
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 12946,
+          "outputTokens": 485,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 12472
+        },
+        "durationMs": 12584,
+        "requestDurationsMs": [
+          5912,
+          6560
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 5
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:1e3966b7-284c-4b22-8dd7-57ed4f1694fd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012145419660-15-15\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 6129,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 12457,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "3012d525bf187276df529521cfd2e1ea413b2beeb0e3e7ab024bddd73f6faeee",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "481655513ccadf718a78e4ac33b786f9b4fb1babcfdf6e4f77e2ca73cade6f70",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "f7fe85abe8e796c37d308823ef042fdba69e6041590eac5db68d510426d92f32",
+    "state": "finished",
+    "capturedAt": "2026-10-12T16:16:26.785Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-12T16:16:26.737Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "f335eb629123f8368a62889cbc5fbecc3deee20d9a92f7e9750e4e32e80f983c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "6a1424b4dcbeb2cbc980fe4df1c6c101751ab7ab4cb8817003ab048b8eac3786",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "231a7a582dfe210deb0160328935b26be712e76c3b4fc45227a8d36b22d819fc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "18a7f250d66842b1e4983edbe51190d023c808da1e23087a9c04ac726038425e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

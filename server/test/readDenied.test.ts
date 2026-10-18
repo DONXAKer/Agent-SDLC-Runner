@@ -38,7 +38,7 @@ describe('чтение, закрытое на этапе', () => {
   it('отчёт прошлой попытки не читается', () => {
     const v = evaluate(read('.sdlc/demo/verification-report-1-attempt-1.md'), ctx());
     strictEqual(v.ok, false);
-    ok(v.ok === false && v.policy === 'pathScope', JSON.stringify(v));
+    ok(v.ok === false && v.policy === 'readScope', JSON.stringify(v));
     ok(v.ok === false && /другой попытки/.test(v.reason), JSON.stringify(v));
   });
 

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "inventory-undo",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-Ku932j",
+  "baseCommit": "eebd209ff02397fac1d878f7c8bd11a1d0baa120",
+  "contract": {
+    "task": "Export createInventory(initial) from src/inventory.mjs. initial is a record of nonnegative safe integer quantities. Copy it on construction. Return {reserve(sku,quantity),release(token),available(sku)}. reserve requires positive safe integer quantity (RangeError otherwise), returns null for unknown SKU or insufficient stock, otherwise subtracts stock and returns a unique opaque token. release returns true and restores stock once for a token issued by this instance; unknown, foreign or already released token returns false. available returns current count, or zero for unknown SKU. Instances are independent.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export createInventory(initial) from src/inventory.mjs. initial is a record of nonnegative safe integer quantities. Copy it on construction. Return {reserve(sku,quantity),release(token),available(sku)}. reserve requires positive safe integer quantity (RangeError otherwise), returns null for unknown SKU or insufficient stock, otherwise subtracts stock and returns a unique opaque token. release returns true and restores stock once for a token issued by this instance; unknown, foreign or already released token returns false. available returns current count, or zero for unknown SKU. Instances are independent.",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": true,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/inventory-undo.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T18:05:13.685Z"
+}

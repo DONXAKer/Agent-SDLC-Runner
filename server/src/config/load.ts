@@ -4,11 +4,13 @@ import { join, resolve } from 'node:path';
 
 import { ORDER } from '../gates/ecosystems/index.ts';
 import { normalizeModuleDir } from '../gates/builtin/logic.ts';
+import { EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS } from './limits.ts';
 import type { McpSetup } from './mcp.ts';
 import { resolveMcp } from './mcp.ts';
 import type { StageId } from '@sdlc-runner/shared';
 
 import type { ModelsConfig, ProjectConfig, RunnerConfig } from './schema.ts';
+import { resolveReviewRoute } from './profiles.ts';
 
 /** Ключи вида `"// заметка"` в JSON — комментарии для человека; рантайм их игнорирует. */
 function readJson<T>(file: string): T {
@@ -57,6 +59,9 @@ const LIMIT_DEFAULTS = {
   gateTimeoutMs: 900_000,
   progressClosenessWarn: 0.9,
   chatTimeoutMs: 600_000,
+  // Запрос разведки ограничен по объёму (карточка файла) — две минуты с запасом; разбор
+  // 2026-10-05: два ~300-секундных висения съели 664 с из 12-минутного бюджета этапа.
+  exploreRequestTimeoutMs: EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS,
   localMaxToolResultBytes: 12_000,
   localHistoryBudgetBytes: 40_000,
 };
@@ -158,6 +163,10 @@ function envOverrides(): Partial<RunnerConfig> {
   if (skillsDir !== undefined) overrides.skillsDir = skillsDir;
   if (agentsDir !== undefined) overrides.agentsDir = agentsDir;
   if (methodologyDir !== undefined) overrides.methodologyDir = methodologyDir;
+  const benchDir = nonBlank(process.env['SDLC_BENCH_DIR']);
+  if (benchDir !== undefined) overrides.benchDir = benchDir;
+  const reviewModel = nonBlank(process.env['SDLC_REVIEW_MODEL']);
+  if (reviewModel !== undefined) overrides.reviewModel = reviewModel;
   const port = portOverride();
   if (port !== undefined) overrides.port = port;
   return overrides;
@@ -247,13 +256,36 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
   // настоящая причина («не задан skillsDir») называется позже и по делу.
   const expand = (v: string): string => (typeof v === 'string' ? expandUserPath(v) : v);
 
+  // Тексты этапов и субагенты по умолчанию берутся из ТОГО ЖЕ эталона, что и формы
+  // (`methodologyDir`): прежнее умолчание `~/.claude/skills` указывало на личную копию
+  // Claude Code, и на чистой машине тексты этапов и шаблоны приходили из разных версий
+  // методологии — старые скиллы при новых формах, без агента `sdlc-claims`
+  // (code-review-all 2026-09-23). Явное значение (runner.local.json, окружение) по-прежнему
+  // побеждает.
+  const methodologyDir = expand(merged.methodologyDir);
+  // Нет ни явного значения, ни эталона — пустая строка, а не `undefined` под видом строки:
+  // `join(undefined, …)` падал TypeError'ом без причины, а readOnlyRoots получал путь
+  // «undefined/templates». Пустой путь называет `readSkillBody` («не задан каталог»), а
+  // `readOnlyRoots` его отбрасывает.
+  const fromMethodology = (sub: string): string =>
+    typeof methodologyDir === 'string' && methodologyDir !== '' ? join(methodologyDir, 'implementations', 'claude-code', sub) : '';
   const runner: RunnerConfig = {
     ...merged,
-    skillsDir: expand(merged.skillsDir),
-    agentsDir: expand(merged.agentsDir),
-    methodologyDir: expand(merged.methodologyDir),
+    skillsDir: expand(nonBlank(merged.skillsDir) ?? fromMethodology('skills')),
+    agentsDir: expand(nonBlank(merged.agentsDir) ?? fromMethodology('agents')),
+    methodologyDir,
   };
+  // Пустое значение — «не задано»: дашборд возьмёт `bench/` рядом с сервером.
+  const benchDir = typeof merged.benchDir === 'string' ? nonBlank(merged.benchDir) : undefined;
+  if (benchDir === undefined) delete runner.benchDir;
+  else runner.benchDir = expand(benchDir);
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
+
+  // Отдельный маршрут рецензента проверяется на загрузке, а не на этапе 6: опечатка в
+  // id иначе всплыла бы посреди витка — рецензентом «не той» модели или падением этапа.
+  if (runner.reviewModel !== undefined) {
+    resolveReviewRoute(models, runner.reviewModel);
+  }
 
   const projectsDir = join(dir, 'projects');
   const projects = new Map<string, ProjectConfig>();

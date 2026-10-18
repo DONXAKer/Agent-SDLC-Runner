@@ -57,12 +57,24 @@ export function summarize(cases: HiddenCaseResult[]): Omit<HiddenTestsSummary, '
   return { total: counted.length, pass, fail: counted.length - pass, skipped: cases.length - counted.length, cases };
 }
 
+/** Coarse outcome for suite/HTML: do not collapse timeout into a bare `0/0` pass ratio. */
+export type HiddenOutcome = 'pass' | 'fail' | 'timeout' | 'empty_tap' | 'cancelled';
+
+export function hiddenOutcomeOf(summary: HiddenTestsSummary): HiddenOutcome {
+  const text = summary.errorText ?? '';
+  if (/отменены оператором/u.test(text) || /cancelled/iu.test(text)) return 'cancelled';
+  if (/таймаут|timed out/iu.test(text)) return 'timeout';
+  if (summary.total === 0) return 'empty_tap';
+  if (summary.fail > 0 || summary.errorText !== null) return 'fail';
+  return 'pass';
+}
+
 /**
  * Запускает один файл скрытых тестов против целевого дерева (`BENCH_TARGET_DIR` — путь,
  * где лежит `src/`, обычно копия рабочей копии витка ПОСЛЕ chunk'а, снятая на одноразовой
  * копии — см. комментарий в самом `.hidden.mjs`).
  */
-export async function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number }): Promise<HiddenTestsSummary> {
+export async function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number; signal?: AbortSignal }): Promise<HiddenTestsSummary> {
   // `--test-reporter=tap` (внутри spawnNodeTest): репортёр по умолчанию (`spec`) не даёт
   // машиночитаемых строк «ok N - имя» — только символы ✔/✖ для терминала. TAP — единственный
   // штатный формат, который парсится регуляркой, а не угадыванием по эмодзи.
@@ -70,7 +82,9 @@ export async function runHiddenTests(args: { hiddenFile: string; targetDir: stri
     testArgs: [args.hiddenFile],
     env: { BENCH_TARGET_DIR: args.targetDir },
     ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+    ...(args.signal === undefined ? {} : { signal: args.signal }),
   });
+  if (out.cancelled) return { total: 0, pass: 0, fail: 0, skipped: 0, cases: [], errorText: 'скрытые тесты отменены оператором' };
   const cases = parseTap(out.stdout);
   if (cases.length === 0) {
     // Причина краха до единого кейса (битый импорт цели) приходит от `node --test` в STDOUT
@@ -93,5 +107,6 @@ export async function runHiddenTests(args: { hiddenFile: string; targetDir: stri
       errorText: `скрытые тесты не дали ни одной разобранной строки TAP — ${why === '' ? 'вывод пуст' : why}`,
     };
   }
-  return { ...summarize(cases), errorText: null };
+  return { ...summarize(cases), errorText: out.timedOut ? 'Hidden check timed out after partial TAP output'
+    : out.exitCode !== 0 && !cases.some(c => !c.ok && !c.skipped) ? 'Hidden check process failed outside recognized cases' : null };
 }

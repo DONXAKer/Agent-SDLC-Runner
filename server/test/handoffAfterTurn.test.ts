@@ -64,6 +64,23 @@ function host(paths: WitokPaths): StageHost {
 }
 
 describe('handoffModule.begin(host).afterTurn — дефолт «Кто утвердил» (7.4, остаток)', () => {
+  it('не считает передачу завершённой, пока содержательное поле пусто', () => {
+    const paths = repo();
+    writeFileSync(paths.handoff, '# Передача\n- Что сделано: ‹описание›\n');
+    const check = handoffModule.begin?.(host(paths), {} as never)?.extraNotDone;
+    ok(check?.().some((reason) => reason.includes('1 незаполненных полей')));
+    writeFileSync(paths.handoff, '# Передача\n- Что сделано: проверены изменения\n');
+    strictEqual(check?.().length, 0);
+  });
+
+  it('передаёт незаполненный handoff на узкое дозаполнение по полям', () => {
+    const paths = repo();
+    const finish = handoffModule.begin?.(host(paths), {} as never)?.formFinish?.({ ok: false } as never);
+    strictEqual(finish?.path, paths.handoff);
+    strictEqual(finish?.requireCodeChange, false);
+    ok(finish?.extraBlock?.includes('только названное содержательное поле'));
+  });
+
   it('запись доведена до конца — рантайм подставляет дефолт и пишет файл', async () => {
     const paths = repo();
     const h = host(paths) as StageHost & { __emitted: string[] };

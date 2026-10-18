@@ -22,7 +22,7 @@ import { WitokPaths } from '../src/artifacts/paths.ts';
 import { countClaims } from '../src/artifacts/claims.ts';
 import { deriveSchema, findField, modelFields } from '../src/artifacts/formSchema.ts';
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
-import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
+import { appendAnswerRows, extractHumanFacts, renderAnswerRow } from '../src/artifacts/humanFacts.ts';
 import { isSmallContour } from '../src/run/stages.ts';
 import { parseTables } from '../src/md/table.ts';
 
@@ -31,6 +31,13 @@ function нетЭталона(dir: string): string | false {
 }
 
 const roots: string[] = [];
+it('не принимает разорванные записи приёмки как заполненные критерии', () => {
+  const text = '## Приёмочный лист\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | ‹пункт› | ‹процедура› |\n';
+  const bad = applyFill(text, 'приемочный лист', '- пункт: [edge] случай\n- как проверить: test/a.test.ts — результат', 'set', 'intent.template.md');
+  strictEqual(bad.ok, false);
+  const good = applyFill(text, 'приемочный лист', '- пункт: [edge] случай\n  как проверить: test/a.test.ts — результат', 'set', 'intent.template.md');
+  strictEqual(good.ok, true);
+});
 after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });
 });
@@ -281,13 +288,13 @@ describe('applyFill: раунд-трип по реальным шаблонам 
   // Разбор v15: общая метка колонки таблицы («статус» — у каждой строки readiness одна и
   // та же) даёт `near` того же размера, что и общий список «доступные поля», и раньше не
   // сортировалась и не считала остаток вовсе.
-  it('readiness: общая метка «статус» (12 строк) — near тоже обрезается с «(и ещё N)»', () => {
+  it('readiness: all fields are runtime-owned and excluded from model filling', () => {
     const name = 'readiness.template.md';
     const original = readFileSync(join(templatesDir, name), 'utf8');
-    const r = applyFill(original, 'статус', 'да', 'set', name);
-    ok(!r.ok);
-    ok(r.problem.includes('под другим id'), r.problem);
-    ok(r.problem.includes('(и ещё 4)'), `ожидалось «(и ещё 4)» из 12 совпадений по метке «статус»: ${r.problem}`);
+    const schema = deriveSchema(original, name);
+    ok(schema.fields.length > 0, 'readiness template should expose runtime fields');
+    ok(schema.fields.every((field) => field.owner === 'runtime'), 'every readiness field must be runtime-owned');
+    strictEqual(modelFields(schema).length, 0, 'readiness fields must be excluded from model filling');
   });
 
   // handoff: заголовок «### Запись N» — group-поле с owner:'model', но заполняется не через
@@ -333,23 +340,31 @@ describe('applyFill: раунд-трип на заполненных приме�
     ok(edges >= 1);
   });
 
-  it('clarification-report.md шаблон: humanFacts читает результат applyFill', () => {
+  // Таблица «Вопросы и ответы» больше не поле модели целиком: «Ответ человека» — ячейка
+  // человека (`artifact.ts::isHumanAnswerCell`), строку с ответом пишет рантайм
+  // (`renderAnswerRow` + `appendAnswerRows`), модели остаётся «Что изменилось в задаче».
+  // Раунд-трип проверяет этот путь: humanFacts читает и ответ рантайма, и ячейку модели.
+  it('clarification-report.md шаблон: строка рантайма + «Что изменилось» модели читаются humanFacts', () => {
     const template = readFileSync(
       join(cfg.runner.methodologyDir, 'templates', 'clarification-report.template.md'),
       'utf8',
     );
-    const schema = deriveSchema(template, 'clarification-report.template.md');
-    const table = modelFields(schema).find((f) => f.kind === 'records' && f.shape === 'table');
-    ok(table !== undefined);
-    const r = applyFill(
-      template,
-      table.id,
-      '- вопрос: Что возвращать при повторе?\n  блокирующий: да\n  ответ человека: 200\n  что изменилось в задаче: claim-1 уточнён',
+    const blank = deriveSchema(template, 'clarification-report.template.md');
+    ok(
+      !modelFields(blank).some((f) => f.shape === 'table'),
+      'строка-образец с «Ответ человека» модели не отдаётся',
     );
+    const withRow = appendAnswerRows(template, [
+      renderAnswerRow(1, { question: 'Что возвращать при повторе?', blocking: true }, '200'),
+    ]);
+    const cell = modelFields(deriveSchema(withRow, 'clarification-report.template.md')).find(
+      (f) => f.shape === 'cell' && f.label === 'что изменилось в задаче',
+    );
+    ok(cell !== undefined, 'ячейка «Что изменилось в задаче» — поле модели');
+    const r = applyFill(withRow, cell.id, 'claim-1 уточнён: код 200');
     ok(r.ok);
     const facts = extractHumanFacts(r.text);
-    ok(facts.length >= 1);
-    ok(facts.some((f) => f.answer.includes('200')));
+    ok(facts.some((f) => f.answer.includes('200') && f.changed.includes('claim-1')));
   });
 
   it('intent.md: isSmallContour читает поле «Контур», заполненное applyFill', () => {

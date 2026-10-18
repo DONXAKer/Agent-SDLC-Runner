@@ -19,6 +19,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import { randomUUID } from 'node:crypto';
 
 import type { Usage } from '@sdlc-runner/shared';
 import { emptyUsage } from '@sdlc-runner/shared';
@@ -34,9 +35,11 @@ import {
   ENGINE_UNAVAILABLE_SUBSTRINGS,
   PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
   ProviderEnvError,
+  ProviderHttpError,
   applyParams,
 } from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
+import { leadingThinkEnd, stripLeadingThink } from './think.ts';
 
 interface OpenAiChoice {
   message?: {
@@ -80,6 +83,15 @@ export interface OpenAiCompatOptions {
    * секунд на набор, который весь укладывается в полторы.
    */
   retryDelayMs?: number;
+  /**
+   * Канал предупреждений оператора (лента прогона — `Run.emit('warning')` на боевых
+   * маршрутах). Сюда уходит, например, факт снятия reasoning/thinking-параметров после
+   * отказа сервера «does not support thinking» — адаптация под модель обязана быть
+   * видимой, молчаливая подмена параметра замера недопустима. Не задан —
+   * `process.emitWarning`: предупреждение не пропадает и у потребителей без ленты
+   * (проба модели, тесты).
+   */
+  onWarn?: (message: string) => void;
   /**
    * Умолчание потолка длины ответа для этого провайдера (`ProviderDef.maxTokens`).
    * Не задано — общее число `DEFAULT_MAX_TOKENS`. `ModelDef.params.max_tokens`
@@ -213,12 +225,9 @@ function textCallId(): string {
  * буквально, и такой пример исполнялся бы (code-review-all, 2026-09-15).
  */
 function sequenceStart(text: string): number {
-  let pos = 0;
-  for (;;) {
-    const m = /^\s*<think>[\s\S]*?<\/think>/.exec(text.slice(pos));
-    if (m === null) break;
-    pos += m[0].length;
-  }
+  // Общий примитив с `stripLeadingThink` (`think.ts`) — прежде тот же цикл с той же
+  // регуляркой был продублирован здесь отдельной копией (code-review-all, 2026-09-28).
+  const pos = leadingThinkEnd(text);
   let token = text.indexOf(TOOL_CALLS_TOKEN, pos);
   while (token >= 0 && insideCode(text, token)) token = text.indexOf(TOOL_CALLS_TOKEN, token + TOOL_CALLS_TOKEN.length);
   if (token < 0) return pos;
@@ -375,6 +384,47 @@ function objectEnd(text: string, start: number): number {
 const CHAT_RETRIES = 2;
 const CHAT_RETRY_DELAY_MS = 3_000;
 
+/**
+ * Отказ сервера «модель не умеет thinking» (живой текст Ollama: `"<модель>" does not
+ * support thinking`, серия `ministral3-14b-instruct-ctx32k-compactfill`, 2026-10-05: все 6
+ * прогонов профиля упали мгновенно — рантайм слал `reasoning_effort` модели без его
+ * поддержки). Матч строго по разобранному полю `error` тела (плоская строка Ollama или
+ * `error.message` структурной формы), не по сырому телу: подстрока в чужой цитате внутри
+ * 400 не должна запускать повтор — тот же принцип, что у `ENGINE_UNAVAILABLE_SUBSTRINGS`.
+ */
+const THINKING_UNSUPPORTED = /\bdoes not support (thinking|reasoning)\b/i;
+
+function thinkingUnsupportedReason(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    const err = parsed.error;
+    const message =
+      typeof err === 'string'
+        ? err
+        : typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : null;
+    return message !== null && THINKING_UNSUPPORTED.test(message) ? message : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Поля тела запроса, управляющие рассуждением модели, — у разных серверов разные ключи. */
+const REASONING_PARAM_KEYS = ['reasoning_effort', 'reasoning', 'think', 'thinking'] as const;
+
+/** Снять reasoning/thinking-параметры с тела запроса. Возвращает имена снятых ключей. */
+function stripReasoningParams(body: Record<string, unknown>): string[] {
+  const removed: string[] = [];
+  for (const key of REASONING_PARAM_KEYS) {
+    if (key in body) {
+      delete body[key];
+      removed.push(key);
+    }
+  }
+  return removed;
+}
+
 /** Сетевые коды, которые чинятся повтором (включая моргнувший маршрут VPN/Wi-Fi).
  *  ENOTFOUND (опечатка в BASE_URL) — постоянный, повтором не чинится. */
 const TRANSIENT_NET_CODES = new Set([
@@ -479,26 +529,39 @@ export class OpenAiCompatProvider implements ChatProvider {
       'content-type': 'application/json',
       ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
     };
-    const payload = JSON.stringify(body);
+    let payload = JSON.stringify(body);
+    const isThinkingUnsupported = (t: string): boolean => /does not support thinking/iu.test(t);
+    const params = req.params ?? {};
+    const paramsWithoutReasoning = Object.fromEntries(
+      Object.entries(params).filter(([k]) => !['reasoning_effort', 'thinking', 'reasoning', 'think'].includes(k)));
+    const bodyWithoutReasoning = { ...body };
+    applyParams(bodyWithoutReasoning, paramsWithoutReasoning);
 
     // Перемежающийся отказ агрегатора — среда, а не модель, и один такой ответ не должен
-    // валить этап (замер: три прогона подряд встали на intent из-за 503 полза-апстрима,
-    // при том что проба и повтор той же выборки проходили). Транзиентным считается и
-    // HTTP 5xx/429, и СЕТЕВОЙ обрыв (ECONNRESET — postJson сигналит им reject'ом): рвущий
-    // соединение апстрим — тот же класс, ради которого ретрай и заведён. 4xx кроме 429 не
-    // повторяются — они про запрос. Пауза отменяема, и отмена оператора отчитывается
-    // отменой, а не «HTTP 503» (ревью, К16).
+    let triedWithoutReasoning = false;
     let status = 0;
     let text = '';
+    let requestId = '';
     for (let attempt = 1; ; attempt++) {
       // Собственный таймаут поверх переданного сигнала: локальный сервер, ушедший в своп,
       // не закрывает соединение — этап висел бы до отмены оператором. Свежий на каждую
       // попытку: иначе время, съеденное упавшей, вычиталось бы у повтора.
       const timeout = AbortSignal.timeout(this.o.timeoutMs);
       const signal = AbortSignal.any([req.signal, timeout]);
+      requestId = randomUUID();
+      try { this.o.trace?.onRequest?.({ requestId, provider: this.name, model: req.model, request: JSON.parse(payload) as Record<string, unknown>, attempt }); }
+      catch (error) { console.error(`[flow] ${(error as Error).message}`); }
+      const attemptStarted = Date.now();
+      const observeResponse = (responseStatus: number, response: string): void => {
+        try { this.o.trace?.onResponse?.({ requestId, provider: this.name, model: req.model, request: JSON.parse(payload) as Record<string, unknown>,
+          response, status: responseStatus, durationMs: Date.now() - attemptStarted }); }
+        catch (error) { console.error(`[flow] ${(error as Error).message}`); }
+      };
       try {
         ({ status, text } = await postJson(url, headers, payload, signal));
+        observeResponse(status, text);
       } catch (e) {
+        observeResponse(0, (e as Error).message);
         // Повторяется только транзиентная СЕТЬ. Отмена оператора — не повтор и не сетевой
         // сбой; таймаут попытки — свойство запроса (иначе зависший сервер ждался бы
         // 3×timeoutMs вместо одного); ENOTFOUND и прочие постоянные коды повтором не
@@ -525,6 +588,15 @@ export class OpenAiCompatProvider implements ChatProvider {
         }
         continue;
       }
+      if (status === 400 && !triedWithoutReasoning && isThinkingUnsupported(text)) {
+        // Некоторые модели Ollama падают на любом thinking-параметре (reasoning_effort и т.п.).
+        // Раз профиль не требует размышлений, повторяем без них один раз, честно предупредив.
+        triedWithoutReasoning = true;
+        for (const k of ['reasoning_effort', 'thinking', 'reasoning', 'think']) delete body[k];
+        applyParams(body, paramsWithoutReasoning);
+        payload = JSON.stringify(body);
+        continue;
+      }
       const transient = status === 429 || status >= 500;
       if (!transient || attempt > CHAT_RETRIES) break;
       await abortableDelay(this.retryDelayMs * attempt, req.signal);
@@ -535,16 +607,21 @@ export class OpenAiCompatProvider implements ChatProvider {
 
     // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
     // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
-    if (this.o.trace !== undefined) {
-      dumpExchange(this.o.trace, {
-        provider: this.name,
-        model: req.model,
-        request: body,
-        response: text,
-        status,
-        durationMs: Date.now() - started,
-      });
-    }
+    // Путь несём дальше в `ChatTurn.rawLogPath`: потребители, узнающие исход хода ПОСЛЕ
+    // `chat()` (трение цикла, гейт после шага, разбор поля бланка), размечают именно этот
+    // файл — второго способа найти его нет намеренно (`rawLog.ts`, без сводного указателя).
+    const rawLogPath =
+      this.o.trace === undefined
+        ? null
+        : dumpExchange(this.o.trace, {
+            requestId,
+            provider: this.name,
+            model: req.model,
+            request: body,
+            response: text,
+            status,
+            durationMs: Date.now() - started,
+          });
 
     if (status < 200 || status >= 300) {
       const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
@@ -599,7 +676,7 @@ export class OpenAiCompatProvider implements ChatProvider {
           PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.test(routingExhaustedText() ?? ''));
       const envStatus =
         status === 429 || status >= 500 || status === 401 || status === 402 || status === 403 || engineCrash;
-      throw envStatus ? new ProviderEnvError(message) : new Error(message);
+      throw envStatus ? new ProviderEnvError(message) : new ProviderHttpError(message, status);
     }
 
     let data: OpenAiResponse;
@@ -641,10 +718,15 @@ export class OpenAiCompatProvider implements ChatProvider {
     };
 
     return {
-      text: content,
+      // Ведущий think вырезается ЗДЕСЬ — единственная точка, откуда `ChatTurn.text` уходит
+      // во весь машиночитаемый канал (reviewFill/FormFill/extractReviewJson и т.д.), см.
+      // докстринг `stripLeadingThink`. `content` (с think) остаётся выше нетронутым — от
+      // него зависит поиск текстовых tool-вызовов и сырой лог.
+      text: stripLeadingThink(content),
       toolCalls,
       finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
       usage,
+      rawLogPath,
     };
   }
 }

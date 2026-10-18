@@ -1,0 +1,319 @@
+{
+  "run": {
+    "slug": "test25-gemma-4-e4b-selfreview-freeship",
+    "model": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "explore": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "ask": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "plan": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "verify": "lmstudio:gemma-4-e4b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:gemma-4-e4b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-22T06:14:52.670Z",
+    "finishedAt": "2026-09-22T07:14:03.373Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 40, осталось на диске 1 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8); ответ на поле вердикт прогона 1 отклонён: ответ не совпал ни с одним из вариантов поля «вердикт прогона 1»: готова, не готова —; ответ на поле прогон 2/3/где видно / что чинить отклонён: поле «прогон 2/3/где видно / что чинить»: пустой ответ; ответ на поле прогон 2/3/где видно / что чинить отклонён: поле «прогон 2/3/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 44
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 23
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 232668,
+          "outputTokens": 48709,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 3459239
+        },
+        "durationMs": 1750600
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 185912,
+          "outputTokens": 47485,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2009284
+        },
+        "durationMs": 1800053
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 23
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 22
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 8
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:4644675a-ef9e-433f-b293-72120dfe3519",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:ea57a47e-defb-4119-88f4-db3ef230bd0c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:4ce1b5bd-5686-402b-b902-0fe81608ef31",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 12
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:69392531-2dda-4c90-a9ba-2aa7b6dbf8ec",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:c1c66fe7-13c1-4de4-bc64-3cd9ff4a6094",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:ee125051-0432-4822-ac2b-fda72b5a510a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test25-gemma-4-e4b-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10350,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9465,
+        "userChars": 16819,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

@@ -65,6 +65,9 @@ export function parseAgentFile(text: string): Omit<SubagentDef, 'name'> & { name
  * в минимальную пятёрку гейтов.
  */
 export function loadSubagent(agentsDir: string, name: string): SubagentDef | null {
+  // Каталог не задан (эталона нет) — определений нет. `join('', …)` резолвился бы от cwd
+  // сервера, и одноимённый файл там стал бы чужим определением рецензента.
+  if (agentsDir === '') return null;
   const file = join(agentsDir, `${name}.md`);
   if (!existsSync(file)) return null;
   const parsed = parseAgentFile(readFileSync(file, 'utf8'));

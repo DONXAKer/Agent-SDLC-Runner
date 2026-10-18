@@ -1,0 +1,233 @@
+{
+  "run": {
+    "slug": "pair-base-ollama-qwen3-8-27b-iq4",
+    "model": "ollama:qwen3.8-27b-iq4",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4",
+      "explore": "ollama:qwen3.8-27b-iq4",
+      "ask": "ollama:qwen3.8-27b-iq4",
+      "plan": "ollama:qwen3.8-27b-iq4",
+      "chunk": "ollama:qwen3.8-27b-iq4",
+      "verify": "ollama:qwen3.8-27b-iq4",
+      "handoff": "ollama:qwen3.8-27b-iq4"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T14:26:50.322Z",
+    "finishedAt": "2026-09-29T14:56:57.186Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "envFailure": "ollama: ответ не получен за 1200000 мс — таймаут запроса",
+        "modelRequests": 9
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 25064,
+          "outputTokens": 3978,
+          "cacheReadTokens": 18184,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1737687
+        },
+        "durationMs": 1800069,
+        "requestDurationsMs": [
+          124566,
+          261739,
+          382996,
+          259282,
+          709110
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 15
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 9
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 33
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:8e8f6761-d5b4-433b-9d1a-217a38fe4b3c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-qwen3-8-27b-iq4\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 14
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10926,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "543f66891f73e8a6871b7bf2b9ff8804d112b4a59691bb0093342287deeac004",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "1c2e93425dd0f0d5e53513013b095e7a8a062c0506fbf1bbd756d96bc99d1503",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "b4c00222198c5f8b0108c45d37e6ed696f051c1f994e613a8dbfdd75390c3e75",
+    "state": "finished",
+    "capturedAt": "2026-09-29T14:56:57.206Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T14:56:57.178Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "58c0783c238c1d9598722337784d5cb390e14ea093e411bfc153eed435c3b225",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "a4c67ec27b7f59261c3c8536f41f523216e0a8df444a0f3b7e0fef74a326a9e1",
+        "placeholders": 9,
+        "uncheckedQuestions": 2,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "6581dceeb7980dd15b764385af0cdd060a2a62b6c2b1b98711c58753ece98977",
+        "placeholders": 33,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

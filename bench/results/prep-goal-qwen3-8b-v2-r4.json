@@ -1,0 +1,513 @@
+{
+  "run": {
+    "slug": "prep-goal-qwen3-8b-v2-r4",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T14:05:30.099Z",
+    "finishedAt": "2026-10-01T14:10:26.858Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": true,
+    "maxIterationsByStage": {}
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 2,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «.sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет разведки: prep-goal-qwen3-8b-v2-r4»: задача; «отчет разведки: prep-goal-qwen3-8b-v2-r4»: гейт «заполненность артефактов»; «стек и конвенции»: язык / стек; «стек и конвенции»: сборка / тесты; «стек и конвенции»: конвенции; и ещё 11 мест — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 12
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 11390,
+          "outputTokens": 2588,
+          "cacheReadTokens": 5473,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 66864
+        },
+        "durationMs": 67209,
+        "requestDurationsMs": [
+          63920,
+          2946
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 198859,
+          "outputTokens": 7288,
+          "cacheReadTokens": 164151,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 228835
+        },
+        "durationMs": 228947,
+        "requestDurationsMs": [
+          20731,
+          22956,
+          21641,
+          24163,
+          26185,
+          19072,
+          3029,
+          25506,
+          4734,
+          26973,
+          30378,
+          3475
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 1
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 3,
+        "truncated": 0,
+        "toolCalls": 11,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 7,
+        "waitMs": 32
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 26
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:b73ce6e2-578c-4c8d-9990-6a01d97d5ae3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:70f17f90-56b1-41a9-b1ea-0c66376c14be",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:33d15591-1555-4bf6-aa76-0fdcc0cefc6d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:069368c1-c5d7-40de-996d-fbd41465d996",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:89bb8379-37eb-46b0-88bb-f5ed2e789840",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:610cb82d-ed05-48fa-995c-c9426fb469eb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c3c10907-5581-4cd2-8504-64ecb2194431",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2b73d26c-9de4-4eb5-bf3f-b4cc8ac33a46",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6fb9f663-33ed-43f7-ab8c-dc0301b503bb",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b28c942b-341a-4450-8c47-f72edc2d50a5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b3ff7b6c-2827-4afa-9f89-fed87145d414",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md"
+        ],
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c91f3ba5-bd89-44d8-8798-80fbfb08b8ee",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6291,
+        "userChars": 4193,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 7126,
+        "userChars": 15455,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:33d15591-1555-4bf6-aa76-0fdcc0cefc6d",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": null,
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "by": "operator",
+        "reason": "разрушающая перезапись: перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:610cb82d-ed05-48fa-995c-c9426fb469eb",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": null,
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "by": "operator",
+        "reason": "разрушающая перезапись: перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b3ff7b6c-2827-4afa-9f89-fed87145d414",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": null,
+        "destructive": "перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется",
+        "by": "operator",
+        "reason": "разрушающая перезапись: перезапись .sdlc/prep-goal-qwen3-8b-v2-r4/exploration-report.md целиком: было 108 строк, станет 41 (−67). Автоодобрение на такой вызов не распространяется"
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 3, отказов политики: 0"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "2dc6989176b6a1af7b42d0532b8d7188104bdc51a69b3c33a955120d4cbf19a2",
+      "configHash": "be92995d5c321b09f15cd57b198982c5fcc5eff8a9c2aea5127b8527a659ad2c",
+      "localEndpoints": {},
+      "inputHash": "6a3b931697bf8576c9c723fd9e92ec138f92bc4b611b4625686f6dfa10ed1565",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 2700000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "7cc6025d751814893a0af3c085efa06777b9bfee1927591dd3b4b19693393ba3",
+    "state": "finished",
+    "capturedAt": "2026-10-01T14:10:26.877Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-01T14:10:26.854Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "678617f0e2b315fa288ec83e52daa9003cc69e9aa686dd13bc617a1cdb6ae198",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c74235ae08af10022321011cbc626df047db8ecff01a3d1074b9193adc3e98e2",
+        "placeholders": 26,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "aea8241eafcf22f9477951ab4787f3c5e8f042b7a2233e4b19eef6b036e23a24",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "6c1afa5beff90f505915269f45d3dba303f1b7850ee7fbf2ca41fc6fafc89289",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

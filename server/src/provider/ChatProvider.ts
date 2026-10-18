@@ -39,6 +39,16 @@ export interface ChatTurn {
   toolCalls: ChatToolCall[];
   finishReason: FinishReason;
   usage: Usage;
+  /**
+   * Путь файла сырого дампа этого обмена (`provider/rawLog.ts::dumpExchange`), если дамп
+   * включён и запись удалась. Отсутствует или `null` — дамп выключен, обмен без метки
+   * трассы или запись не прошла: потребитель размечает пару только когда путь известен,
+   * второго способа её найти нет намеренно (без сводного указателя, см. `rawLog.ts`).
+   * Опционально, а не обязательно: подставные провайдеры в тестах строят `ChatTurn`
+   * литералом без этого поля, и заводить его в каждом значило бы менять полтора десятка
+   * файлов ради поля, которое им не нужно.
+   */
+  rawLogPath?: string | null;
 }
 
 export interface ChatRequest {
@@ -105,6 +115,21 @@ export class ProviderEnvError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = 'ProviderEnvError';
+  }
+}
+
+/**
+ * Не-средовой HTTP-отказ провайдера (400 схемы, 404 id модели): ответ пришёл, и провайдер
+ * уже классифицировал его по разобранному телу. Отдельный тип — чтобы потребители
+ * (прогрев bench) отличали его по типу, а не по формату текста сообщения: подстроки по
+ * сырому телу ловили `fetch failed` из чужого текста внутри 400 (code-review-all 2026-09-23).
+ */
+export class ProviderHttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ProviderHttpError';
+    this.status = status;
   }
 }
 

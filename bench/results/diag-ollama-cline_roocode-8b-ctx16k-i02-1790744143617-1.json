@@ -1,0 +1,258 @@
+{
+  "run": {
+    "slug": "diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1",
+    "model": "ollama:cline_roocode:8b-ctx16k",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:cline_roocode:8b-ctx16k",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T04:55:45.084Z",
+    "finishedAt": "2026-09-30T04:57:28.247Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ответ обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 1 ходах — это предел окна, а не отказ модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 26500,
+          "outputTokens": 3837,
+          "cacheReadTokens": 17870,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 102314
+        },
+        "durationMs": 102614,
+        "requestDurationsMs": [
+          35559,
+          54471,
+          12285
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 13
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 15
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:3978e07a-789a-4de0-adbf-e7f7e2ff942e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md"
+        ],
+        "destructive": "перезапись .sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md целиком: было 90 строк, станет 34 (−56). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md целиком: было 90 строк, станет 34 (−56). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:3743ebfc-09a5-45ec-bd43-20c28464206b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11395,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "intent",
+        "requestId": "loop:3978e07a-789a-4de0-adbf-e7f7e2ff942e",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": null,
+        "destructive": "перезапись .sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md целиком: было 90 строк, станет 34 (−56). Автоодобрение на такой вызов не распространяется",
+        "by": "operator",
+        "reason": "разрушающая перезапись: перезапись .sdlc/diag-ollama-cline_roocode-8b-ctx16k-i02-1790744143617-1/intent.md целиком: было 90 строк, станет 34 (−56). Автоодобрение на такой вызов не распространяется"
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 1, отказов политики: 0"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "c04f7e021b9b8fb4f91a9da8f970789ea9b565dbe35b4eb08eed9c9eb95637b6",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "b1bca06796306fb4c7f75ab256631ca79fd244a4a2629fb6a9954c2ceb958b24",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 120000,
+      "runTimeoutMs": 120000
+    },
+    "workspaceHash": "050a904dc52a6f12dd026b2b2d0884a85ea0c225ac3ae55d22a5142a136df658",
+    "state": "finished",
+    "capturedAt": "2026-09-30T04:57:28.263Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T04:57:28.244Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "8aee05cf8f9aba8d981c223d17352997340be66051e612848adac6254b8eb4f1",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "21ba469a820c5860e266b3c13cd52ce08d8b2aad9c7b4a78ae1b5774540c1247",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "fb2fefaec09f92815e885dc2cd8a70d74884186e68c83b22582a03945f9bf0a1",
+        "placeholders": 15,
+        "uncheckedQuestions": 2,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "d09c758c353fc172b62445ca37509f76933531a7451aee9c40b9e491f72fc5a4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

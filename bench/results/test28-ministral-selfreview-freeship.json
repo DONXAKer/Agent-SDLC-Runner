@@ -1,0 +1,514 @@
+{
+  "run": {
+    "slug": "test28-ministral-selfreview-freeship",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-23T04:41:27.647Z",
+    "finishedAt": "2026-09-23T05:25:51.295Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; добор поля приемочный лист (попытка 1): запрошен и добавлен; добор поля приемочный лист (попытка 2): запрошен и добавлен; ответ на поле прогон 1/7/статус отклонён: поле «прогон 1/7/статус»: комментарий несёт плейсхолдер бланка ‹…›; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: прогон 1/7/статус, необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить (и ещё 9)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 45
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 27
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в отчёте по вопросам осталось незаполненных мест: 8 — этап 4 на входе считает их и не стартует. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 7
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 256959,
+          "outputTokens": 6442,
+          "cacheReadTokens": 241207,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 455392
+        },
+        "durationMs": 267340
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 307390,
+          "outputTokens": 49018,
+          "cacheReadTokens": 275995,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2667459
+        },
+        "durationMs": 2142495
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 75487,
+          "outputTokens": 4186,
+          "cacheReadTokens": 55153,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 253696
+        },
+        "durationMs": 253768
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 2,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 18
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 24
+      },
+      {
+        "stage": "ask",
+        "questions": 4,
+        "approvals": 2,
+        "waitMs": 19
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "clarification-report.md",
+        "placeholders": 8
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:5efb2e3d-18ec-43d3-946f-664131f84c77",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:e2a25321-411c-4d01-8932-d7f2a3c8841f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:be3b6ad6-78c1-4b08-a6c5-bf6d829a73ca",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:20aa7c8f-fa97-4ee5-b234-a95e9d597909",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:d82e7f85-ea06-48f0-b40c-fcbe5592475d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:ad888eb8-4446-4c40-8b33-5ba1d70c3342",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:52c813b4-56a9-4df3-9e3c-705200705a70",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test28-ministral-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:17492743-68fd-4552-8fcc-4eb8675704be",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test28-ministral-selfreview-freeship/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:7ec683e9-cf15-4d02-865e-78ab207e0c81",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test28-ministral-selfreview-freeship/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "open-0",
+            "question": "- **[блокирующий]** Почему в «Что должно получиться» не указано, как будут выглядеть изменения в функциях `weightStep` и `priceFor`: нужно ли обновлять существующие функции, или их поведение остается неизменным?"
+          },
+          {
+            "id": "open-1",
+            "question": "- **[блокирующий]** Как определяются веса: это общий вес заказа или суммарный вес отдельных отправлений? В тарифной политике указано \"вес отправимого объекта\" или \"весовой класс отправлений от одного клиента\"?"
+          },
+          {
+            "id": "open-2",
+            "question": "Ответ напрямую влияет на архитектуру рефакторинга и границы изменений: если функции `weightStep` и `priceFor` не трогаются, это меняет логику имплементации льготы (например, потребуется промежуточная функция для логики \"бесплатная доставка\"). Проверка \"существующие тесты должны оставаться зелёными\" не может гарантировать правильность архитектурного решения без ясности, как вес отображается в уже существующих функциях."
+          },
+          {
+            "id": "open-3",
+            "question": "Условие \"Весовая ступень 3 — это вес строго больше 2000 г и не больше 5000 г\" должно быть уточнено в контексте кода: если веса указываются в граммах или килограммах, это повлияет на сравнения в функции, что критично для верности вычислений бесплатной доставки. Несоответствие в единицах может привести к ошибкам на этапе тестирования."
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.weightstep"
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "ask",
+        "requestId": "loop:3075fdf8-b378-48fb-894c-b4c6704499d0",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:73c203b3-c8e0-42d6-96c3-0323fbcc6d78",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10340,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9457,
+        "userChars": 21287,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6490,
+        "userChars": 14717,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-7edd60a9-9d78-4873-a8ed-693a59ea8abd-1",
+        "questionId": "open-0",
+        "text": "- **[блокирующий]** Почему в «Что должно получиться» не указано, как будут выглядеть изменения в функциях `weightStep` и `priceFor`: нужно ли обновлять существующие функции, или их поведение остается неизменным?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-7edd60a9-9d78-4873-a8ed-693a59ea8abd-1",
+        "questionId": "open-1",
+        "text": "- **[блокирующий]** Как определяются веса: это общий вес заказа или суммарный вес отдельных отправлений? В тарифной политике указано \"вес отправимого объекта\" или \"весовой класс отправлений от одного клиента\"?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-7edd60a9-9d78-4873-a8ed-693a59ea8abd-1",
+        "questionId": "open-2",
+        "text": "Ответ напрямую влияет на архитектуру рефакторинга и границы изменений: если функции `weightStep` и `priceFor` не трогаются, это меняет логику имплементации льготы (например, потребуется промежуточная функция для логики \"бесплатная доставка\"). Проверка \"существующие тесты должны оставаться зелёными\" не может гарантировать правильность архитектурного решения без ясности, как вес отображается в уже существующих функциях."
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-7edd60a9-9d78-4873-a8ed-693a59ea8abd-1",
+        "questionId": "open-3",
+        "text": "Условие \"Весовая ступень 3 — это вес строго больше 2000 г и не больше 5000 г\" должно быть уточнено в контексте кода: если веса указываются в граммах или килограммах, это повлияет на сравнения в функции, что критично для верности вычислений бесплатной доставки. Несоответствие в единицах может привести к ошибкам на этапе тестирования."
+      }
+    ],
+    "denials": [
+      {
+        "stage": "ask",
+        "requestId": "loop:3075fdf8-b378-48fb-894c-b4c6704499d0",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "pathScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[pathScope] путь «/C:\\Users\\Root\\AppData\\Local\\Temp/sdlc-bench-y9XcZn/.sdlc/test28-ministral-selfreview-freeship/clarification-report.md» ведёт за пределы проекта (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y9XcZn)."
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:73c203b3-c8e0-42d6-96c3-0323fbcc6d78",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «clarification-report.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test28-ministral-selfreview-freeship/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 2"
+    }
+  ]
+}

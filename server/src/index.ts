@@ -7,14 +7,19 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { preparationSummary } from './artifacts/preparation.ts';
+import { guidedSummary } from './run/guidedState.ts';
+import { dashboardFlow } from './dashboard/index.ts';
 
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 
+import { DASHBOARD_BENCH_ARCHIVE } from '@sdlc-runner/shared';
 import type {
   AutoApproveRules,
   ConfigInfo,
+  DashboardResponse,
   Decision,
   PromptResponse,
   RunDetail,
@@ -35,14 +40,25 @@ import { appendEvent, readPersistedEvents } from './eventLog.ts';
 import { scanHistory } from './history.ts';
 import { scopeViolations } from './gates/builtin/logic.ts';
 import { normalizePlanPath } from './policy/paths.ts';
-import { readArtifact, readDecision } from './artifacts/artifact.ts';
-import { artifactPathOf } from './artifacts/paths.ts';
+import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
-import { PROBE_CASE_TIMEOUT_MS, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
+import { PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
 import { stopSandboxForProject } from './sandbox/registry.ts';
 import { createProvider } from './provider/registry.ts';
 import { detectSandboxSpec } from './sandbox/detect.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
+import { pendingDecisionCount, stageInfos } from './run/stageInfo.ts';
+import {
+  BenchIndex,
+  badWitokSlug,
+  dashboardArtifact,
+  dashboardDetail,
+  dashboardBody,
+  dashboardList,
+  dashboardProjects,
+  defaultBenchDir,
+} from './dashboard/index.ts';
+import type { LiveEntry } from './dashboard/index.ts';
 import { badSlug } from './validation.ts';
 
 const config = loadConfig();
@@ -95,6 +111,7 @@ const gate = new ApprovalGate({
       writeTargets: p.writeTargets,
       destructive: p.destructive,
       ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      ...(p.readdressed === undefined ? {} : { readdressed: p.readdressed }),
       ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     }),
@@ -144,7 +161,10 @@ const askGate = new AskGate({
   },
 });
 
-const app = Fastify({ logger: { level: 'warn' } });
+// `maxParamLength`: по умолчанию 100 символов СЫРОГО сегмента адреса, а кириллический slug
+// терминального витка кодируется по 6 символов на букву — карточка из списка дашборда
+// открывалась 404 уже на слаге в семнадцать букв.
+const app = Fastify({ logger: { level: 'warn' }, maxParamLength: 2000 });
 await app.register(websocket);
 
 // ── валидация входа ────────────────────────────────────────────────────────
@@ -187,7 +207,7 @@ app.get('/api/config', (): ConfigInfo => ({
  * потом запустят, не переопределённую.
  */
 app.post('/api/probe', async (req, reply) => {
-  const body = req.body as { model?: string };
+  const body = req.body as { model?: string; stage?: string };
   if (typeof body.model !== 'string' || body.model === '') {
     return reply.code(400).send({ error: 'нужно поле model' });
   }
@@ -200,13 +220,26 @@ app.post('/api/probe', async (req, reply) => {
   const { def, providerDef } = target;
   try {
     const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+    // Роль решает набор кейсов (критерий 3 квалификации рецензента,
+    // `docs/proposals/reviewer-qualification.md`): `reviewFill` не вызывает ни одного
+    // инструмента, и кейсы Write/Edit меряют способности исполнителя chunk — не её.
+    // До этой правки ручка всегда мерила «дошла до вызова инструмента», и оператор в
+    // мастере запуска получал зелёную пробу для кандидата-рецензента, который потом
+    // зависал на настоящем `reviewFill` (`qwen3.6-27b-iq4`, 2026-09-27) — тот же класс
+    // ложноположительной квалификации, что чинили в `bench/src/cli.ts`/`preflight.ts`
+    // этой же сессией, но здесь не починенный до code-review-all.
+    const forReviewer = body.stage === 'verify';
     const report = await probeModel({
       provider,
       model: def.model,
-      params: def.params ?? null,
+      params: def.provider === 'lmstudio'
+        ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+        : def.params ?? null,
       // Потолок кейса СВОЙ, а не транспортный `chatTimeoutMs`: проба обещает секунды, и
       // три кейса по десять минут держали бы HTTP-запрос дольше самого замера.
       caseTimeoutMs: Math.min(config.runner.limits.chatTimeoutMs, PROBE_CASE_TIMEOUT_MS),
+      role: forReviewer ? 'verify' : 'chunk',
+      ...(forReviewer ? { cases: REVIEWER_PROBE_CASES } : {}),
     });
     return { report, text: formatProbe(report) };
   } catch (e) {
@@ -331,13 +364,25 @@ app.post('/api/runs', async (req, reply) => {
         .code(409)
         .send({ error: `виток «${slug}» уже идёт для проекта «${project.name}» (id ${clashing.run.id})` });
     }
-
     const profileName = body.profile ?? project.activeProfile;
     // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
     const profile =
       body.stages === undefined || Object.keys(body.stages).length === 0
         ? resolveStartableProfile(project, config.models, profileName)
         : resolveAdHocProfile(project, config.models, body.stages, profileName);
+
+    // Простаивающий прогон того же slug закрывается: два `Run` над одним `.sdlc/<slug>/`
+    // держали бы разные номера попытки, диагнозы и автоправила и могли одновременно
+    // гнать chunk и verify по одному дереву (code-review-all 2026-09-23). Состояние витка
+    // на диске, новый `Run` восстановит его оттуда. ПОСЛЕ проверки профиля: отклонённый
+    // запрос (400) не должен уничтожать открытый виток вместе с его лентой.
+    for (const [id, idle] of runs) {
+      if (idle.run.project.name !== project.name || idle.run.slug !== slug) continue;
+      idle.run.cancel('виток открыт заново');
+      void idle.run.dispose();
+      runs.delete(id);
+      bus.forget(id);
+    }
 
     const run = new Run({
       config,
@@ -370,12 +415,7 @@ app.post('/api/runs', async (req, reply) => {
  * а решение не записано. Тем же разбором, что предусловие следующего этапа (`granted()`).
  */
 function pendingDecisions(run: Run): number {
-  return STAGES.filter((s) => {
-    if (s.humanGate === null) return false;
-    const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
-    const a = readArtifact(path);
-    return a.exists && readDecision(a.text, s.humanGate.label).state !== 'granted';
-  }).length;
+  return pendingDecisionCount(run.ctx);
 }
 
 /**
@@ -396,14 +436,16 @@ function waitingCount(run: Run): number {
   );
 }
 
-app.get('/api/runs', (): RunSummary[] =>
-  [...runs.values()].map(({ run, currentStage, stageStartedAt }) => ({
+/** Карточка живого прогона — одна форма на список витков и на дашборд. */
+function summaryOf({ run, currentStage, stageStartedAt }: LiveRun): RunSummary {
+  return {
     runId: run.id,
     slug: run.slug,
     project: run.project.name,
     profile: run.profile.name,
     currency: profileCurrency(run.profile.routes),
     status: run.status,
+    awaitingSince: run.awaitingSince,
     stage: currentStage,
     chunk: run.chunk,
     attempt: run.attempt,
@@ -413,8 +455,10 @@ app.get('/api/runs', (): RunSummary[] =>
     // с тем, что покажет открытый виток, и второго выражения для него быть не должно.
     waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : stageStartedAt,
-  })),
-);
+  };
+}
+
+app.get('/api/runs', (): RunSummary[] => [...runs.values()].map(summaryOf));
 
 /**
  * Единая валюта маршрутов профиля — см. `RunSummary.currency`. Смешанный профиль отдаёт
@@ -465,6 +509,84 @@ app.get('/api/history/:slug/events', (req, reply) => {
   }
 });
 
+/**
+ * Дашборд: все витки всех проектов (раннер и терминальные скиллы) плюс прогоны стенда.
+ * Только чтение диска — `Run` для архивных витков не поднимается (`dashboard/witoks.ts`).
+ * Проекты пересобираются на каждый запрос: `POST /api/projects` дописывает конфиг на лету.
+ */
+const benchDir = config.runner.benchDir ?? defaultBenchDir();
+// Архив стенда — та же раскладка в `bench/archive/`: старые прогоны уходят туда, а не удаляются.
+const benchIndexes = [new BenchIndex(benchDir), new BenchIndex(join(benchDir, 'archive'), DASHBOARD_BENCH_ARCHIVE)];
+
+function dashboardLive(): LiveEntry[] {
+  return [...runs.values()].map((lr) => ({ projectRoot: lr.run.project.projectRoot, summary: summaryOf(lr) }));
+}
+
+app.get('/api/dashboard', (req, reply) => {
+  const r: DashboardResponse = dashboardList(dashboardProjects(config.projects.values()), dashboardLive(), benchIndexes);
+  const { etag, body } = dashboardBody(r);
+  // `no-cache` — «переспроси», а не «не храни»: браузер шлёт If-None-Match, и неизменный
+  // список не гоняется по проводу заново.
+  // Часы сервера — заголовком, и на 304 тоже: браузер отдаёт клиенту закэшированное тело со
+  // СТАРЫМ `serverNow`, а заголовки ответа 304 обновляют сохранённые. Поправка часов клиента
+  // по телу уезжала на время с прошлого ответа 200.
+  reply.header('etag', etag).header('cache-control', 'no-cache').header('x-server-now', String(r.serverNow));
+  if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+  // Готовая строка, а не объект: Fastify сериализовал бы список второй раз.
+  return reply.type('application/json; charset=utf-8').send(body);
+});
+
+app.get('/api/dashboard/:source/:project/:slug', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const bad = badWitokSlug(slug);
+  if (bad !== null) return reply.code(400).send({ error: bad });
+  const r = dashboardDetail(source, project, slug, dashboardProjects(config.projects.values()), dashboardLive(), benchIndexes);
+  return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
+});
+
+app.get('/api/dashboard/:source/:project/:slug/artifact', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const { name } = req.query as { name?: unknown };
+  if (typeof name !== 'string') return reply.code(400).send({ error: 'нужен параметр name' });
+  const bad = badWitokSlug(slug);
+  if (bad !== null) return reply.code(400).send({ error: bad });
+  const r = dashboardArtifact(source, project, slug, name, dashboardProjects(config.projects.values()), benchIndexes);
+  return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
+});
+
+app.get('/api/dashboard/:source/:project/:slug/flow.html', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const result = dashboardFlow(source, project, slug, dashboardProjects(config.projects.values()), benchIndexes);
+  if ('error' in result) return reply.code(result.code).send({ error: result.error });
+  return reply.header('Cache-Control', 'no-store')
+    .header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+    .type('text/html; charset=utf-8').send(result.ok);
+});
+
+app.get('/api/runs/:id/flow.html', (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  return reply.header('Cache-Control', 'no-store')
+    .header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+    .type('text/html; charset=utf-8').send(live.run.flowHtml());
+});
+
+app.get('/api/runs/:id/execution', (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  const query = req.query as { cursor?: string; limit?: string };
+  const cursor = query.cursor === undefined ? -1 : Number(query.cursor); const limit = Number(query.limit ?? 100);
+  if (!Number.isSafeInteger(cursor) || (query.cursor !== undefined && cursor < 0) || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+    return reply.code(400).send({ error: 'Неверный cursor или limit' });
+  return reply.header('Cache-Control', 'no-store').send(live.run.executionPage(cursor, limit));
+});
+app.get('/api/runs/:id/execution.json', (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  return reply.header('Cache-Control', 'no-store').header('Content-Disposition', 'attachment; filename="execution.json"').send(live.run.executionReport());
+});
+
 app.get('/api/runs/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
@@ -472,6 +594,9 @@ app.get('/api/runs/:id', async (req, reply) => {
 
   const { run, currentStage } = live;
   const detail: RunDetail = {
+    executionMode: guidedSummary(run.paths) === null ? 'legacy' : 'guided',
+    guided: guidedSummary(run.paths),
+    preparation: preparationSummary(run.paths),
     runId: run.id,
     serverNow: Date.now(),
     slug: run.slug,
@@ -491,47 +616,10 @@ app.get('/api/runs/:id', async (req, reply) => {
     // списка обязана показывать то же число, что очередь на странице витка.
     waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : live.stageStartedAt,
-    stages: STAGES.map((s) => {
-      const out = s.produces(run.ctx);
-      return {
-        id: s.id,
-        title: s.title,
-        tools: s.tools,
-        blockers: run.blockers(s.id),
-        // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
-        abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
-        produces: out,
-        // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
-        // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
-        // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
-        //
-        // «Существует» здесь мало: рантайм САМ раскладывает формы при старте этапа
-        // (`seedArtifacts`), и по одному существованию этап, упавший на первом ходу,
-        // светился пройденным над нетронутым бланком. Пройденность — «существует И без
-        // плейсхолдеров», тем же счётчиком, что у стража завершения.
-        produced:
-          out.length > 0 &&
-          out.every((p) => {
-            const a = readArtifact(p);
-            return a.exists && a.placeholders === 0;
-          }),
-        // Этап, который методология пропускает СЕЙЧАС (мелкий контур, вопросов нет):
-        // артефакта у него не будет никогда, и без этого признака интерфейс вечно
-        // предлагал бы его как следующий шаг.
-        skipped: s.skipIf !== null && s.skipIf(run.ctx) !== null,
-        decision: s.humanGate,
-        // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
-        // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле
-        // вообще существует в шаблоне.
-        decisionRecorded:
-          s.humanGate === null
-            ? false
-            : (() => {
-                const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
-                const a = readArtifact(path);
-                return a.exists && readDecision(a.text, s.humanGate.label).state === 'granted';
-              })(),
-      };
+    // Один расчёт с дашбордом (`run/stageInfo.ts`); живые здесь только блокеры и проба среды.
+    stages: stageInfos(run.ctx, {
+      blockers: (id, o) => run.blockers(id, o),
+      envNotes: (id) => run.envNotes(id),
     }),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
@@ -568,6 +656,7 @@ app.post('/api/runs/:id/decision', async (req, reply) => {
     artifact?: string;
     label?: string;
     granted?: boolean;
+    preparationFingerprint?: string;
     note?: string;
     chunk?: number;
     attempt?: number;
@@ -586,6 +675,7 @@ app.post('/api/runs/:id/decision', async (req, reply) => {
       artifact: body.artifact,
       label: body.label,
       granted: body.granted,
+      ...(typeof body.preparationFingerprint === 'string' ? { preparationFingerprint: body.preparationFingerprint } : {}),
       ...(typeof body.note === 'string' ? { note: body.note } : {}),
       ...(typeof body.chunk === 'number' ? { chunk: body.chunk } : {}),
       ...(typeof body.attempt === 'number' ? { attempt: body.attempt } : {}),
@@ -604,7 +694,10 @@ app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
-  const body = (req.body ?? {}) as { requirement?: string; extra?: string };
+  const body = (req.body ?? {}) as { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3 };
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2 && body.preparationVersion !== 3) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1, 2 или 3' });
+  }
   try {
     const response: PromptResponse = {
       prompt: live.run.preparePrompt(stage, body),
@@ -629,11 +722,23 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   const body = (req.body ?? {}) as {
     prompt?: { system?: unknown; user?: unknown };
     requirement?: string;
+    preparationVersion?: 1 | 2 | 3;
+    executionMode?: 'legacy' | 'guided';
+    guidedEngineVersion?: 1 | 2 | 3 | 4;
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
+  if (body.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(body.guidedEngineVersion)) {
+    return reply.code(400).send({ error: 'guidedEngineVersion должна быть 1, 2, 3 или 4' });
+  }
+  if (body.executionMode !== undefined && body.executionMode !== 'legacy' && body.executionMode !== 'guided') {
+    return reply.code(400).send({ error: 'executionMode должен быть legacy или guided' });
+  }
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2 && body.preparationVersion !== 3) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1, 2 или 3' });
+  }
   if (body.prompt !== undefined) {
     if (typeof body.prompt.system !== 'string' || typeof body.prompt.user !== 'string') {
       return reply.code(400).send({ error: 'prompt.system и prompt.user должны быть строками' });
@@ -654,6 +759,9 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   void live.run
     .runStage(stage, {
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
+      ...(body.preparationVersion === undefined ? {} : { preparationVersion: body.preparationVersion }),
+      ...(body.executionMode === undefined ? {} : { executionMode: body.executionMode }),
+      ...(body.guidedEngineVersion === undefined ? {} : { guidedEngineVersion: body.guidedEngineVersion }),
       ...(body.extra === undefined ? {} : { extra: body.extra }),
       ...(body.abortHandoff === true ? { abortHandoff: true } : {}),
       ...(editedPrompt === null
@@ -697,6 +805,10 @@ app.post('/api/runs/:id/advance', async (req, reply) => {
   }
 
   const body = req.body as { to?: 'attempt' | 'chunk' };
+  if (body.to === 'attempt' || body.to === 'chunk') {
+    const problem = live.run.advanceProblem(body.to);
+    if (problem !== null) return reply.code(409).send({ error: problem });
+  }
   if (body.to === 'attempt') {
     const attempt = live.run.nextAttempt();
     return { chunk: live.run.chunk, attempt, attemptBudget: live.run.attemptBudget };

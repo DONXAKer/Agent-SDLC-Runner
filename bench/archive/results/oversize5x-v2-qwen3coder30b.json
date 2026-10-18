@@ -1,0 +1,572 @@
+{
+  "run": {
+    "slug": "oversize5x-v2-qwen3coder30b",
+    "model": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-21T09:25:15.361Z",
+    "finishedAt": "2026-09-21T09:57:44.738Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 0 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 28
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не завершён — этап закрыт по диску",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 4,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "секция «Последствия шагов» плана не доведена:\n- в «Последствиях шагов» нет строк для осей: Безопасность, Ресурсы и скорость, Отказы зависимостей, Настройки, Совместимость и данные, Наблюдаемость — таблица не сокращается, иначе «этой оси здесь нет» неотличимо от «не подумали»\n- ось «‹имя оси из канона›»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «‹имя оси из канона›»: исход не из словаря (‹claim-N / инвариант / гейт «‹имя›» / риск / следующий виток: вопрос ‹N› / н/п — ‹почему››) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- в таблице принятых рисков есть строка «Безопасность», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Ресурсы и скорость», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Отказы зависимостей», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Настройки», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Совместимость и данные», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Наблюдаемость», но исход этой оси — не «риск»\nИсход — из закрытого словаря: claim-N, инвариант, гейт «имя», принятый риск (с причиной и сроком возврата), следующий виток либо «н/п — почему». Совет свободным текстом исходом не является: у него нет исполнителя.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 19
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 244307,
+          "outputTokens": 1929,
+          "cacheReadTokens": 229885,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 192238
+        },
+        "durationMs": 104857
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 292637,
+          "outputTokens": 28328,
+          "cacheReadTokens": 261841,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1852067
+        },
+        "durationMs": 1644894
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 38584,
+          "outputTokens": 710,
+          "cacheReadTokens": 28884,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 49961
+        },
+        "durationMs": 50020
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 221233,
+          "outputTokens": 2507,
+          "cacheReadTokens": 204564,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 278456
+        },
+        "durationMs": 149374
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 2
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 18
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 24
+      },
+      {
+        "stage": "ask",
+        "questions": 3,
+        "approvals": 4,
+        "waitMs": 13
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 8
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 9
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:100276dd-57e2-4838-9d6f-871f8dad640a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:986d1b57-241d-4a62-bccf-1f33c293d724",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:148394c2-098d-4e06-b02b-2ccbe0d58e51",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:7396a864-154f-45cb-b888-694a0fa0f881",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:89028700-b66a-4664-ba01-e3acfcd603f9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:40bacb67-35b3-4796-b637-d4cec4be4997",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:14986c78-7f2f-4ff2-9447-03ead6cb63f3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:c51cc271-4729-4da7-82e9-18eb265c94e9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/oversize5x-v2-qwen3coder30b/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:426c4f00-8c61-446f-8cbb-b8d0c0a1960c",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-S4ppYZ\\.sdlc\\oversize5x-v2-qwen3coder30b\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:7627dbd0-72c6-4b43-9ea5-c7c939e7e286",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:991ee919-9f79-493d-9ee8-27bbf31be59f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:8b6941a5-aa25-4438-90d9-9fb5fafe2ae4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:19733707-43e7-4ffe-a3f4-74de3409dbe3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\oversize5x-v2-qwen3coder30b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "open-0",
+            "question": "[ ] **[блокирующий]** Не указано, какой файл будет добавлен в scope-гейт для проверки тестов, если не будет создан новый модуль для правила негабарита?"
+          },
+          {
+            "id": "open-1",
+            "question": "`claim-9` — \"порядок применения скидки или единицы измерения не изменяются\" — кандидат в пропуск, требуется уточнение"
+          },
+          {
+            "id": "open-2",
+            "question": "Необходимо определить поведение при сумме трёх измерений > 300 см"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.rate"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10295,
+        "userChars": 4753,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9421,
+        "userChars": 17698,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6454,
+        "userChars": 14921,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 14587,
+        "userChars": 18137,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-abb9895f-e760-49db-ac28-4dcea4230f7b-1",
+        "questionId": "open-0",
+        "text": "[ ] **[блокирующий]** Не указано, какой файл будет добавлен в scope-гейт для проверки тестов, если не будет создан новый модуль для правила негабарита?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-abb9895f-e760-49db-ac28-4dcea4230f7b-1",
+        "questionId": "open-1",
+        "text": "`claim-9` — \"порядок применения скидки или единицы измерения не изменяются\" — кандидат в пропуск, требуется уточнение"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-abb9895f-e760-49db-ac28-4dcea4230f7b-1",
+        "questionId": "open-2",
+        "text": "Необходимо определить поведение при сумме трёх измерений > 300 см"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

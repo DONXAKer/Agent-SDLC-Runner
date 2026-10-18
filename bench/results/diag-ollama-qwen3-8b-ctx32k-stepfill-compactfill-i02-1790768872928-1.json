@@ -1,0 +1,266 @@
+{
+  "run": {
+    "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790768872928-1",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T11:47:54.779Z",
+    "finishedAt": "2026-09-30T11:48:24.203Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 70266,
+          "outputTokens": 1027,
+          "cacheReadTokens": 64392,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 50313
+        },
+        "durationMs": 28746,
+        "requestDurationsMs": [
+          3021,
+          4692,
+          5109,
+          2472,
+          5898,
+          6820,
+          566,
+          5365,
+          7983,
+          3878,
+          3728,
+          792
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 15
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:2fb7773e-7387-43c0-a9c6-1f52c59af85d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790768872928-1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 11
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как определяется остаток на складе для приоритетного заказа?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.priority"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11106,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-f45facb6-b7f7-46da-ab9b-018f18b25ac0-1",
+        "questionId": "intent-open-0",
+        "text": "Как определяется остаток на складе для приоритетного заказа?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+      "sourceHash": "147d6db31b32b423eb9be93e22c8bee00b6e4e82c51546dd31b72f8fe2501526",
+      "configHash": "ceedd79d27b10867522d541d2e668466052beeb40eecdc049241810d3c6c60dd",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "15ae4710319085eb606789fb431492835c9dce126d645854f90f628048a47cf1",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 360000
+    },
+    "workspaceHash": "fac62d968526afa55ab88680d66a725159951eae13ed7f7e5a4eb28cca919b74",
+    "state": "finished",
+    "capturedAt": "2026-09-30T11:48:24.226Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T11:48:24.199Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "059482ee4db0ef0731eca9b66130dff260a360611072a50e0835bfaa56d5d369",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "f476c6ca5f4bd0d58331a9809b20fb6ecf2d3e8c18dfb550905d3f9406133ab4",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "eeb1906200419640807ead755d09e9a22ee8541b6e237150e2a85e80c4661ea1",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "12131de27be008f4de68b6f477453ddf8d19b02db15bb1149fb60c60e75205eb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

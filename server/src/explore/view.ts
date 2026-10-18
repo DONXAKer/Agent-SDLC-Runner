@@ -40,6 +40,30 @@ export interface BuiltView {
   reuse: ReuseCandidate[];
 }
 
+/** Ensure literal source paths from the request reach the model even when keyword ranking misses them. */
+export function includeExplicitRequestPaths(index: ExploreIndex, built: BuiltView, paths: readonly string[]): BuiltView {
+  const files = new Map(index.files.map((file) => [file.path.replace(/\\/gu, '/').toLocaleLowerCase(), file]));
+  const explicit = paths.flatMap((path) => {
+    const file = files.get(path.replace(/\\/gu, '/').replace(/^\.\//u, '').toLocaleLowerCase());
+    return file === undefined ? [] : [{ file, score: Number.MAX_SAFE_INTEGER, why: ['explicitly named in the request'] }];
+  });
+  if (explicit.length === 0) return built;
+  const explicitPaths = new Set(explicit.map((entry) => entry.file.path));
+  const ranked = [...explicit, ...built.ranked.filter((entry) => !explicitPaths.has(entry.file.path))];
+  return {
+    ...built,
+    ranked,
+    view: {
+      ...built.view,
+      candidates: ranked.map(({ file, why }) => ({
+        path: file.path, lines: file.lines, kind: file.kind,
+        symbols: file.symbols.map((symbol) => symbol.exported ? symbol.name : `${symbol.name} (not exported)`),
+        why,
+      })),
+    },
+  };
+}
+
 export function buildView(index: ExploreIndex, ecosystem: readonly EcosystemLine[], kw: Keywords, axesEnabled: boolean): BuiltView {
   const ranked = rankFiles(index, kw);
   const reuse = reuseCandidates(index, ranked, kw);

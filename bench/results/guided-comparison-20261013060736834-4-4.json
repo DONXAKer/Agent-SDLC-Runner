@@ -1,0 +1,397 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 202345,
+    "remainingMs": 3397655,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-13T06:41:21.988Z",
+        "inputRevision": "dff68a554682e92037ad3a11af4c4a3271a21bc762643d02d1295a11d2313d24",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`."
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "All requirements for adding a default due date to invoices are clearly defined in the request and no further clarifications are needed at this point.",
+        "status": "ready",
+        "changed": false
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-13T06:43:58.443Z",
+        "inputRevision": "cfa87ab4aacdbea02674c18cc89f1c9f5475cab1cd4b6120ec24533340426140",
+        "decision": "Прочитать указанный фрагмент",
+        "evidence": [],
+        "uncertainties": [
+          "Прочитать указанный фрагмент"
+        ],
+        "action": "read",
+        "reason": "Прочитать указанный фрагмент",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-13T06:44:14.142Z",
+        "inputRevision": "cfa87ab4aacdbea02674c18cc89f1c9f5475cab1cd4b6120ec24533340426140",
+        "decision": "Прочитать указанный фрагмент",
+        "evidence": [],
+        "uncertainties": [
+          "Прочитать указанный фрагмент"
+        ],
+        "action": "read",
+        "reason": "Прочитать указанный фрагмент",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { add, formatRub, percent, rub, subtract } from './money.ts';\n9\texport type { Kopeck } from './money.ts';\n10\t\n11\texport { lineTotal, subtotal } from './lines.ts';\n12\texport type { Line } from './lines.ts';\n13\t\n14\texport type { Customer } from './customer.ts';\n15\t\n16\texport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\n17\texport type { BillingConfig } from './config.ts';\n18\t\n19\texport { buildInvoice } from './invoice.ts';\n20\texport type { Invoice } from './invoice.ts';\n21\t\n22\timport { buildInvoice } from './invoice.ts';\n23\timport type { BillingConfig } from './config.ts';\n24\timport type { Customer } from './customer.ts';\n25\timport type { Invoice } from './invoice.ts';\n26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);\n36\t}\n37\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-13T06:44:25.145Z",
+        "inputRevision": "cfa87ab4aacdbea02674c18cc89f1c9f5475cab1cd4b6120ec24533340426140",
+        "decision": "Прочитать указанный фрагмент",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: Источник src/config.ts ещё не прочитан: сначала next.read по этому пути, затем ссылайся на lookup-N / request-N"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: Источник src/config.ts ещё не прочитан: сначала next.read по этому пути, затем ссылайся на lookup-N / request-N",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261013060736834-4-4",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-13T06:41:01.784Z",
+    "finishedAt": "2026-10-13T06:44:25.180Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; ответ на поле коротко отклонён: поле «коротко»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: Источник src/config.ts ещё не прочитан: сначала next.read по этому пути, затем ссылайся на lookup-N / request-N",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 35412,
+          "outputTokens": 9358,
+          "cacheReadTokens": 2229,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 240750
+        },
+        "durationMs": 171147,
+        "requestDurationsMs": [
+          5513,
+          13885,
+          13078,
+          19651,
+          31323,
+          13140,
+          24193,
+          38930,
+          17449,
+          33994,
+          12600,
+          17004
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 26866,
+          "outputTokens": 1342,
+          "cacheReadTokens": 32,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 31523
+        },
+        "durationMs": 31689,
+        "requestDurationsMs": [
+          4866,
+          5540,
+          10135,
+          10982
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 1,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 8
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:3f10b812-a03a-474b-ad60-5489bd8fe7c1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261013060736834-4-4\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:448170aa-5a62-4a9c-89c9-4eb10d702141",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261013060736834-4-4\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5860,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 13362,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "b34ed2e0cbf0c080c5b9fd036c0ac09e764c952b9cc92464acb6e8841392e80c",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "e4831035fb277bb4a2b07e12d5d332d07bc1223180555211e26515eb26c5d4e5",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "ad032f262527b9590334a900af9dc25ad7c52fa8539367b74fbaabd042172eb8",
+    "state": "finished",
+    "capturedAt": "2026-10-13T06:44:25.206Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-13T06:44:25.148Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "5879e1f05e8530ced8647c103d8947a20ac4d56d1233eff4b4de5fb7b0e5a035",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c0a256e55a5ac5c064b6c09563129bd3365459b9da10af7c945ac384e56f679e",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "16cb6023aa4e9a0f7b5720d8855072dabf6a1684d6eaa2d22b36fcef03cce0c3",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "3802a3c78dfed27498b6133499ca35766b24743068e6e1400bc83e432e36eccb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

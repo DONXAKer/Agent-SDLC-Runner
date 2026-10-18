@@ -1,0 +1,62 @@
+diff --git a/src/shares.mjs b/src/shares.mjs
+index e8014d2..23a7804 100644
+--- a/src/shares.mjs
++++ b/src/shares.mjs
+@@ -1 +1,57 @@
+ export const protocolVersion = 1;
++
++/**
++ * Split a total amount of cents into integer shares.
++ *
++ * @param {number} total - Nonnegative safe integer denoting total cents.
++ * @param {number} count - Positive safe integer ≤ 1000 denoting number of shares.
++ * @returns {number[]} An array of length `count` containing integer shares
++ *   that sum to `total`.  Shares differ by at most one and
++ *   surplus cents are distributed to the earliest indices.
++ * @throws {RangeError} If args violate the above constraints.
++ */
++export function splitCents(total, count) {
++  // Validate total
++  if (
++    typeof total !== 'number' ||
++    !Number.isSafeInteger(total) ||
++    total < 0
++  ) {
++    throw new RangeError(
++      `total must be a nonnegative safe integer (received ${total})`
++    );
++  }
++
++  // Validate count
++  if (
++    typeof count !== 'number' ||
++    !Number.isSafeInteger(count) ||
++    count <= 0 ||
++    count > 1000
++  ) {
++    throw new RangeError(
++      `count must be a positive safe integer ≤ 1000 (received ${count})`
++    );
++  }
++
++  const result = new Array(count).fill(0);
++
++  // Quick cases
++  if (total === 0) return result;
++
++  const base = Math.floor(total / count);
++  const remainder = total % count;
++  // If base > 0, pre-fill
++  if (base > 0) {
++    for (let i = 0; i < count; i++) {
++      result[i] = base;
++    }
++  }
++
++  // Distribute remainder to earliest indices
++  for (let i = 0; i < remainder; i++) {
++    result[i] += 1;
++  }
++
++  return result;
++}

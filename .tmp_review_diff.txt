@@ -1,0 +1,3403 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index bef1ff2..073ba67 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -343,10 +343,11 @@ ripgrep'а переводится в тот же шаблон в `normalize.ts`)
+ (анти-цикл считает прогресс по принятым записям, а не по повтору вызова).
+ 
+ Гейт «Ревью независимым агентом» зеленеет по ОДНИМ планкам на обоих путях — прямой прогон
+-рантаймом и `Task` модели (`reviewer.ts::reviewProblem`, во втором случае хуком
+-`StageInvocation.reviewAccepted` и по полному, не обрезанному ответу): непустой ответ, ссылка
+-на место из патча, вердикт по каждому `claim-N` задачи. После повторного запроса полноту
+-листа судит повторный ответ целиком (не склейка с первым), а ссылку на патч — оба ответа.
++рантаймом и `Task` модели, через один контракт `verify-review-v1`
++(`reviewValidate.ts::parseReviewText`, вызывается `acceptReviewText`; во втором случае —
++хуком `StageInvocation.reviewAccepted` и по полному, не обрезанному ответу): `claims` — ровно
++те id, что в задаче, статус из словаря, у `passed`/`failed` — ссылка на место из патча. После
++повторного запроса полноту листа судит повторный ответ целиком (не склейка с первым).
+ 
+ ### Гейты и вердикт
+ 
+diff --git a/bench/src/cli.ts b/bench/src/cli.ts
+index 54acb35..d332e21 100644
+--- a/bench/src/cli.ts
++++ b/bench/src/cli.ts
+@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ 
+ import { STAGE_ORDER } from '@sdlc-runner/shared';
+-import type { RunEvent, StageId } from '@sdlc-runner/shared';
++import type { RunEvent, RunMetrics, StageId } from '@sdlc-runner/shared';
+ import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+ import { readPersistedEvents } from '../../server/src/eventLog.ts';
+ 
+@@ -38,7 +38,7 @@ import { rawLogDisabledReason, resetRawLog } from '../../server/src/provider/raw
+ import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
+ import type { SeedProbe } from './seeds.ts';
+ import { createProvider } from '../../server/src/provider/registry.ts';
+-import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
++import { REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+ import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+ import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts';
+ import { runHiddenTests } from './hiddenTests.ts';
+@@ -194,6 +194,22 @@ interface LiveOutcome {
+   durationMs: number;
+   /** Сырой дамп выключился отказами записи посреди прогона — причина; `null` — не выключался. */
+   rawLogDisabled: string | null;
++  /**
++   * Длительность ОДНОГО запроса к измеряемой модели — максимум и 95-й перцентиль, по всем
++   * запросам всех измеряемых этапов (`built.measured`). `null` — ни одного запроса
++   * измеряемого этапа не было (снимок, обрыв до старта). Отдельно от `durationMs` (время
++   * всего прогона): критерий 2 квалификации рецензента (`docs/proposals/reviewer-qualification.md`)
++   * судит по одному запросу — зависший на 20 минут запрос топит получасовой бюджет этапа, а
++   * общее время прогона это не показывает.
++   */
++  requestLatencyMs: { maxMs: number; p95Ms: number } | null;
++  /**
++   * Щуп посева этого сэмпла — `null`, если `--seed` не задан или прогон не дошёл до
++   * измерения. Несёт `expected` (`'review'`/`'gate'`, `SeedDef.expected`) — критерий 5
++   * квалификации рецензента (`docs/proposals/reviewer-qualification.md`): «3/8» без этой
++   * метки смешивает находимость чтением diff'а с контролем автоматики набора.
++   */
++  seed: SeedProbe | null;
+ }
+ 
+ interface LiveRunFlags {
+@@ -286,7 +302,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
+       // целиком печатала «[object Object]» вместо причины.
+       console.error(`\nокно контекста (этап «${stage}»): ${problem.message}`);
+       wsDispose();
+-      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null };
++      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null, requestLatencyMs: null, seed: null };
+     }
+   }
+ 
+@@ -516,6 +532,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
+         hidden: null,
+         durationMs: finishedAt.getTime() - startedAt.getTime(),
+         rawLogDisabled: rawLogDisabledReason(),
++        requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
++        seed: null,
+       };
+     }
+ 
+@@ -629,6 +647,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
+       hidden: hidden === null ? null : { pass: hidden.pass, total: hidden.total },
+       durationMs: finishedAt.getTime() - startedAt.getTime(),
+       rawLogDisabled,
++      requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
++      seed: seedProbe,
+     };
+   } catch (e) {
+     // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
+@@ -673,6 +693,11 @@ async function probeRun(opts: BenchOptions): Promise<number> {
+     return 2;
+   }
+   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
++  // Роль решает набор кейсов (критерий 3 квалификации рецензента,
++  // `docs/proposals/reviewer-qualification.md`): `reviewFill` не вызывает ни одного
++  // инструмента, и кейсы Write/Edit измеряют способности исполнителя chunk — не её.
++  // `--all` verify никогда не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
++  const forReviewer = opts.mode.kind === 'stage' && opts.mode.stage === 'verify';
+   const report = await probeModel({
+     provider,
+     model: def.model,
+@@ -682,6 +707,7 @@ async function probeRun(opts: BenchOptions): Promise<number> {
+     // Свой потолок на КАЖДЫЙ кейс, а не общий на пробу: медленная модель исчерпывала
+     // общий сигнал первым кейсом, и остальные красились тем же приговором.
+     caseTimeoutMs: opts.stageTimeoutMs,
++    ...(forReviewer ? { cases: REVIEWER_PROBE_CASES } : {}),
+   });
+   console.log(formatProbe(report));
+   // Средовой сбой — «не измерено» (2), как у всего бенчмарка, а не приговор модели.
+@@ -708,6 +734,25 @@ function median(values: readonly number[]): number | null {
+   return sorted[Math.floor((sorted.length - 1) / 2)]!;
+ }
+ 
++/** N-й перцентиль (0–100) уже отсортированного не обязан быть — сортируем сами. Пусто — null. */
++function percentile(values: readonly number[], p: number): number | null {
++  if (values.length === 0) return null;
++  const sorted = [...values].sort((a, b) => a - b);
++  const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
++  return sorted[index]!;
++}
++
++/**
++ * Максимум и p95 длительности ОДНОГО запроса, по всем запросам ИЗМЕРЯЕМЫХ этапов витка —
++ * см. `LiveOutcome.requestLatencyMs`. Пул этапов, а не один: `--all` меряет несколько
++ * этапов разом, и зависший запрос на любом из них одинаково топит бюджет.
++ */
++function requestLatencyOf(metrics: RunMetrics, measured: readonly StageId[]): LiveOutcome['requestLatencyMs'] {
++  const pooled = metrics.stages.filter((s) => measured.includes(s.stage)).flatMap((s) => s.requestDurationsMs);
++  if (pooled.length === 0) return null;
++  return { maxMs: Math.max(...pooled), p95Ms: percentile(pooled, 95)! };
++}
++
+ /**
+  * Серия `--repeat N`: N одинаковых прогонов, слаги `<slug>-s1…-sN`, сводка с медианой и
+  * разбросом по щупам. Правило журнала «для 8B — серии ≥3» становится механикой: дисперсия
+@@ -786,6 +831,41 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
+         `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
+     );
+   }
++  // Латентность ОДНОГО запроса — отдельно от времени всего прогона (критерий 2 квалификации
++  // рецензента, `docs/proposals/reviewer-qualification.md`): худший максимум по серии (не
++  // отличается «повезло один раз» от «стабильно виснет») и медиана p95 (типичный хвост).
++  const withLatency = measuredSamples.filter((o) => o.requestLatencyMs !== null);
++  if (withLatency.length > 0) {
++    const maxes = withLatency.map((o) => o.requestLatencyMs!.maxMs);
++    const p95s = withLatency.map((o) => o.requestLatencyMs!.p95Ms);
++    console.log(
++      `  запрос: p95 медиана ${((median(p95s) ?? 0) / 1000).toFixed(1)} с, ` +
++        `худший максимум по серии ${(Math.max(...maxes) / 1000).toFixed(1)} с` +
++        (withLatency.length < measuredSamples.length
++          ? ` (по ${withLatency.length} из ${measuredSamples.length} сэмплов)`
++          : ''),
++    );
++  }
++  // Находимость посева — ОТДЕЛЬНО по review-классам (ловит только чтение diff'а) и
++  // gate-классам (контроль самой автоматики набора, не рецензента). Критерий 5 квалификации
++  // рецензента (`docs/proposals/reviewer-qualification.md`): смешанное «X из N» уже давало
++  // читателю неверное впечатление о находимости рецензента (`gpt-oss-20b-rf`, «3/8» вместо
++  // честных «1 из 6» review-классов — два из трёх пойманных были gate-контролем).
++  const withSeed = measuredSamples.filter((o): o is LiveOutcome & { slug: string; seed: SeedProbe } => o.seed !== null);
++  if (withSeed.length > 0) {
++    const { seedId, expected } = withSeed[0]!.seed;
++    const caught = withSeed.filter((o) => o.seed.caught).length;
++    const kindLabel =
++      expected === 'gate'
++        ? 'gate-класс — контроль автоматики набора, НЕ находимость рецензента'
++        : expected === 'review'
++          ? 'review-класс — ловит только чтение diff\'а'
++          : 'класс не размечен';
++    console.log(
++      `  посев «${seedId}» (${kindLabel}): поймано ${caught} из ${withSeed.length}` +
++        (withSeed.length < measuredSamples.length ? ` (по ${withSeed.length} из ${measuredSamples.length} сэмплов)` : ''),
++    );
++  }
+ 
+   // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —
+   // худший исход, как везде в вердиктах. Через measuredSamples, а не магический фильтр
+diff --git a/bench/src/preflight.ts b/bench/src/preflight.ts
+index 9085980..5d7a615 100644
+--- a/bench/src/preflight.ts
++++ b/bench/src/preflight.ts
+@@ -11,7 +11,11 @@
+  * Модельные проверки — расширенная проба (`PREFLIGHT_CASES`): поверх трёх базовых
+  * микро-кейсов tool-calling — точность многострочного Edit («некорректная запись»),
+  * честность путей («выдумывание»), длинная запись без усечения («нехватка токенов
+- * на ответ», `finish_reason: length`).
++ * на ответ», `finish_reason: length`). На `--stage verify` набор ДРУГОЙ —
++ * `REVIEWER_PROBE_CASES` (`server/src/probe.ts`): `reviewFill` не вызывает ни одного
++ * инструмента, и Write/Edit измеряют способности исполнителя chunk, не рецензента
++ * (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`) —
++ * `qwen3.6-27b-iq4` (2026-09-27) прошла старый набор и провалила настоящий `reviewFill`.
+  *
+  * Коды исхода — как у всего бенчмарка: 0 — пройдено, 1 — модель не прошла,
+  * 2 — измерение не состоялось (среда/конфиг). Логика кодов живёт здесь одна
+@@ -27,10 +31,13 @@ import type { LoadedConfig } from '../../server/src/config/load.ts';
+ import { estimateMessageTokens } from '../../server/src/exec/contextBudget.ts';
+ import { readSkillBody } from '../../server/src/prompt/build.ts';
+ import { stageById } from '../../server/src/run/stages.ts';
+-import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
++import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
++import type { ProbeCase } from '../../server/src/probe.ts';
+ import type { ProbeReport } from '../../server/src/probe.ts';
+ import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+ import type { ContextProblem } from '../../server/src/provider/contextCheck.ts';
++import { layoutProblemFor } from '../../server/src/provider/layoutCheck.ts';
++import type { LayoutProblem } from '../../server/src/provider/layoutCheck.ts';
+ import { isLoopbackUrl } from '../../server/src/provider/http.ts';
+ import { createProvider } from '../../server/src/provider/registry.ts';
+ import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
+@@ -93,6 +100,8 @@ export interface PreflightDeps {
+   /** Перезагрузка модели при средовом сбое движка — только за `--engine-reload`. */
+   reloadEngine: typeof reloadEngine;
+   contextProblem: typeof contextProblemFor;
++  /** Раскладка по видеопамяти ПОСЛЕ прогрева — критерий 1 квалификации рецензента, см. `layoutCheck.ts`. */
++  layoutProblem: typeof layoutProblemFor;
+   spawnTest: typeof spawnNodeTest;
+   spawnScript: (args: { script: string; cwd: string; timeoutMs: number }) => Promise<NodeTestOutput>;
+   loadConfig: () => LoadedConfig;
+@@ -107,6 +116,7 @@ function defaultDeps(): PreflightDeps {
+     warmup: warmupEngine,
+     reloadEngine,
+     contextProblem: contextProblemFor,
++    layoutProblem: layoutProblemFor,
+     spawnTest: spawnNodeTest,
+     // Общий спавн `nodeTest.ts`: своя копия здесь не сбрасывала NODE_TEST_CONTEXT, и
+     // `build-check.mjs` фикстуры из-под тестового прогона вёл себя иначе, чем в бою.
+@@ -562,6 +572,37 @@ async function checkWarmup(
+   }
+ }
+ 
++/**
++ * Раскладка модели по видеопамяти — ТОЛЬКО после успешного прогрева: без него веса ещё не
++ * загружены, и раскладку смотреть не на чем. Критерий 1 квалификации рецензента
++ * (`docs/proposals/reviewer-qualification.md`): частичный CPU-офлоад проходит короткие
++ * изолированные кейсы `--probe` (40–110 с) и вскрывается только настоящей нагрузкой —
++ * `qwen3.6-27b-iq4` (2026-09-27) прошла пробу 3/3 и зависла на реальном `reviewFill`
++ * именно по этой причине (`ollama ps`: 26%/74% CPU/GPU). Реализовано только для Ollama —
++ * см. `layoutCheck.ts`; на прочих провайдерах молча пропускается (`check: null`), не красит.
++ */
++async function checkLayout(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck | null> {
++  const name = 'модель: раскладка после прогрева';
++  const target = resolveProbeTarget(config.models, opts.model);
++  if ('error' in target) return null;
++  const { def, providerDef } = target;
++  // Реализовано только для Ollama — на прочих провайдерах строка не показывается вовсе,
++  // а не «зелёная по умолчанию»: непроверенное не должно выглядеть проверенным.
++  if (def.provider !== 'ollama') return null;
++
++  const started = Date.now();
++  const problem: LayoutProblem | null = await deps.layoutProblem(
++    def.provider,
++    def.model,
++    providerDef.baseUrl,
++    config.runner.limits.chatTimeoutMs,
++  );
++  const ms = Date.now() - started;
++  return problem === null
++    ? ok(name, false, 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
++    : bad(name, false, problem.message, ms);
++}
++
+ /**
+  * Локальный движок с холодными весами — прогрев и перезагрузка имеют смысл только у него.
+  * Известные локальные провайдеры по имени — и любой openai-совместимый провайдер на адресе
+@@ -604,7 +645,11 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
+     params: def.params ?? null,
+     caseTimeoutMs: opts.probeTimeoutMs ?? PROBE_CASE_TIMEOUT_MS,
+   };
+-  const report: ProbeReport = await deps.probe({ ...probeArgs, cases: PREFLIGHT_CASES });
++  // Роль решает набор кейсов — см. докстринг `REVIEWER_PROBE_CASES` (`probe.ts`) и
++  // критерий 3 квалификации рецензента (`docs/proposals/reviewer-qualification.md`).
++  // `--all` verify не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
++  const cases: readonly ProbeCase[] = opts.mode.kind === 'stage' && opts.mode.stage === 'verify' ? REVIEWER_PROBE_CASES : PREFLIGHT_CASES;
++  const report: ProbeReport = await deps.probe({ ...probeArgs, cases });
+   const toCheck = (c: ProbeReport['cases'][number], detail = c.detail, durationMs = c.durationMs): PreflightCheck => ({
+     name: `модель: ${c.name}`,
+     ok: c.ok,
+@@ -622,7 +667,7 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
+       checks.push(toCheck(c, c.timedOut ? `${c.detail} — попробуй больший --probe-timeout, если это разовая нагрузка` : c.detail));
+       continue;
+     }
+-    const retryCase = PREFLIGHT_CASES.find((p) => p.name === c.name);
++    const retryCase = cases.find((p) => p.name === c.name);
+     if (retryCase === undefined) {
+       checks.push(toCheck(c));
+       continue;
+@@ -681,6 +726,10 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
+         checks.push(...again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
+       }
+     }
++    if (checks.every((c) => c.ok)) {
++      const layout = await checkLayout(d, ctx.config, opts);
++      if (layout !== null) checks.push(layout);
++    }
+     if (checks.every((c) => c.ok)) {
+       checks.push(...(await checkModel(d, ctx.config, opts)));
+     }
+diff --git a/bench/src/report.ts b/bench/src/report.ts
+index 49d9522..d15de89 100644
+--- a/bench/src/report.ts
++++ b/bench/src/report.ts
+@@ -733,7 +733,10 @@ export function buildReport(input: ReportInput): Report {
+       : [
+           '## Посев',
+           '',
+-          `\`${seed.seedId}\` · ${seed.klass}`,
++          `\`${seed.seedId}\` · ${seed.klass}` +
++            (seed.seedId === SEED_NONE
++              ? ''
++              : ` · ${seed.expected === 'gate' ? 'gate-класс — контроль автоматики набора, не находимость рецензента' : 'review-класс — ловит только чтение diff’а'}`),
+           '',
+           seed.caught ? `Пойман: ${seed.where.join(', ')}.` : 'НЕ пойман ни автоматикой, ни отчётом.',
+           '',
+diff --git a/bench/test/journal.test.ts b/bench/test/journal.test.ts
+index 7a7dbe5..1b4e560 100644
+--- a/bench/test/journal.test.ts
++++ b/bench/test/journal.test.ts
+@@ -32,7 +32,7 @@ function result(stagesOk: boolean) {
+     stopped: stagesOk ? 'handoff' : 'blocked',
+   };
+   const m: RunMetrics = {
+-    stages: [{ stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.09, durationMs: 1000 }, durationMs: 1000 }],
++    stages: [{ stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.09, durationMs: 1000 }, durationMs: 1000, requestDurationsMs: [] }],
+     verdicts: { total: 1, red: stagesOk ? 0 : 1 },
+     redByCause: [],
+     attemptsByChunk: [],
+diff --git a/bench/test/preflight.test.ts b/bench/test/preflight.test.ts
+index dae86ff..dde3cd5 100644
+--- a/bench/test/preflight.test.ts
++++ b/bench/test/preflight.test.ts
+@@ -39,6 +39,7 @@ function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
+     warmup: async () => {},
+     reloadEngine: async () => ({ kind: 'reloaded', detail: 'заглушка' }),
+     contextProblem: async () => null,
++    layoutProblem: async () => null,
+     spawnScript: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
+     spawnTest: async () => ({ exitCode: 0, stdout: 'ok 1 - t', stderr: '', timedOut: false }),
+     ...over,
+@@ -161,6 +162,39 @@ describe('runPreflight', () => {
+     strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
+   });
+ 
++  it('--stage verify — набор кейсов рецензентский, не Write/Edit исполнителя (критерий 3 квалификации рецензента)', async () => {
++    // Правило рецензента: MODEL встаёт на verify (ранг 32) и обязан быть СИЛЬНЕЕ chunk —
++    // контрольный chunk по умолчанию (sonnet, 70) сильнее, профиль не собрался бы; подмена
++    // на модель ниже рангом (`ollama:cline_roocode:8b-ctx16k`, 30) — тот же приём, что в
++    // живых замерах локальных рецензентов.
++    const report = await runPreflight(
++      opts(['--model', MODEL, '--stage', 'verify', '--control-chunk', 'ollama:cline_roocode:8b-ctx16k']),
++      greenDeps(),
++    );
++    ok(report.checks.some((c) => c.name === 'модель: находка по посеянному дефекту'), JSON.stringify(report.checks));
++    ok(report.checks.some((c) => c.name === 'модель: чистый фрагмент — без ложной находки'), JSON.stringify(report.checks));
++    strictEqual(report.checks.some((c) => c.name.startsWith('модель: заполнение поля через Edit')), false, 'кейс исполнителя chunk на роль рецензента не должен идти');
++  });
++
++  it('раскладка в порядке — строка «раскладка после прогрева» зелёная, проба гоняется', async () => {
++    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps());
++    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && c.ok), JSON.stringify(report.checks));
++    ok(report.checks.some((c) => c.name.startsWith('модель: честность')), 'проба должна была гоняться следом');
++  });
++
++  it('частичный офлоад — красная строка «модели» (не среды) до пробы, критерий 1 квалификации рецензента', async () => {
++    const report = await runPreflight(
++      opts(['--model', MODEL, '--stage', 'chunk']),
++      greenDeps({
++        layoutProblem: async () => ({ message: 'раскладка «m»: 26.0% GPU / 74.0% CPU — частичный офлоад' }),
++      }),
++    );
++    strictEqual(report.passed, false);
++    strictEqual(preflightExitCode(report), 1, 'находка про конкретную модель на этом железе, не про среду — код 1, не 2');
++    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && !c.ok && c.detail.includes('офлоад')));
++    strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
++  });
++
+   it('расхождение окна помечено reloadable, но БЕЗ --engine-reload — код 2, перезагрузка не вызывается', async () => {
+     let reloadCalled = false;
+     const report = await runPreflight(
+diff --git a/bench/test/report.test.ts b/bench/test/report.test.ts
+index ac07bca..76be986 100644
+--- a/bench/test/report.test.ts
++++ b/bench/test/report.test.ts
+@@ -84,7 +84,7 @@ function greenResult() {
+ 
+   const m = metrics({
+     stages: [
+-      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000 },
++      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000, requestDurationsMs: [] },
+     ],
+     friction: [{ stage: 'intent', repeat: 0, badJson: 0, denied: 0, truncated: 0, toolCalls: 5, reminders: 0 }],
+   });
+@@ -649,6 +649,25 @@ describe('buildReport: коды возврата', () => {
+     strictEqual(missed.exitCode, 1);
+   });
+ 
++  it('«## Посев» называет класс (review/gate) — критерий 5 квалификации рецензента: «3/8» не должно смешивать находимость с контролем автоматики', () => {
++    const r = greenResult();
++    const review = reportOf({
++      result: r,
++      hidden: null,
++      honesty: [],
++      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван' },
++    });
++    ok(review.markdown.includes('review-класс — ловит только чтение diff’а'), review.markdown);
++
++    const gate = reportOf({
++      result: r,
++      hidden: null,
++      honesty: [],
++      seed: { seedId: 'weight-step-off-by-one', klass: 'off-by-one на границе', expected: 'gate', caught: true, where: ['gate'], note: 'гейт «Тесты» красный' },
++    });
++    ok(gate.markdown.includes('gate-класс — контроль автоматики набора, не находимость рецензента'), gate.markdown);
++  });
++
+   it('контрольный прогон без посева судится наоборот — по отсутствию срабатываний', () => {
+     const r = greenResult();
+     const clean = reportOf({
+diff --git a/config/models.json b/config/models.json
+index 82dcd61..201be84 100644
+--- a/config/models.json
++++ b/config/models.json
+@@ -120,9 +120,9 @@
+       "id": "ollama:apriel-1.6-15b-rf", "provider": "ollama", "model": "apriel-1.6-15b-ctx32k", "contextWindow": 32768, "rank": 56, "formFill": true, "reviewFill": true, "skipTurnAfterReviewFill": true },
+     { "// gpt-oss-20b-rf": "База для reviewFill на модели, у которой класс «оформитель» уже измерен девятью прогонами (-reviewer/-effort-*): тот же набор полей, плюс reviewFill. Если конвейер поднимает находимость у неё — дело в протоколе, если нет — в модели. planAxisFill добавлен 2026-09-09 для замера того же конвейерного приёма на этапе 4 (Track «узкие судебные конвейеры по 6 осям», merry-foraging-unicorn) — своя точка вызова (topUpAxes, stage plan), с reviewFill (stage verify) не смешивается: сравнение с уже снятой находимостью 3/8 отдельного этапа не портит.",
+       "id": "ollama:gpt-oss-20b-rf", "provider": "ollama", "model": "gpt-oss-20b-ctx32k", "contextWindow": 32768, "rank": 52, "formFill": true, "reviewFill": true, "planAxisFill": true, "params": { "max_tokens": 16384 } },
+-    { "// magistral-2509-iq4": "Magistral Small 1.2 (2509), плотная 24B с tools+thinking, hf.co/unsloth/Magistral-Small-2509-GGUF:IQ4_XS 12.8 ГБ (Q4_K_M 14.3). Библиотечный тег magistral застыл на 2506 с окном 39K — свой Modelfile. Рецензент №2: семейство Mistral держит длинные структурированные ответы (ministral-14b — единственный не-Claude рецензент с 0 расхождений, r9). Минусы: деградация после 40k входа, длинные трассы рассуждения.",
++    { "// magistral-2509-iq4": "Magistral Small 1.2 (2509), плотная 24B с tools+thinking, hf.co/unsloth/Magistral-Small-2509-GGUF:IQ4_XS 12.8 ГБ (Q4_K_M 14.3). Библиотечный тег magistral застыл на 2506 с окном 39K — свой Modelfile. Рецензент №2: семейство Mistral держит длинные структурированные ответы (ministral-14b — единственный не-Claude рецензент с 0 расхождений, r9). Минусы: деградация после 40k входа, длинные трассы рассуждения. НЕПРИГОДНА (`--probe`, 2026-09-27): 0/3 — модель эмитит спецтокен `[TOOL_CALLS]Write{…}` текстом, а не настоящим tool_call; GGUF-шаблон этой сборки не транслируется через используемый эндпойнт. Структурная проблема шаблона, не окна/ранга — чинится только собственным `TEMPLATE` в Modelfile (не сделано). docs/model-runs.md, «Скрининг непройденных кандидатов… 2026-09-27».",
+       "id": "ollama:magistral-2509-iq4", "provider": "ollama", "model": "magistral-2509-iq4-ctx32k", "contextWindow": 32768, "rank": 58, "formFill": true },
+-    { "// seed-oss-36b-iq3": "Seed-OSS-36B-Instruct (ByteDance), hf.co/unsloth/Seed-OSS-36B-Instruct-GGUF:IQ3_XXS 14.3 ГБ. Единственная с ЧИСЛОВЫМ бюджетом размышлений (thinking_budget, кратно 512, 0 = без) — прямая ручка против обрыва по длине; RULER-128k 94.6 (вендор). Рецензент №3 — проверка гипотезы «дело в бюджете размышлений»: сравнивать 4096 против 0 одной ручкой. Цена: квант Q3 (потеря не измерена), 36B на этой паре — 20–40 мин на прогон.",
++    { "// seed-oss-36b-iq3": "Seed-OSS-36B-Instruct (ByteDance), hf.co/unsloth/Seed-OSS-36B-Instruct-GGUF:UD-IQ3_XXS 14.3 ГБ (обычного файла `IQ3_XXS` без `UD`-префикса в репозитории нет — проверено по дереву репозитория 2026-09-27, комментарий поправлен). Единственная с ЧИСЛОВЫМ бюджетом размышлений (thinking_budget, кратно 512, 0 = без) — прямая ручка против обрыва по длине; RULER-128k 94.6 (вендор). Рецензент №3 — проверка гипотезы «дело в бюджете размышлений»: сравнивать 4096 против 0 одной ручкой. Цена: квант Q3 (потеря не измерена), 36B на этой паре — 20–40 мин на прогон. НЕПРИГОДНА при `thinking_budget: 4096` (`--probe`, 2026-09-27): 2/3 — «Edit по плейсхолдеру» дал ПУСТОЙ ответ (112.8 с, бюджет размышления исчерпан до вызова); отдельно непрактично медленна (Read→Edit 625 с — свыше 10 минут на тривиальный кейс). Следующая точка гипотезы — `thinking_budget: 0` — не проверена; независимо от находимости скорость уже под вопросом для роли рецензента. docs/model-runs.md, «Скрининг… 2026-09-27».",
+       "id": "ollama:seed-oss-36b-iq3", "provider": "ollama", "model": "seed-oss-36b-iq3-ctx32k", "contextWindow": 32768, "rank": 60, "formFill": true, "params": { "thinking_budget": 4096 } },
+     { "// kat-coder-v2.5-q3": "KAT-Coder-V2.5-Dev (Kwaipilot, июль 2026) на Qwen3.6-35B-A3B: hf.co/bartowski/Kwaipilot_KAT-Coder-V2.5-Dev-GGUF:Q3_K_M 16.2 ГБ — Q4 (21.4) за потолком; в LM Studio с --n-cpu-moe годится IQ4_XS 18.8. Тега в library не будет (issue #17506 закрыт). Вендор: SWE-V 69.4 в харнессе Claude Code с нативными tool_calls; отдельно давили «abnormal tool labels» 9.3 % → 0.3 % — ровно наш измеренный класс провала локальных. Кандидат chunk №3 после Ornith; stepFill включён, как у остальных MoE-кандидатов chunk.",
+       "id": "ollama:kat-coder-v2.5-q3", "provider": "ollama", "model": "kat-coder-v2.5-q3-ctx32k", "contextWindow": 32768, "rank": 59, "stepFill": true },
+@@ -136,7 +136,7 @@
+       "id": "ollama:qwen3.8-27b-iq4-ctx16k", "provider": "ollama", "model": "qwen3.8-27b-iq4-ctx16k", "rank": 64, "contextWindow": 16384, "formFill": true },
+     { "// qwen3.8-27b-iq4-rf": "ТА ЖЕ запись плюс reviewFill. Замер 2026-09-08: свободный ход дал 0 вызовов и 0 токенов за 40 минут (2 ретрая транспортного таймаута) — 15 тыс. токенов входа не осилены даже на prefill при 17 % CPU-офлоада. Третье подтверждение класса «постоянное глубокое размышление без ручки эффорта + офлоад + один большой запрос» после Apriel. reviewFill на Apriel это сняло (конвейер прошёл целиком за счёт коротких запросов) — проверка того же на этой модели.",
+       "id": "ollama:qwen3.8-27b-iq4-rf", "provider": "ollama", "model": "qwen3.8-27b-iq4-ctx32k", "contextWindow": 32768, "rank": 64, "formFill": true, "reviewFill": true, "skipTurnAfterReviewFill": true },
+-    { "// qwen3.6-27b-iq4": "Qwen3.6-27B (апрель 2026), hf.co/unsloth/Qwen3.6-27B-GGUF:UD-IQ4_XS 14.3 ГБ (тег qwen3.6:27b = 18 ГБ, за потолком). Та же архитектура, что 3.8, /v1 в ollama подтверждённо работает, вдвое меньше токенов. Вендор: SWE-bench Verified 77.2 — лучший в классе; запасной рецензент и кандидат на chunk против gpt-oss-20b (единственная пара класса с независимыми данными в обе стороны — плотная 27B против MoE). Без ручек: первый замер базовый. Ранг 62 — между devstral-small-2 (60) и qwen3.8 (64).",
++    { "// qwen3.6-27b-iq4": "Qwen3.6-27B (апрель 2026), hf.co/unsloth/Qwen3.6-27B-GGUF:IQ4_XS 15.4 ГБ (тег `UD-IQ4_XS` из более ранней версии этого комментария в репозитории НЕ существует — проверено по дереву репозитория 2026-09-27 после того, как `ollama pull` с ним отказал 400 «tag not available»; `UD-`-вариант этого репозитория останавливается на `UD-IQ3_XXS`. Тег qwen3.6:27b = 18 ГБ, за потолком). Та же архитектура, что 3.8, /v1 в ollama подтверждённо работает, вдвое меньше токенов. Вендор: SWE-bench Verified 77.2 — лучший в классе; запасной рецензент и кандидат на chunk против gpt-oss-20b (единственная пара класса с независимыми данными в обе стороны — плотная 27B против MoE). НЕПРИГОДНА как рецензент на этом железе (2026-09-27, та же серия): `--probe` 3/3 (40.0/110.7/65.5 с) и `--preflight` 6/8 при `--probe-timeout 5` (два провала — способности исполнителя chunk, не рецензента: `reviewFill` tool-use не зовёт), но настоящий `reviewFill`-прогон (`--stage verify --from-snapshot oversize-axes --seed axis-config-blind --control-chunk claude-sdk:haiku --no-preflight`) — первый запрос 145.7 с и 217 токенов без находки, второй завис на 20 мин до таймаута транспорта, `stage-timeout`, посев не назван. Причина — `ollama ps` во время прогона: `26%/74% CPU/GPU` (18 ГБ весов+KV на 32k против 12+8 ГБ пары карт) — частичный офлоад, тот же класс, что у apriel/qwen3.8-27b/devstral. `--probe` этот класс не ловит по конструкции (короткие кейсы), только реальная нагрузка. Простой чат: «2+2» — 228.8 с при 672 токенах (~2.9 ток/с, почти всё `thinking`). Ранг 62 — между devstral-small-2 (60) и qwen3.8 (64), про силу, не про раскладку. docs/model-runs.md, «`qwen3.6-27b-iq4` — `--preflight` и `reviewFill`-измерение, 2026-09-27».",
+       "id": "ollama:qwen3.6-27b-iq4", "provider": "ollama", "model": "qwen3.6-27b-iq4-ctx32k", "contextWindow": 32768, "rank": 62 },
+ 
+     { "id": "lmstudio:qwen3.5-9b",                   "provider": "lmstudio", "model": "qwen/qwen3.5-9b",                                          "rank": 35 },
+diff --git a/docs/model-error-taxonomy.md b/docs/model-error-taxonomy.md
+index 7dcca3b..ae864ee 100644
+--- a/docs/model-error-taxonomy.md
++++ b/docs/model-error-taxonomy.md
+@@ -55,7 +55,7 @@
+ | # | Класс | Природа | Статус | Частота |
+ |---|---|---|---|---|
+ | 22 | «Оформитель» — шаблонные ✅ без разбора diff при исчерпании бюджета ответа | промпт-тулинг (formFill не был включён рецензенту) | частично закрыт (formFill включён) — фикс ОБНАЖИЛ находимость, не поднял её | 6/6 прогонов до диагностики |
+-| 21 | Пропуск дефекта по осям (`axis-config-blind`, `axis-secret-in-log`) | смешанная: часть — слабость модели, часть — КОНСТРУКЦИЯ (ось спрашивается только если план объявил её затронутой) | открыт, причины не разделены — посев на более сильной модели для разделения не проведён | **2/2 посева** пропущены `claude-sdk:sonnet` (сильная контрольная!), 0/2 на `reviewFill`/`gpt-oss-20b` |
++| 21 | Пропуск дефекта по осям (`axis-config-blind`, `axis-secret-in-log`) | смешанная: часть — слабость модели, часть — КОНСТРУКЦИЯ (ось спрашивается только если план объявил её затронутой) | причины РАЗДЕЛЕНЫ (2026-09-07/08, `bench/results/axes-{opus,haiku}-axis-*`; см. «Помогает ли смена модели» ниже) — конструктивная слепота закрыта (`reviewFill` трек 1а 2026-09-08, `axisVerificationBlock` 2026-09-18, даёт 1/2 у `sonnet` вместо 0/2); модельный остаток открыт | **2/2 посева** пропущены `claude-sdk:sonnet` (сильная контрольная, ДО фикса!), 0/2 на `reviewFill`/`gpt-oss-20b` |
+ | 25 | Низкий recall на тонких/поведенческих дефектах даже в честном конвейере | модель — согласуется с внешним замером recall на категории «Logic» | открыт — `reviewFill` честнее и быстрее свободного хода, но не поднимает находимость | 0/2 на `reviewFill`/`gpt-oss-20b` |
+ | 24 | Ложная атрибуция «модель нарушает границы» (на деле — рецензент без прав) | баг раннера (`SdkExecutor.ts` регистрировал MCP-инструменты безусловно) | **закрыт и подтверждён дважды живьём** — 2-3 более ранние записи об «упорном нарушении» **отозваны как неверная атрибуция** | 24-25 ложных отказов/прогон до фикса, 0 после |
+ | 23 | Ложная находка «регрессии» из-за артефакта формата ответа | парсер (`isEmptyValue`/`emptyMarker`) | **закрыт дважды** (два независимых источника симптома, оба с тестами) | 2 подтверждённых случая |
+diff --git a/docs/model-runs.md b/docs/model-runs.md
+index 4e1ffb2..fec7c1c 100644
+--- a/docs/model-runs.md
++++ b/docs/model-runs.md
+@@ -6902,3 +6902,282 @@ diff'а целиком. Не измерено, помогает ли блок н
+ **Что тюнить.** Не код: длинная последовательная `--all`-серия из многих тяжёлых локальных моделей подряд на одной машине путает усталость движка/VRAM с деградацией конкретной модели — `--engine-reload` (или пауза) между тяжёлыми моделями в длинной серии снял бы двусмысленность у `devstral`. Контрольный прогон на сильной модели обязателен ДО выводов о локальных моделях — в этой серии он не успел ничего измерить.
+ 
+ Результаты: `bench/results/d4-*.{json,report.md}` (кроме `devstral-small-2` — преполёт красный до старта, только запись в `bench/traces/d4-series.log`; `ministral3-14b-instruct-ctx32k`/rename-field — то же). Лог серии: `bench/traces/d4-series.log`, сводка: `bench/traces/d4-summary.tsv`.
++
++### Серия `rag1`–`rag4` — `chunk` со снимка `*-plan`, `gpt-oss-20b-agent-stepfill` / `ministral3-14b-…-compactfill` × `vat-rounding`/`rename-field`, 2026-09-26/27
++
++Семь прогонов `--stage chunk --from-snapshot <задача>-plan`, verify на `claude-sdk:opus`. Слаги `rag1`…`rag4` — свободная метка `--slug` оператора без закреплённого смысла в проекте, не кодовое имя ручки или фичи; серия ретраила ОДНУ связку (`ministral3` × `vat-rounding`) четыре раза подряд, пытаясь поймать `verify`, не оборванный сетью, — 3 из 4 попыток (`rag1`, `rag2`, `rag4`) дошли до чистого ответа `chunk` и упёрлись в обрыв соединения именно на `verify`.
++
++| Модель | Задача | Итог `chunk` | `hiddenTests` | `verify` |
++|---|---|---|---|---|
++| `ollama:gpt-oss-20b-agent-stepfill` | vat-rounding (`rag1`) | ✅ (8 запр., 6 вызовов) | ок | обрыв: `ECONNRESET` |
++| `ollama:gpt-oss-20b-agent-stepfill` | rename-field (`rag1`) | ✅ (11 запр., 6 вызовов) | ок | обрыв: `ECONNRESET` |
++| `ollama:ministral3-14b-…-compactfill` | rename-field (`rag1`) | ✅ (14 запр., 10 вызовов) | ок | обрыв: `ECONNRESET` |
++| `ollama:ministral3-14b-…-compactfill` | vat-rounding (`rag1`) | ✅ (14 запр., 9 вызовов) | **РАСХОЖДЕНИЕ**: `SyntaxError: Identifier 'sub' has already been declared` — `invoice.ts` не парсится | обрыв: `ECONNRESET` |
++| `ollama:ministral3-14b-…-compactfill` | vat-rounding (`rag2`) | ✅ (15 запр., 11 вызовов) | **РАСХОЖДЕНИЕ**: буквальный маркер `<<<<<<< SEARCH`, оставленный в `invoice.ts:35` — `ERR_INVALID_TYPESCRIPT_SYNTAX` | обрыв: `ECONNRESET` |
++| `ollama:ministral3-14b-…-compactfill` | vat-rounding (`rag3`) | ❌ красный: 18 запр., шагов 5, применено 0, красных 5 — ни один шаг не дал правки | н/п — `chunk` не дошёл до формы | не стартовал |
++| `ollama:ministral3-14b-…-compactfill` | vat-rounding (`rag4`) | ✅ (—) | 3/8: регрессии и «необлагаемый счёт» держатся (`R1`,`R2`,`Pr3`), но НДС 20% (`Pr1`), округление «половина вверх» (`Pr2`) и ВСЕ ТРИ ответа по льготной ставке (`H1`–`H3`) неверны | обрыв: `ECONNRESET` |
++
++**Во что упёрлись.**
++
++- *`verify` систематически рвётся `ECONNRESET`* — 5 из 6 попыток, дошедших до `verify`, оборвались одной и той же сетевой ошибкой Claude API, ни разу не дав рецензенту прочитать патч. Это не находка про модель: гейт «Ревью независимым агентом» не проверен ни на одном прогоне серии, и «зелёный» chunk у gpt-oss здесь не подтверждён приёмкой независимого агента.
++- *`ministral3-14b-…-compactfill` на `vat-rounding` — воспроизводимая слабость, не сетевая случайность.* Все 4 попытки (`rag1`–`rag4`) на этой связке — либо синтаксически битый файл (`rag1`, `rag2`: дубль объявления `sub`, забытый маркер `<<<<<<< SEARCH` в `invoice.ts`), либо полный провал шагов (`rag3`), либо синтаксически чистый, но арифметически неверный код (`rag4`: базовые 20% и округление «половина вверх» посчитаны неверно, ВСЕ три сценария льготной ставки из ответа человека проигнорированы). На `rename-field` та же модель прошла `chunk` чисто (`rag1`) — слабость привязана к задаче `vat-rounding` (число степеней свободы: льготная ставка + округление), не к модели вообще.
++- *Штатные щупы этого не ловят.* `rag1`/`rag2` показали «форма артефактов ✅» и «точность правки ✅» — синтаксическую поломку поймал только отдельный прогон скрытых тестов (`hiddenTests`), не гейт «Сборка» из набора проекта. Это тот же класс, для которого в этом же коммите чинилась разметка корпуса дообучения (`FormFillExecutor`/`StepExecutor`) — здесь же видно, что «шаг применён, гейт зелёный» и «код синтаксически валиден» — РАЗНЫЕ утверждения, и щуп bench их не различает.
++
++**Помогла ли настройка: не измерено.** Серия не сравнивала ручки — один и тот же `compactForms: 'fill'` + `stepFill` профиль `ministral3` гонялся четыре раза подряд на одной задаче. Контрольного прогона на сильной модели в этой серии нет (verify на `opus` есть по построению профиля, но ни разу не завершился).
++
++**Что тюнить.** Не ручка модели: `vat-rounding` для `ministral3-14b` — либо снизить ранг/не рекомендовать эту связку без ремонта, либо добавить локальный `хайдден`-подобный запуск скрытых тестов ПОСЛЕ гейта «Сборка» chunk'а как обязательную проверку набора (сейчас это только внешний щуп bench, не гейт витка) — сборка модуля не гарантирует, что арифметика верна. Обрывы `ECONNRESET` на `verify` — сетевая нестабильность соединения к Claude API на этой машине в этот день, не логика раннера; повторять `verify` отдельно (`--stage verify --from-snapshot <slug>-chunk`, если снимок на этой точке сохранён) вместо всего витка.
++
++Результаты: `bench/results/rag{1,2,3,4}-*.{json,report.md}`. Трассы (лента событий): `bench/traces/rag1-{gptoss,ministral}-{vat,rename}/`, `bench/traces/rag{2,3,4}-ministral-vat/`.
++
++**Уточнение (2026-09-27): фраза «серия не сравнивала ручки» выше — НЕПОЛНАЯ.** В рабочем дереве
++(незакоммичено) между прогонами появился `server/src/exec/stepContext.ts` — лексический
++поиск связанного контекста для шага `StepExecutor` (карта экспортов проекта, стиль
++локальных импортов, один близкий тест; без модели и без векторного хранилища, см. докстринг
++файла) и его безусловное подключение в `StepExecutor.ts` (`stepMessage`, без обёртки
++`route.*`/ручки конфига — включён для всех моделей и задач сразу). По времени изменения файла
++(`server/src/exec/stepContext.ts`, 2026-09-26 17:43 MSK) он появился ПОСЛЕ `rag1` (16:13 MSK) и
++ДО `rag3`/`rag4` (следующий день); `rag2` (17:44 MSK) — на самой границе. Серия, задуманная как
++«четыре одинаковых повтора», технически прогнала `rag1` без этого механизма и `rag3`/`rag4` — с
++ним, не будучи для этого спланирована: раннер поменялся МЕЖДУ прогонами, а не только сеть. Сигнала
++«помогло» это не даёт (`rag1` без механизма дал синтаксический слом, `rag3` с ним — полный провал
++шагов, `rag4` с ним — синтаксически чистый, но арифметически неверный код: ни один исход не лучше
++другого однозначно), но и «не сравнивала ручки» неверно — сравнивала, просто незамеченно для
++самой серии. Подробный разбор `stepContext.ts` как отдельной темы — ниже.
++
++### Серия v2 — `chunk` со снимка `*-plan`, `gpt-oss-20b-agent-stepfill` / `ministral3-14b-…-compactfill` × `vat-rounding`/`rename-field`, 2026-09-27
++
++4 прогона `--stage chunk --from-snapshot <задача>-plan`, verify на `claude-sdk:opus`, `stepContext.ts`
++подключён (безусловно, как и в `rag3`/`rag4`) — тот же профиль, что и `rag1`–`rag4`, повтор с
++чистого перезапуска после того, как первая попытка серии была убита защитой от переполнения
++памяти ОС (см. заметку о ручном контроле процессов ниже).
++
++| Модель | Задача | Итог `chunk` | Итог `verify` |
++|---|---|---|---|
++| `ollama:gpt-oss-20b-agent-stepfill` | vat-rounding | ✅ (11 запр., 7 вызовов, трение 1); точность правки 5/5 | **не измерено**: `stage-timeout` (30 мин) после 2 запросов к `opus`; 2 отказа `readScope` рецензенту на собственном отчёте попытки |
++| `ollama:gpt-oss-20b-agent-stepfill` | rename-field | ✅ (11 запр., 9 вызовов, трение 0); точность правки 6/6 | **не измерено**: `stage-timeout` (30 мин) — рантаймовое ревью упало с `API Error: No response from API`, гейт «Ревью независимым агентом» остался `⏭`, повторный вызов субагента `sdlc-reviewer` тоже не отработал |
++| `ollama:ministral3-14b-…-compactfill` | vat-rounding | **не стартовал**: преполёт красный — проба «точный Edit многострочного блока» дважды не совпала побайтово (`old_string` разошёлся с многострочным шаблоном письма) | н/п |
++| `ollama:ministral3-14b-…-compactfill` | rename-field | ✅ (17 запр., 30 вызовов, трение 0); все 7 claim-N подтверждены | ✅ дошло до вердикта — **`escalate`**: рецензент (`sdlc-reviewer`) нашёл 2 подтверждённых расхождения, бюджет попыток исчерпан 3/3 |
++
++**Во что упёрлись.**
++
++- *`verify` на обеих связках `gpt-oss` снова не измерен* — тот же класс, что уже задокументирован в
++  серии `rag1`–`rag4`: сетевая нестабильность к Claude API на этой машине (`ECONNRESET`/«No response
++  from API») не дала рецензенту дойти до вердикта ни на `vat-rounding`, ни на `rename-field`. На
++  `vat-rounding` к этому добавился второй, отдельный источник трения: рецензент дважды пытался
++  обойти каталог витка целиком (`Glob .sdlc/<slug>/*`), что по конструкции задевает его же
++  `verification-report-*.md` — файл, закрытый на чтение принципом независимости ревью
++  (`PolicyContext.readDenied`, см. CLAUDE.md «Смежное»); отказ `readScope` корректен, но модель не
++  сузила поиск и продолжила пытаться до истечения получасового лимита этапа. Оба отказа пришлись на
++  **контрольный маршрут** (`opus`), не на измеряемую модель — находка про раннер/сеть этой машины в
++  этот день, а не про `gpt-oss`.
++- *`ministral3-14b-…-compactfill` на `vat-rounding` — снова не стартовал, теперь по другой причине,
++  чем в `rag3`.* В `rag1`/`rag2` та же связка дошла до `chunk`, но дала синтаксически битый файл; в
++  этом прогоне модель не прошла преполётную пробу многострочного `Edit` (byte-for-byte
++  `old_string`) до всякого измерения — преполёт отсеял по делу, дорогой прогон не потрачен впустую.
++  На `rename-field` та же модель прошла `chunk` чисто (0 трения, 30 вызовов, все 7 claim-N
++  подтверждены) — слабость снова привязана к задаче `vat-rounding`, не к модели вообще (то же
++  наблюдение, что и в `rag1`–`rag4`).
++- *`ministral3-14b-…-compactfill` / rename-field — единственный прогон серии, дошедший до вердикта,
++  и он нашёл настоящий дефект.* Рецензент подтвердил: (1) охранное условие в `parse`
++  (`typeof sku !== 'string' && typeof code !== 'string'`, `src/store.ts:39`) — дизъюнкция после
++  отрицания, из которой TypeScript не сужает ни один операнд по отдельности, поэтому
++  `finalSku` (`src/store.ts:43`) имеет тип `unknown` и уходит в `product()` (`src/product.ts:26`),
++  где параметр объявлен `string`; в рантайме безопасно (если `sku` не строка, строкой обязан быть
++  `code`), но нарушена конвенция самого файла — соседние поля сужаются индивидуальным `typeof`-гардом
++  (`src/store.ts:44-45`), и это единственное поле без сужения; (2) текст исключения при отсутствии
++  артикула изменён без пункта приёмки на это (`src/store.ts:40`, «нет артикула (code)» →
++  «нет артикула (sku)», утрачен общий префикс «в строке каталога …»). Оба — находки уровня «дыра в
++  приёмочном листе» (ни этап 1, ни этап 4 не завели строку про тексты ошибок и про сужение типов на
++  границе ввода), а не «модель не справилась»: гейт «Сборка» набора (`build-check.mjs`) их не видит
++  в принципе — только импортирует модули, tsconfig в репозитории нет.
++
++**Помогла ли настройка: не измерено.** Серия не сравнивала ручки — тот же профиль `stepFill`/
++`compactForms: 'fill'`, что и в `rag1`–`rag4`, с уже подключённым безусловно `stepContext.ts`.
++Единственный содержательный сигнал о самом `stepContext.ts` — что оба прогона `gpt-oss` дали чистый,
++проходящий precision-пробы `chunk` (5/5 и 6/6) при его включённом состоянии, но это не контрольное
++сравнение «с ручкой / без ручки» и на 2 прогонах не разделяет вклад `stepContext.ts` от вклада
++самой модели.
++
++**Что тюнить.** Не модель: `verify` на этой машине в этот день систематически не измеряется из-за
++сетевой нестабильности — до починки среды (или переноса `verify` на провайдер устойчивее к обрывам)
++любой вывод про качество ревью для `gpt-oss` остаётся неполным. Отдельно: гейт «Ревью независимым
++агентом» после сетевого сбоя оставляет отчёт с 28–30 незаполненными местами и без явного пути
++повторить только сорванный вызов — повтор `--stage verify --from-snapshot <slug>-chunk` (если снимок
++в этой точке сохранён) дешевле полного витка. Находки по `ministral3`/rename-field — в
++`docs/model-error-taxonomy.md`: класс «дыра приёмочного листа» (тексты ошибок, сужение типов на
++границе недоверенного ввода) годится как материал для нового пункта таксономии, если он не уже
++описан.
++
++Результаты: `bench/results/testrun-{gptoss,ministral}-{vat-rounding,rename-field}.{json,report.md}`
++(кроме `testrun-ministral-vat-rounding` — преполёт красный до старта, файла нет). Лог серии:
++`.tmp/test-run-2tasks-v2.log`. Рабочие копии оставлены (`--keep-workspace`): пути — в конце каждого
++прогона в логе.
++
++### `stepContext.ts` — разбор механизма (закрывает форвард-ссылку со строки 6945, 2026-09-27)
++
++Механизм — `server/src/exec/stepContext.ts::buildStepContext`, докстринг: «Builds small,
++attributable project context for one plan step. No model or vector store is involved.» Это
++лексический (grep/скоринг по терминам, без эмбеддингов) подбор ЧЕТЫРЁХ вещей для промпта
++одного шага `StepExecutor` (`stepFill`):
++
++- **карта экспортов проекта** (`projectApiMap`) — по всем исходникам, кроме целевого файла и
++  тестов, до 8 строк `export function/class/interface/type/enum/const` на файл, с явной
++  инструкцией «используй эти реальные имена и сигнатуры; не выдумывай экспорты»;
++- **до двух связанных файлов** — сначала прямые зависимости целевого (резолвинг относительных
++  `import`/`require` по реальному дереву исходников), затем остальные файлы, ранжированные
++  совпадением терминов шага (`title`/`action`/`symbol`/`file`) с бонусом за общую директорию;
++  рендерятся не целиком, а выдержкой объявлений (`declarationExcerpt`: строки деклараций/
++  импортов/совпадений термина ± контекст);
++- **соглашение об импортах** соседних файлов (с расширением `.ts` или без);
++- **пример ближайшего теста**, если целевой файл сам тестовый.
++
++Всё укладывается в бюджет `STEP_CONTEXT_BYTES = 6000` байт (с запасом под маркер усечения).
++Каждое чтение файла идёт через `resolveUserPath`/`relativizeWithin`/`symlinkEscape` — границы
++политики соблюдены тем же приёмом, что и у остального раннера.
++
++**Почему это относится к сегодняшней находке.** Дефект серии «v2» (см. выше) — модель
++`ministral3-14b-…-compactfill` на `rename-field` удалила поле `code` интерфейса `Product`
++вместо переименования в `sku`, тип потерял поле артикула целиком. `projectApiMap` целится
++ровно в этот класс: карта показывает модели ТЕКУЩУЮ (после уже применённых шагов) форму
++экспортируемых типов с прямой инструкцией не выдумывать экспорты — то есть по построению
++должна была бы показать, что где-то в проекте `Product` уже ожидается с `sku`, а не только
++с `code`, ещё до того, как модель тронула файл `product.ts`.
++
++**Найденное состояние на момент этой записи — процессное нарушение, не баг логики.** Файл
++существовал в рабочем дереве некоммиченным и был подключён в `StepExecutor.ts`
++**безусловно**, без ручки конфига — то есть действовал на ВСЕХ `stepFill`-моделях и задачах
++сразу, ни разу не измеренный контролируемым сравнением «вкл/выкл» (см. разбор серий
++`rag1`–`rag4` и «v2» выше: обе непреднамеренно смешали «с механизмом» и «без» между
++прогонами). Это прямое нарушение правила проекта «одна ручка на замер, изменённая явно» —
++сама логика `buildStepContext` при чтении не вызвала вопросов (границы политики и бюджет
++байт соблюдены), претензия ровно к способу включения.
++
++**Правка (этот же день).** Заведена ручка `ModelDef.stepContext` (по образцу `stepFill`,
++`server/src/config/schema.ts`), проброшена в `ResolvedRoute` (`config/profiles.ts:78`) и в
++опции `StepExecutor` (`run/stages/chunk/steps.ts`, `exec/StepExecutor.ts`) — вызов
++`buildStepContext` теперь под условием `this.o.stepContext`. Умолчание — выключено, как у
++всех ручек замера. Тестом закрыто на уровне `StepExecutor` (`server/test/stepExecutor.test.ts`,
++блок `stepContext (ModelDef.stepContext)`): флаг выключен — секции «## Контекст проекта для
++этого шага» в промпте шага нет; включён — карта экспортов присутствует. `npm test` зелёный
++целиком (server 2265/2265 не-skip, web 149/149, bench 300/300) после правки.
++
++**Помогает ли механизм — ИЗМЕРЕНИЕ ЕЩЁ ПРЕДСТОИТ.** Эта запись документирует только приведение
++ручки к измеримому виду, а не результат замера: контролируемая серия A/B
++(`ollama:ministral3-14b-instruct-ctx32k-compactfill` без ручки против той же модели с
++`stepContext: true`, задача `rename-field`, снимок `rename-field-plan`, ≥3 повтора на
++состояние) ещё не запущена на момент этой записи — итог допишется отдельной записью после
++прогона, по тому же правилу «во что упёрлись / помогла ли ручка», что и везде в этом журнале.
++
++### Скрининг непройденных кандидатов в локального рецензента — `--probe`, 2026-09-27
++
++Три записи `config/models.json`, заведённые ещё 2026-09-08 под роль рецензента этапа 6, ни
++разу не запускались (ни одного файла в `bench/results/`). Веса на машине не стояли —
++`ollama list` их не показывал; заявленные в конфиге теги (`magistral-2509-iq4-ctx32k`,
++`seed-oss-36b-iq3-ctx32k`, `qwen3.6-27b-iq4-ctx32k`) пришлось создать заново.
++
++Попутная находка: `hf.co`-теги в комментариях конфига для `magistral-2509-iq4` (`IQ4_XS`) и
++`seed-oss-36b-iq3` (`UD-IQ3_XXS`) совпали с реальным списком файлов репозитория, а вот
++`qwen3.6-27b-iq4` (комментарий называл `UD-IQ4_XS`) — нет: в `unsloth/Qwen3.6-27B-GGUF` такого
++файла не существует, есть обычный `IQ4_XS` (15.4 ГБ, без `UD`-префикса) и отдельно
++`UD-IQ3_XXS` на уровень ниже. Ни разу не проверенное имя в комментарии — не факт о модели, а
++непроверенное предположение оператора; проверять по фактическому дереву репозитория
++(`huggingface.co/<repo>/tree/main`) ПЕРЕД первой закачкой, не доверять квант-суффиксу
++в комментарии. `ollama pull hf.co/…` в этот день отработал штатно для всех трёх — ранее
++задокументированный баг xet-CDN redirect (`project-ollama-hf-xet-redirect`) на этих трёх
++репозиториях не воспроизвёлся.
++
++`--probe` (микро-кейсы Write / Edit по плейсхолдеру / Read→Edit, без рабочей копии витка):
++
++| Модель | Ранг | Итог | Детали |
++|---|---|---|---|
++| `ollama:qwen3.6-27b-iq4` | 62 | ✅ **3/3** | Write 40.0 с, Edit по плейсхолдеру 110.7 с, Read→Edit 65.5 с — все с настоящими вызовами инструментов. |
++| `ollama:magistral-2509-iq4` | 58 | ❌ 0/3 | Ни разу нет структурированного вызова: модель выводит текстом сырой токен `[TOOL_CALLS]Write{"file_path": …}` — GGUF-шаблон этой сборки не транслируется в tool_call через используемый эндпойнт. |
++| `ollama:seed-oss-36b-iq3` | 60 | ❌ 2/3 | Write 226.0 с (ок), Read→Edit 625.0 с (ок, но больше 10 минут на тривиальный кейс), «Edit по плейсхолдеру» — 112.8 с и ПУСТОЙ текст ответа (весь бюджет ответа ушёл на `thinking`, до вызова не дошло) при уже включённом `thinking_budget: 4096`. |
++
++**Во что упёрлись.**
++
++- *`magistral-2509-iq4`* — структурная непригодность, не протокол раннера: модель обучена
++  эмитить спецтокен `[TOOL_CALLS]` перед JSON вызова, а используемый GGUF/шаблон этой сборки
++  отдаёт его как обычный текст ответа, а не как поле `tool_calls` API. Это тот же класс
++  «шаблон/токенизация ломает контракт tool-calling», что уже закрывал `apriel-1.6-15b` и
++  `qwen3.8-27b` (зашитое рассуждение в Modelfile) — здесь причина другая (не рассуждение, а
++  формат вызова), но исход тот же: без переписывания шаблона Modelfile модель не
++  проходит даже дешёвый скрининг. Дальше (`--preflight`, `reviewFill`) не имеет смысла.
++- *`seed-oss-36b-iq3`* — уже применённая ручка (`thinking_budget: 4096`, заведена именно
++  против класса «обрыв по длине рассуждения») не спасла один из трёх тривиальных кейсов:
++  модель молча исчерпала бюджет ответа на размышление и не долиста до вызова инструмента.
++  Отдельно — практическая непригодность по скорости: 625 с (>10 минут) на простейший
++  Read→Edit при Q3-кванте 36B, частично офлоаженном на пару карт 12+8 ГБ. Реальное ревью —
++  десятки запросов за виток; при такой скорости бюджет 30–60 минут `verify` (см.
++  `maxIterationsByStage.verify` в CLAUDE.md) не уложился бы и на первую попытку. Дальше эту
++  связку тоже не веду.
++- *`qwen3.6-27b-iq4`* — единственная прошедшая пробу чисто. Отдельно измеренная скорость
++  ПРОСТОГО чата (не пробы): ответ на тривиальный вопрос «2+2» занял 228.8 с при 672
++  токенах вывода (~2.9 ток/с) — большая часть ушла в `thinking` (модель хранит цепочку
++  размышления в отдельном поле `message.thinking`, а не смешивает с ответом, как у некоторых
++  других связок). Само по себе это не блокирует пробу (все три кейса прошли в пределах
++  40–111 с), но задаёт ожидание по скорости для следующего шага (`--preflight` и
++  `reviewFill`-измерение на посевах — следующая часть этой же серии, план С1).
++
++**Помогла ли настройка: не измерено настройками этой серии.** Серия не сравнивала ручки —
++это первый живой прогон каждой из трёх записей конфига в исходном виде (кроме уже
++предустановленного у `seed-oss-36b-iq3` `thinking_budget: 4096`, который не был предметом
++сравнения). Единственная «настройка», применённая по ходу — исправление квант-тега в
++комментарии `qwen3.6-27b-iq4` (см. выше), к силе модели отношения не имеет.
++
++**Что тюнить.** Не раннер: оба отказа (`magistral`, `seed-oss`) — свойство конкретной
++GGUF-сборки/шаблона, не протокола `reviewFill`/политики. Для `magistral-2509-iq4` теоретически
++чинится собственным Modelfile с явным `TEMPLATE`, переводящим `[TOOL_CALLS]` в настоящий
++`tool_calls` — не сделано, отдельная задача уровня «починка шаблона одной модели», не
++измерение раннера. `seed-oss-36b-iq3` — либо `thinking_budget: 0` (следующая точка на той же
++шкале, что и уже применённые 4096 — гипотеза записи конфига «дело в бюджете размышлений» ещё
++не проверена в варианте «выключено полностью»), либо снять с рассмотрения как непригодную по
++скорости независимо от находимости. `qwen3.6-27b-iq4` прошла `--probe` (3/3) — продолжение
++серии ниже.
++
++### `qwen3.6-27b-iq4` — `--preflight` и `reviewFill`-измерение, 2026-09-27 (та же серия)
++
++`--preflight` (задача `oversize`) с умолчательным потолком кейса (120 с) дал 3 красных из 8 —
++все три оказались просто медленнее потолка (повтор с `--probe-timeout 5`, 300 с, разобрал их
++по-честному):
++
++| Кейс | Итог на 120 с | Итог на 300 с |
++|---|---|---|
++| заполнение поля через Edit | таймаут | **❌ вызван `Read` вместо `Edit` (2/2 попыток)** — настоящий провал, не скорость |
++| точный Edit многострочного блока | таймаут | ✅ 160.4 с |
++| длинная запись без усечения | таймаут | **❌ таймаут и на 300 с** |
++
++Прежде чем списывать модель по этим двум провалам — прочитан `server/src/run/reviewFill.ts`:
++протокол рецензента этапа 6 для локальных моделей задаёт ЗАКРЫТЫЕ вопросы обычным текстом
++(`normalize('record_finding')`) и НЕ вызывает `Write`/`Edit` по файлам вовсе — обе красные
++позиции преполёта относятся к способностям ИСПОЛНИТЕЛЯ chunk, не рецензента. Решение — идти
++дальше на `--no-preflight` осознанно, а не слепым обходом гейта.
++
++`reviewFill`-измерение (`--stage verify --from-snapshot oversize-axes --control-chunk
++claude-sdk:haiku --seed axis-config-blind --no-preflight`, снимок при `chunk` на
++`claude-sdk:sonnet`, поэтому нужен `--control-chunk` рангом ниже 62) — результат гораздо хуже,
++чем показал `--preflight`: **первый запрос** дал ответ за 145.7 с (контекст 20 248/32 768 —
++62 % окна уже на первом фрагменте), но текст ответа — всего 217 токенов, содержательной находки
++нет; **второй запрос завис на все 20 минут** (`--stageTimeoutMs` запроса) и оборвался таймаутом
++транспорта, потратив весь получасовой бюджет этапа на один полезный обмен. Посев
++`axis-config-blind` не назван. Остановка — `stage-timeout`, вердикт не посчитан.
++
++**Причина — не находимость, а среда: `ollama ps` во время прогона показал `26%/74% CPU/GPU`**
++(18 ГБ весов+KV на 32k против 12+8=20 ГБ пары карт разного размера) — модель не влезает в VRAM
++целиком, тот же класс, что уже закрывал `apriel-1.6-15b`/`qwen3.8-27b`/`devstral-small-2`.
++`--probe` (короткие изолированные кейсы, 40–110 с) этот класс не ловит по конструкции — ловит
++только реальная нагрузка (длинный контекст, несколько запросов подряд). Матрица «дешёвый
++скрининг проходит → дорогое измерение вскрывает офлоад» повторилась ТРЕТИЙ раз в этой же
++серии на разных моделях (`magistral`, `seed-oss`, теперь `qwen3.6-27b`), только на разных
++уровнях воронки.
++
++**Итог серии скрининга 2026-09-27: ни один из трёх кандидатов (`magistral-2509-iq4`,
++`seed-oss-36b-iq3`, `qwen3.6-27b-iq4`) не годен в локальные рецензенты на этом железе.**
++Единственный измеренный годный кандидат остаётся прежним — `ollama:gpt-oss-20b-rf` (ранг 52,
++находимость 3/8, запись 2026-09-08/09) — и он по-прежнему неприменим в активных профилях
++конфига, где chunk идёт тем же рангом 52 (`ollama:gpt-oss-20b`). Дальше вопрос не «какую ещё
++модель попробовать» (класс кандидатов рангом 58–65 исчерпан на этой железной раскладке — три
++разных архитектуры дали три разных, но одинаково фатальных отказа), а либо снижать ранг chunk'а
++в профиле, чтобы `gpt-oss-20b-rf` мог служить рецензентом самому себе на соседней записи,
++либо признать локальный рецензент на этой машине непрактичным и продолжать облачным
++(`claude-sdk:haiku-reviewer`/`opus`).
+diff --git a/docs/model-tuning.md b/docs/model-tuning.md
+index d0b9dd1..863a10a 100644
+--- a/docs/model-tuning.md
++++ b/docs/model-tuning.md
+@@ -56,6 +56,19 @@ npm run bench -- --stage chunk --model ollama:qwen3:8b-ctx16k \
+   --from-snapshot oversize-plan --keep-workspace --slug trace-check
+ ```
+ 
++После серии проверенный корпус собирается отдельной командой:
++
++```bash
++npm run bench:corpus -- --raw=bench/rawlogs --results=bench/results --out=bench/corpus/train.jsonl
++```
++
++Сборщик принимает только пары с соседней меткой `*.label.json`, где механический оракул
++поставил `accepted: true`. Для `stepFill` такую метку пишет проверка после шага; ответы без
++проверки, не применившиеся правки и красные проверки остаются за бортом. Итог всего витка
++не подменяет метку отдельного ответа. `oversize` всегда исключается как held-out задача.
++Команда печатает число принятых пар и причины отсева; ноль — законный сигнал, что данных для
++обучения ещё нет, а не повод ослабить фильтр.
++
+ Каталог растёт быстро: во флоу `loop` каждый ход везёт всю историю заново (замеренные
+ максимумы — 367–392 тыс. входных токенов за этап). `bench/traces/` в `.gitignore`.
+ 
+diff --git a/package.json b/package.json
+index 0fd262e..5aebcf0 100644
+--- a/package.json
++++ b/package.json
+@@ -16,6 +16,7 @@
+     "test": "npm run test --workspace server && npm run test --workspace web && npm run bench:test",
+     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web && npm run bench:typecheck",
+     "bench": "node bench/src/cli.ts",
++    "bench:corpus": "node bench/src/corpus.ts",
+     "bench:archive": "node bench/src/archive.ts",
+     "bench:test": "node --import ./server/test/setup-state.ts --test \"bench/test/**/*.test.ts\"",
+     "bench:typecheck": "tsc -p bench/tsconfig.json --noEmit"
+diff --git a/server/src/config/profiles.ts b/server/src/config/profiles.ts
+index a9a91c7..c9442f8 100644
+--- a/server/src/config/profiles.ts
++++ b/server/src/config/profiles.ts
+@@ -75,6 +75,7 @@ function resolveRoute(
+     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
+     planAxisFill: planAxisFillMode(def.planAxisFill, stage, modelId, problems),
+     stepFill: def.stepFill ?? false,
++    stepContext: def.stepContext ?? false,
+     compactForms: def.compactForms ?? 'off',
+     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
+     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
+diff --git a/server/src/config/schema.ts b/server/src/config/schema.ts
+index 7f1183e..954c170 100644
+--- a/server/src/config/schema.ts
++++ b/server/src/config/schema.ts
+@@ -151,8 +151,11 @@ export interface ModelDef {
+   /**
+    * Этап 6 по хункам (`run/reviewFill.ts`): вместо одного свободного хода рецензента
+    * рантайм режет diff на фрагменты и задаёт по ОДНОМУ закрытому вопросу на фрагмент
+-   * (фиксированный список классов дефектов) и на каждую ось плана, объявленную не
+-   * затронутой. Ответы идут тем же `normalize`/`acceptRecord`, что записи модели.
++   * (фиксированный список классов дефектов) и на КАЖДУЮ из шести осей плана — не только
++   * объявленные не затронутыми (трек 1а, 2026-09-08: план может сослаться на claim,
++   * который покрывает совсем другое изменение под тем же ярлыком оси — посев
++   * `axis-config-blind` пропущен именно так). Ответы идут тем же `normalize`/
++   * `acceptRecord`, что записи модели.
+    *
+    * Та же природа, что у `stepFill` для этапа 5: локальный рецензент на 40–80 КБ входа
+    * либо упирается в лимит длины, либо печатает зелёный бланк, не читая («оформитель»,
+@@ -221,6 +224,22 @@ export interface ModelDef {
+    * Умолчание — выключено: ручка заведена под замер серией, не для всех.
+    */
+   stepFill?: boolean;
++  /**
++   * Лексический контекст шага для `stepFill` (`exec/stepContext.ts::buildStepContext`):
++   * карта экспортов проекта («используй эти реальные имена; не выдумывай»), выдержки
++   * объявлений из связанных по импортам/терминам файлов, соглашение об импортах
++   * (`.ts` или без расширения), ближайший пример теста — без модели и без векторного
++   * хранилища, бюджет 6000 байт. Действует только при `stepFill: true`.
++   *
++   * Заведено против класса дефекта из живого прогона 2026-09-27
++   * (`docs/model-runs.md`, серия «v2»): `ministral3-14b-…-compactfill` на `rename-field`
++   * удалила поле интерфейса вместо переименования — карта экспортов должна была
++   * показать модели текущую форму типа. До этой записи файл был подключён БЕЗУСЛОВНО,
++   * без ручки (правку не проверял ни один контролируемый прогон) — правило «одна ручка
++   * на замер» этого не пережило. Умолчание — выключено: ручка заведена под замер, не
++   * для всех.
++   */
++  stepContext?: boolean;
+   /**
+    * Схема формы вместо сплошного текста бланка — три независимых эффекта под одной
+    * ручкой, потому что журнал замеров требует «одна ручка на прогон», а разводить их на
+@@ -452,6 +471,8 @@ export interface ResolvedRoute {
+   planAxisFill: false | 'combined' | 'stepwise';
+   /** Этап 5 по шагам плана без tool-use — см. `ModelDef.stepFill`. */
+   stepFill: boolean;
++  /** Лексический контекст шага для `stepFill` — см. `ModelDef.stepContext`. */
++  stepContext: boolean;
+   /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */
+   compactForms: 'off' | 'fill' | 'inputs' | 'all';
+   /** Заявленное окно контекста записи — см. `ModelDef.contextWindow`. */
+diff --git a/server/src/exec/FormFillExecutor.ts b/server/src/exec/FormFillExecutor.ts
+index cf99179..a59930f 100644
+--- a/server/src/exec/FormFillExecutor.ts
++++ b/server/src/exec/FormFillExecutor.ts
+@@ -72,6 +72,7 @@ import {
+   type ChatMessage,
+   type ChatProvider,
+ } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
+ import { writeThroughGate } from './gateWrite.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+@@ -1191,6 +1192,15 @@ export class FormFillExecutor implements StageExecutor {
+           resetRejectionStreak();
+ 
+           let answerText = a.value.text;
++          // Мишень T2 корпуса — ИМЕННО этот путь (`docs/model-tuning.md`: «карточка поля →
++          // значение (`FormFillExecutor`, `compactForms`)»), а до этой правки он не размечал
++          // ни одного обмена: серия с `compactForms: 'fill'/'all'` давала 0 пар корпуса
++          // независимо от качества ответов (code-review-all, 2026-09-27). Оракул честнее,
++          // чем у режима диапазонов: не имитация проверок, а настоящий `applyFill` ниже.
++          let finalRawLogPath = a.value.rawLogPath ?? null;
++          const rejectFieldCompact = (reason: string, oracle = 'form-field-checks'): void => {
++            annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
++          };
+ 
+           // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
+           // (строки ниже, `foreignScript`/`looksLikeToolCallEcho` на `filled`), а не разбор
+@@ -1202,12 +1212,14 @@ export class FormFillExecutor implements StageExecutor {
+             const rejection = `ответ на поле ${field.id} отклонён: чужая письменность («${foreign}»)`;
+             notes.push(rejection);
+             fieldRejectionMemo.set(compactFieldKey(field), rejection);
++            rejectFieldCompact('foreign-script');
+             continue;
+           }
+           if (looksLikeToolCallEcho(answerText)) {
+             const rejection = `ответ на поле ${field.id} отклонён: JSON-конверт вызова инструмента вместо значения`;
+             notes.push(rejection);
+             fieldRejectionMemo.set(compactFieldKey(field), rejection);
++            rejectFieldCompact('tool-call-echo');
+             continue;
+           }
+ 
+@@ -1216,13 +1228,22 @@ export class FormFillExecutor implements StageExecutor {
+           // новым. До этого фикса компактный режим (`compactForms: 'fill'`) эту проверку не
+           // исполнял вовсе.
+           const inventedCompact = filesToTouchInventedPathsCompact(field, answerText, req.cwd);
++          // Держит состояние «путь так и остался выдуманным» до самой финальной метки —
++          // успешный топ-ап сбрасывает флаг НЕ пересчётом (тот же принцип, что у режима
++          // диапазонов: см. комментарий у `filesToTouchInventedPaths`, «ответ добора
++          // принимается как есть, без повторной проверки», иначе легитимный новый файл без
++          // пометки «новый» наказывался бы дважды).
++          let filesToTouchInvalid = inventedCompact.length > 0;
+           if (inventedCompact.length > 0 && callsSpent < requestBudget) {
++            rejectFieldCompact('invented-path', 'files-to-touch-paths');
+             callsSpent++;
+             try {
+               const more = await askFilesToTouchTopUpCompact(field, answerText, inventedCompact);
+               usage = addUsage(usage, more.usage);
+               if (more.text.trim() !== '' && !more.text.includes('‹')) {
+                 answerText = more.text;
++                finalRawLogPath = more.rawLogPath ?? null;
++                filesToTouchInvalid = false;
+                 notes.push(
+                   `добор ${field.id}: похоже на путь, но не найдено на диске (${inventedCompact.join(', ')}) — переспрошено`,
+                 );
+@@ -1240,6 +1261,9 @@ export class FormFillExecutor implements StageExecutor {
+           // задаётся один раз, оба текста склеиваются, и только тогда — единственный
+           // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
+           // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
++          // `recordsInvalid` — тем же правилом, что `filesToTouchInvalid` выше: держит
++          // «дефицит листа» до финальной метки, а не только до заметки в отчёте.
++          let recordsInvalid = false;
+           if (field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
+             const min = field.min;
+             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
+@@ -1255,10 +1279,14 @@ export class FormFillExecutor implements StageExecutor {
+             };
+             for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
+               if (shortfall(answerText) === null) break;
++              // Обмен, который дал ТЕКУЩИЙ дефицитный `answerText`, размечается отказом до
++              // следующей попытки — тем же приёмом, что у режима диапазонов.
++              rejectFieldCompact('records-below-minimum', 'records-minimum');
+               callsSpent++;
+               try {
+                 const more = await askTopUpCompact(field, answerText, attempt > 0);
+                 usage = addUsage(usage, more.usage);
++                finalRawLogPath = more.rawLogPath ?? null;
+                 const seen = new Set(
+                   answerText
+                     .split('\n')
+@@ -1279,6 +1307,7 @@ export class FormFillExecutor implements StageExecutor {
+               }
+             }
+             const stillShort = shortfall(answerText);
++            recordsInvalid = stillShort !== null;
+             if (stillShort !== null) {
+               notes.push(
+                 `добор поля ${field.id} не закрыл минимум за ${CLAIMS_TOPUP_ATTEMPTS} попытки: ` +
+@@ -1300,11 +1329,28 @@ export class FormFillExecutor implements StageExecutor {
+                 ? `поле ${field.id} не найдено в бланке: ${applied.problem}`
+                 : `ответ на поле ${field.id} отклонён: ${applied.problem}`,
+             );
++            // `applyFill` внутри зовёт `parseFieldValue` (`sheet.ts`) — настоящий
++            // механический оракул T2, честнее имитации проверок режима диапазонов.
++            rejectFieldCompact('apply-fill-rejected', 'apply-fill');
+             // Классы «сбой генерации» (чужая письменность, JSON-конверт) отсечены раньше,
+             // прямой проверкой ответа выше — сюда доходят только отказы `applyFill` по
+             // другим причинам (поле не найдено, формат значения), для которых памяти нет.
+             continue;
+           }
++          // Метка корпуса на итоговый обмен: `applyFill` разобрал ответ по-настоящему
++          // (оракул T2), а `filesToTouchInvalid`/`recordsInvalid` держат случаи, где топ-ап
++          // не спас дефицит (тем же правилом, что у режима диапазонов).
++          annotateExchange(finalRawLogPath, {
++            accepted: !filesToTouchInvalid && !recordsInvalid,
++            oracle: recordsInvalid ? 'records-minimum' : filesToTouchInvalid ? 'files-to-touch-paths' : 'apply-fill',
++            target: 'form-field',
++            reason:
++              recordsInvalid || filesToTouchInvalid
++                ? recordsInvalid
++                  ? 'records-below-minimum'
++                  : 'invented-path'
++                : 'accepted',
++          });
+           text = applied.text;
+           filledFields.add(field);
+           fieldsFilled++;
+@@ -1414,25 +1460,55 @@ export class FormFillExecutor implements StageExecutor {
+               continue;
+             }
+             resetRejectionStreak();
++            // Мишень T2 корпуса (`docs/model-tuning.md`): путь дампа обмена, который
++            // РЕАЛЬНО дал текущее содержимое поля. `?? null` — дамп выключен или обмен не
++            // сохранился (см. `ChatTurn.rawLogPath`). `finalRawLogPath` — а не константа:
++            // топ-ап (files_to_touch, claim-лист) переспрашивает поле ДОПОЛНИТЕЛЬНЫМ
++            // обменом, и метка обязана указывать на обмен, который дал итоговый ответ, а не
++            // на первый — иначе провальный первый обмен метится принятым, а обмен топ-апа,
++            // реально решивший поле, остаётся без метки вовсе (code-review-all, 2026-09-27).
++            let finalRawLogPath = a.value.rawLogPath ?? null;
++            // Отказ по механическому оракулу поля — на обмен, что дал ТЕКУЩЕЕ `filled`
++            // (см. `finalRawLogPath` выше). Один хелпер вместо повторяющегося литерала на
++            // каждой reject-ветке: те же четыре поля, разница только в `reason`/`oracle`
++            // (code-review-all, 2026-09-27).
++            const rejectField = (reason: string, oracle = 'form-field-checks'): void => {
++              annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
++            };
+             let filled = cleanFieldAnswer(a.value.text);
+             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
+             const isFilesToTouchRow = range.kind === 'row' && FILES_TO_TOUCH_HEADER.test(range.header);
+             const empty = filled === '' || filled.includes('‹');
+-            const invented =
++            let invented =
+               !empty && isFilesToTouchRow ? filesToTouchInventedPaths(filled, req.cwd) : [];
+             if ((empty || invented.length > 0) && isFilesToTouchRow && range.kind === 'row' && callsSpent < requestBudget) {
++              // Исходный обмен уже провалил оракул путей (пуст или выдуманный путь) — метка
++              // на НЕГО ставится здесь, пока `finalRawLogPath` ещё указывает на него: ниже
++              // он смещается на обмен топ-апа, и путь исходного больше нигде не всплывёт.
++              rejectField(empty ? 'empty-or-placeholder' : 'invented-path', 'files-to-touch-paths');
+               callsSpent++;
+               try {
+                 const more = await askFilesToTouchTopUp(path, text, range, invented);
+                 usage = addUsage(usage, more.usage);
+                 const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                 if (extra !== '' && !extra.includes('‹')) {
+-                  filled = extra;
+                   notes.push(
+                     invented.length > 0
+                       ? `добор files_to_touch: похоже на путь, но не найдено на диске (${invented.join(', ')}) — переспрошено`
+                       : `добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`,
+                   );
++                  filled = extra;
++                  finalRawLogPath = more.rawLogPath ?? null;
++                  // `invented` СБРАСЫВАЕТСЯ (заметка выше уже сказана по СТАРОМУ значению), а
++                  // не пересчитывается по новому ответу: комментарий у
++                  // `filesToTouchInventedPaths` выше по файлу называет это решение прямо —
++                  // «ложное срабатывание… стоит один лишний запрос, а не потерю данных:
++                  // ответ добора принимается как есть, без повторной проверки». Повторная
++                  // проверка здесь наказала бы легитимный новый файл, который модель снова
++                  // не пометила словом «новый», ровно тем сбоем, от которого страхуется тот
++                  // комментарий — метка корпуса обязана доверять топ-апу СТРОГО так же, как
++                  // доверяет ему запись в артефакт (структурный успех: не пусто, без ‹›).
++                  invented = [];
+                 } else {
+                   notes.push('добор files_to_touch не удался: список снова пуст');
+                 }
+@@ -1444,7 +1520,10 @@ export class FormFillExecutor implements StageExecutor {
+             }
+             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
+             // как был, и его честно назовут страж и предусловие следующего этапа.
+-            if (filled === '' || filled.includes('‹')) continue;
++            if (filled === '' || filled.includes('‹')) {
++              rejectField('empty-or-placeholder');
++              continue;
++            }
+             // Чужая письменность — тот же класс: не значение поля, а сбой генерации
+             // (`sheet.ts::foreignScript`; компактный путь отказывает в `parseFieldValue`).
+             // Причина называется вслух, в отличие от двух отказов выше: поле, пропущенное
+@@ -1456,6 +1535,7 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              rejectField('foreign-script');
+               continue;
+             }
+             // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
+@@ -1467,6 +1547,7 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              rejectField('tool-call-echo');
+               continue;
+             }
+             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
+@@ -1481,10 +1562,15 @@ export class FormFillExecutor implements StageExecutor {
+               for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
+                 const have = countClaims(filled);
+                 if (have.rows >= CLAIMS_MINIMUM.rows && have.edges >= CLAIMS_MINIMUM.edges) break;
++                // Обмен, который дал ТЕКУЩИЙ (ещё дефицитный) `filled`, размечается отказом
++                // ДО следующей попытки — иначе после успешного добора эта метка была бы
++                // невосстановима (тот же класс дефекта, что у files_to_touch выше).
++                rejectField('claims-below-minimum', 'claims-minimum');
+                 callsSpent++;
+                 try {
+                   const more = await askClaimsTopUp(path, text, range, filled, attempt > 0);
+                   usage = addUsage(usage, more.usage);
++                  finalRawLogPath = more.rawLogPath ?? null;
+                     const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                   // Модели на добор часто возвращают ВЕСЬ лист заново с теми же id —
+                   // фильтр «дубль id → в мусор» выбрасывал и новые пункты (r17e, лист
+@@ -1537,6 +1623,32 @@ export class FormFillExecutor implements StageExecutor {
+                 );
+               }
+             }
++            // Метка корпуса на итоговый обмен (`finalRawLogPath` — исходный, если топ-апа
++            // не было, иначе последний топ-ап) — здесь, а не раньше: пункты приёмки могли
++            // пройти через добор выше и всё равно остаться короче минимума методологии —
++            // это тоже отказ оракула, даже когда строка всё же уходит в артефакт (страж
++            // этапа 3 честно найдёт нехватку сам). Пересчёт `countClaims` независим от
++            // `stillShort` внутри блока добора: тот объявлен в его собственной области
++            // видимости и сюда не достаёт, а вызов чистый и второго знания не заводит.
++            // Строка `files_to_touch` — тем же правилом, но `invented` тут значим ТОЛЬКО
++            // когда топ-ап не спасло: `filled` уже прошёл проверки «пусто»/чужая
++            // письменность/эхо выше, а успешный топ-ап сбрасывает `invented` в `[]` (см.
++            // комментарий у `filesToTouchInventedPaths` про доверие ответу добора без
++            // повторной проверки) — здесь остаётся только случай «выдуманный путь дожил до
++            // конца», не тронутый ни одной из этих веток (code-review-all, 2026-09-27).
++            const claimsRow = range.kind === 'row' && /claim-/.test(range.text);
++            const claimsShort = claimsRow ? countClaims(filled) : null;
++            const belowClaimsMinimum =
++              claimsShort !== null &&
++              (claimsShort.rows < CLAIMS_MINIMUM.rows || claimsShort.edges < CLAIMS_MINIMUM.edges);
++            const filesToTouchStillInvalid = isFilesToTouchRow && invented.length > 0;
++            const rejected = belowClaimsMinimum || filesToTouchStillInvalid;
++            annotateExchange(finalRawLogPath, {
++              accepted: !rejected,
++              oracle: claimsRow ? 'claims-minimum' : isFilesToTouchRow ? 'files-to-touch-paths' : 'form-field-checks',
++              target: 'form-field',
++              reason: rejected ? (belowClaimsMinimum ? 'claims-below-minimum' : 'invented-path') : 'accepted',
++            });
+             // Ячейка таблицы, спрошенная по одной (владение ячейкой «Ответ человека»): ответ
+             // ложится внутрь строки, и перевод строки или голая `|` в нём разорвали бы таблицу.
+             if (range.kind === 'cell' && lineAt(text, range.start).trimStart().startsWith('|')) {
+diff --git a/server/src/exec/LoopExecutor.ts b/server/src/exec/LoopExecutor.ts
+index 3d544e6..d5caa99 100644
+--- a/server/src/exec/LoopExecutor.ts
++++ b/server/src/exec/LoopExecutor.ts
+@@ -26,10 +26,12 @@ import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
+ import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
+ 
+ import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type {
+   ExecHooks,
+   ExecRequest,
++  FrictionKind,
+   StageExecutor,
+   StageResult,
+   SubagentDef,
+@@ -220,6 +222,24 @@ export class LoopExecutor implements StageExecutor {
+     return { ...result, turns: meter.turns };
+   }
+ 
++  /**
++   * Трение цикла — рантайм-хук для метрик (`hooks.onFriction`) плюс метка на сыром дампе
++   * для корпуса (`docs/model-tuning.md`), одним вызовом: два места, знающие о трении хода,
++   * расходились бы при первой же новой причине.
++   *
++   * `frictions` — МАССИВ, не скаляр: `rawLogPath` — путь ПОСЛЕДНЕГО запроса к модели, а не
++   * этого конкретного вызова инструмента, и несколько вызовов одного хода (пакет
++   * `Promise.all` параллельных субагентов, серия вызовов одного хода) делят один и тот же
++   * обмен. `annotateExchange` мержит массивы между вызовами — без этого вторая разметка
++   * того же пути стирала бы первую причину трения молча (code-review-all, 2026-09-27).
++   * `loop` не входит в `TRAINABLE_MODES` корпуса — метка здесь чисто диагностическая, не
++   * влияет на выборку обучающих пар.
++   */
++  private friction(hooks: ExecHooks, kind: FrictionKind, rawLogPath: string | null): void {
++    hooks.onFriction(kind);
++    annotateExchange(rawLogPath, { frictions: [kind] });
++  }
++
+   private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
+     const toolCtx: ToolContext = {
+       projectRoot: req.cwd,
+@@ -251,6 +271,13 @@ export class LoopExecutor implements StageExecutor {
+ 
+     let usage: Usage = emptyUsage();
+     let finalText = '';
++    /**
++     * Путь сырого дампа (`provider/rawLog.ts`) ПОСЛЕДНЕГО запроса к модели — не только
++     * этого хода: `friction()` ниже размечает по нему трение, случившееся уже ПОСЛЕ
++     * ответа (серия чтений, повтор вызова внутри `handleCall`), а точного второго
++     * запроса к этому моменту ещё не было. `null` — дампа не было вовсе либо он выключен.
++     */
++    let lastRawLogPath: string | null = null;
+     /**
+      * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
+      * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
+@@ -383,7 +410,7 @@ export class LoopExecutor implements StageExecutor {
+         req.progressSignal() === 0
+       ) {
+         noProgressNudged = true;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Пройдено ${turnsDone} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
+@@ -423,6 +450,7 @@ export class LoopExecutor implements StageExecutor {
+         }),
+       });
+ 
++      lastRawLogPath = answer.rawLogPath ?? null;
+       usage = addUsage(usage, answer.usage);
+       // `0` входных токенов от сервера — признак того, что сервер вовсе не прислал usage
+       // (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что окно опустело:
+@@ -503,7 +531,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+           if (complaint !== null && reminders < FINISH_REMINDERS) {
+             reminders++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
+             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
+             messages.push({ role: 'user', content: complaint });
+@@ -618,7 +646,7 @@ export class LoopExecutor implements StageExecutor {
+         repeats = isNewTurnFingerprint ? 0 : repeats + 1;
+         lastFingerprint = turnFingerprint;
+         if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
+-        if (repeats > 0) hooks.onFriction('repeat');
++        if (repeats > 0) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT) {
+           const doneAnyway = finishedByDisk();
+@@ -648,7 +676,16 @@ export class LoopExecutor implements StageExecutor {
+         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
+         const results = await Promise.all(
+           answer.toolCalls.map((call) =>
+-            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
++            this.handleCall(
++              call,
++              normalize(call.name, call.arguments ?? {}),
++              0,
++              req,
++              hooks,
++              toolCtx,
++              spentNow,
++              lastRawLogPath,
++            ),
+           ),
+         );
+         answer.toolCalls.forEach((call, idx) => {
+@@ -677,7 +714,7 @@ export class LoopExecutor implements StageExecutor {
+         const firstOfStreak = repeats === 0;
+         if (firstOfStreak) noProgressWarnedFor = null;
+ 
+-        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
++        if (repeats > 0 && !isPolling(call.name, req)) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
+           const doneAnyway = finishedByDisk();
+@@ -752,6 +789,7 @@ export class LoopExecutor implements StageExecutor {
+           hooks,
+           toolCtx,
+           (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
++          lastRawLogPath,
+         );
+         messages.push({
+           role: 'tool',
+@@ -837,7 +875,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = readStreak;
+         readNudges++;
+         readStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+@@ -856,7 +894,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = bashStreak;
+         bashNudges++;
+         bashStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
+@@ -880,7 +918,7 @@ export class LoopExecutor implements StageExecutor {
+           if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
+             readyNudged = true;
+             readyNudges++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             pushUserNote(
+               messages,
+               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
+@@ -986,6 +1024,8 @@ export class LoopExecutor implements StageExecutor {
+     toolCtx: ToolContext,
+     /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
+     spentUsd: number,
++    /** Путь дампа хода, которому принадлежит этот вызов — см. `lastRawLogPath` в `runTurns`. */
++    rawLogPath: string | null,
+   ): Promise<string> {
+     const started = Date.now();
+     const requestId = `loop:${randomUUID()}`;
+@@ -994,7 +1034,7 @@ export class LoopExecutor implements StageExecutor {
+       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
+       // без подробностей, повторяет ту же строку.
+       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
+-      hooks.onFriction('badJson');
++      this.friction(hooks, 'badJson', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
+       return text;
+     }
+@@ -1020,7 +1060,7 @@ export class LoopExecutor implements StageExecutor {
+       ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
+     });
+     if (!decision.allowed) {
+-      hooks.onFriction('denied');
++      this.friction(hooks, 'denied', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
+       return `вызов отклонён: ${decision.reason}`;
+     }
+@@ -1055,7 +1095,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+     // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
+     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
+-    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
++    if (text.includes('[рантайм обрезал:')) this.friction(hooks, 'truncated', rawLogPath);
+ 
+     // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
+     // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
+@@ -1172,9 +1212,9 @@ export class LoopExecutor implements StageExecutor {
+     // потолка мог превысить `maxResultBytes` (разбор серии v11, 2026-09-15: результат
+     // `Task` на 16 096 байт против потолка 12 000 — единственный из пяти путей результата,
+     // где `cap()` не стоял).
+-    // Полный текст уходит рантайму отдельно (`resultText`): планки ревью (`reviewProblem`)
+-    // судят весь ответ, а не обрезок для истории хода — иначе хвост с последними claim-N
+-    // отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
++    // Полный текст уходит рантайму отдельно (`resultText`): контракт `verify-review-v1`
++    // (`reviewValidate.ts`) судит весь ответ, а не обрезок для истории хода — иначе хвост с
++    // последними claim-N отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
+     return result.finalText === ''
+       ? { text: `субагент «${def.name}» вернул пустой ответ`, full: '' }
+       : { text: cap(result.finalText, this.o.maxResultBytes), full: result.finalText };
+diff --git a/server/src/exec/StageExecutor.ts b/server/src/exec/StageExecutor.ts
+index 085f0ad..e0729a1 100644
+--- a/server/src/exec/StageExecutor.ts
++++ b/server/src/exec/StageExecutor.ts
+@@ -75,8 +75,9 @@ export interface ExecHooks {
+     detail?: string;
+     /**
+      * Полный текст результата (оба флоу). Нужен там, где решение зависит от содержимого, а
+-     * не от факта исполнения: ответ субагента-рецензента проходит те же планки, что прямой
+-     * прогон рантаймом (`reviewProblem`).
++     * не от факта исполнения: ответ субагента-рецензента проходит тот же контракт
++     * `verify-review-v1`, что прямой прогон рантаймом (`reviewValidate.ts::parseReviewText`,
++     * вызывается через `acceptReviewText`).
+      */
+     resultText?: string;
+   }) => void;
+diff --git a/server/src/exec/StepExecutor.ts b/server/src/exec/StepExecutor.ts
+index 5a3fa6a..e019f95 100644
+--- a/server/src/exec/StepExecutor.ts
++++ b/server/src/exec/StepExecutor.ts
+@@ -63,10 +63,12 @@ import { symlinkEscape } from '../approval/symlink.ts';
+ import { git } from '../gates/git.ts';
+ import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
+ import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+ import { cap, executeTool, type ToolContext } from './tools/index.ts';
+ import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
++import { buildStepContext } from './stepContext.ts';
+ 
+ /**
+  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
+@@ -97,6 +99,8 @@ export interface StepExecutorOptions {
+    * никакой защиты (code-review-all, 2026-09-11).
+    */
+   contextWindow?: number;
++  /** Лексический контекст шага (`stepContext.ts`) — см. `ModelDef.stepContext`. */
++  stepContext: boolean;
+   steps: readonly PlanStep[];
+   /** Текст плана — для ориентира; режется по `maxResultBytes`. */
+   planText: string;
+@@ -149,19 +153,27 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
+     // `<<<<<<< SEARCH SEARCH: src/oversize.ts` и подобные — маркер построен верно, но
+     // с лишним текстом на той же строке; семь подряд одинаковых спецсимволов на строке
+     // практически не встречаются в реальном коде случайно, риск ложного совпадения низкий.
++    if (/^<{7}\s*SEARCH\b/.test(t)) {
++      // A nested opener means the outer block is malformed. Restarting here salvages a
++      // later well-formed block without ever writing protocol markers into source code.
++      state = 'search';
++      search = [];
++      replace = [];
++      continue;
++    }
+     if (state === 'idle') {
+-      if (/^<{7}\s*SEARCH\b/.test(t)) {
+-        state = 'search';
+-        search = [];
+-        replace = [];
+-      }
+       continue;
+     }
+     if (state === 'search') {
+       if (/^={7}(\s|$)/.test(t)) state = 'replace';
++      else if (/^>{7}\s*REPLACE\b/.test(t)) state = 'idle';
+       else search.push(line);
+       continue;
+     }
++    if (/^={7}(\s|$)/.test(t)) {
++      state = 'idle';
++      continue;
++    }
+     if (/^>{7}\s*REPLACE\b/.test(t)) {
+       const oldStr = search.join('\n');
+       if (oldStr.trim() !== '') out.push({ oldStr, newStr: replace.join('\n') }); // пустой SEARCH совпал бы с чем угодно
+@@ -170,6 +182,18 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
+     }
+     replace.push(line);
+   }
++  if (out.length > 0) return out;
++
++  // Weak models also use an unambiguous fenced variant. Accept only complete multiline
++  // pairs; inline `SEARCH: x` and prose remain rejected because their boundaries are not safe.
++  const fenced = /(?:^|\n)\s*SEARCH:\s*\n```[^\n]*\n([\s\S]*?)\n```\s*\n+\s*REPLACE:\s*\n```[^\n]*\n([\s\S]*?)\n```/g;
++  for (const match of answer.matchAll(fenced)) {
++    const oldStr = match[1] ?? '';
++    const newStr = match[2] ?? '';
++    if (oldStr.trim() === '') continue;
++    if (/^(?:<{7}\s*SEARCH|={7}(?:\s|$)|>{7}\s*REPLACE)/m.test(`${oldStr}\n${newStr}`)) continue;
++    out.push({ oldStr, newStr });
++  }
+   return out;
+ }
+ 
+@@ -347,6 +371,48 @@ export function mentionsFile(problem: string, file: string): boolean {
+   return matches.some((m) => m[1] === undefined || toPosix(m[1]) === ownDir);
+ }
+ 
++/** Converts frequent compiler failures into a narrow instruction for the next repair round. */
++export function repairGuidance(problem: string, current: string | null): string[] {
++  const guidance: string[] = [];
++  const duplicate = /Identifier ['"]([^'"]+)['"] has already been declared/i.exec(problem);
++  if (duplicate !== null) {
++    const name = duplicate[1] ?? '';
++    const declaration = new RegExp(`\\b(?:const|let|var|function|class|interface|type)\\s+${escapeRegExp(name)}\\b`);
++    const locations = (current ?? '')
++      .split(/\r?\n/)
++      .map((line, index) => ({ line, n: index + 1 }))
++      .filter(({ line }) => declaration.test(line))
++      .map(({ line, n }) => `${n}: ${line.trim()}`);
++    guidance.push(
++      `Идентификатор \`${name}\` объявлен повторно. Удали или переиспользуй одно из существующих объявлений; не добавляй ещё одно.` +
++        (locations.length === 0 ? '' : `\nТекущие объявления:\n${locations.join('\n')}`),
++    );
++  }
++  if (/import declarations may only appear at top level|Unexpected token.*import|Cannot use import statement/i.test(problem)) {
++    guidance.push('Статический `import` разрешён только в начале модуля. Добавь его рядом с существующими импортами, не внутри функции.');
++  }
++  const missingExport = /does not provide an export named ['"]([^'"]+)['"]/i.exec(problem);
++  if (missingExport !== null) {
++    guidance.push(`Модуль не экспортирует \`${missingExport[1] ?? ''}\`. Используй только экспорты из контекста проекта или исправь имя импорта.`);
++  }
++  if (/require is not defined|Cannot find name ['"]require['"]/i.test(problem)) {
++    guidance.push('Проект использует ESM: замени `require(...)` статическим импортом в начале файла.');
++  }
++  const syntaxLine = /(?:file:\/\/\/[^\s:]+|(?:[A-Za-z]:)?[^\s:]+):(\d+)(?::\d+)?[\s\S]*?SyntaxError/i.exec(problem);
++  if (syntaxLine !== null && current !== null) {
++    const n = Number.parseInt(syntaxLine[1] ?? '', 10);
++    if (Number.isFinite(n) && n > 0) {
++      const lines = current.split(/\r?\n/);
++      const excerpt = lines
++        .slice(Math.max(0, n - 3), Math.min(lines.length, n + 2))
++        .map((line, index) => `${Math.max(0, n - 3) + index + 1}: ${line}`)
++        .join('\n');
++      guidance.push(`Синтаксическая ошибка указана около строки ${n}. Исправь структуру именно в этом месте:\n${excerpt}`);
++    }
++  }
++  return guidance;
++}
++
+ /**
+  * Файл с CRLF получает правки в CRLF: модель отдаёт LF, а `Edit` сверяет побайтно.
+  * Нормализация СНАЧАЛА схлопывает уже стоящие `\r\n` в `\n` и только потом расставляет их
+@@ -528,7 +594,9 @@ export class StepExecutor implements StageExecutor {
+       return null;
+     };
+ 
+-    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
++    const chat = async (
++      messages: ChatMessage[],
++    ): Promise<{ text: string; finishReason: FinishReason; rawLogPath: string | null }> => {
+       const startedAt = Date.now();
+       const answer = await this.o.provider.chat({
+         model: req.model,
+@@ -545,7 +613,7 @@ export class StepExecutor implements StageExecutor {
+       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
+       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
+       hooks.onUsage(answer.usage, Date.now() - startedAt);
+-      return { text: answer.text, finishReason: answer.finishReason };
++      return { text: answer.text, finishReason: answer.finishReason, rawLogPath: answer.rawLogPath ?? null };
+     };
+ 
+     // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
+@@ -662,7 +730,13 @@ export class StepExecutor implements StageExecutor {
+         callerTools: req.allowedTools,
+       });
+       if (!decision.allowed) {
+-        hooks.onFriction('denied');
++        // `hooks.onFriction('denied')` НЕ зовётся здесь: `apply()` не знает `rawLogPath`
++        // текущего раунда (он в области видимости внешнего цикла попыток, не этой функции),
++        // а метрика трения и метка корпуса обязаны идти ОДНИМ вызовом — тем же приёмом, что
++        // `LoopExecutor.friction()` (см. её докстринг). Вызывающий код (ветка
++        // `applied.denied` ниже) зовёт `hooks.onFriction('denied')` сам, рядом со своим
++        // `annotateExchange(...policy-denied...)` — два места, знающие об одном трении, не
++        // должны жить в разных функциях (code-review-all, 2026-09-27).
+         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
+         return { ok: false, denied: true, noChange: null, partialNote: '', text: `запись отклонена: ${decision.reason}` };
+       }
+@@ -690,12 +764,13 @@ export class StepExecutor implements StageExecutor {
+       }
+ 
+       const before = readInsideRoot(req.cwd, step.file);
++      const stepContext = this.o.stepContext ? await buildStepContext(req.cwd, step, req.signal) : '';
+       const messages: ChatMessage[] = [
+         { role: 'system', content: SYSTEM },
+         // Номер — `step.n` из плана, не позиция в отфильтрованном списке: сам план
+         // (приложенный ниже целиком) ссылается на шаги под их настоящими номерами, и
+         // расхождение двух нумераций в одном промпте путает модель.
+-        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, before) },
++        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, stepContext, before) },
+       ];
+ 
+       let calls = 0;
+@@ -743,6 +818,10 @@ export class StepExecutor implements StageExecutor {
+               ...(applyProblem === null
+                 ? []
+                 : ['## Твоя правка не применилась', '', '```', cap(applyProblem, this.o.maxResultBytes), '```', '']),
++              ...repairGuidance(
++                [checkProblem, applyProblem].filter((value): value is string => value !== null).join('\n'),
++                current,
++              ).flatMap((hint) => ['## Точное ограничение ремонта', '', hint, '']),
+               'Ошибки в ДРУГИХ файлах не чини — они закрываются другими шагами.',
+               '',
+               ...(current === null
+@@ -773,10 +852,12 @@ export class StepExecutor implements StageExecutor {
+ 
+         let answer: string;
+         let finishReason: FinishReason;
++        let rawLogPath: string | null;
+         try {
+           const result = await chat(messages);
+           answer = result.text;
+           finishReason = result.finishReason;
++          rawLogPath = result.rawLogPath;
+         } catch (e) {
+           if (req.signal.aborted) return stop('этап отменён');
+           throw e;
+@@ -788,6 +869,12 @@ export class StepExecutor implements StageExecutor {
+         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
+         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
+         if (round > 0 && answer === lastAnswer) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'repeated-answer',
++          });
+           hooks.onFriction('repeat');
+           status = '❌';
+           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
+@@ -798,16 +885,37 @@ export class StepExecutor implements StageExecutor {
+         const applied = await apply(step, current, answer, finishReason);
+ 
+         if (applied.noChange !== null) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'no-change',
++          });
+           status = '⏭';
+           note = `без правок: ${applied.noChange}`;
+           break;
+         }
+         if (applied.denied) {
++          // Метрика трения и метка корпуса — рядом, одним местом: см. комментарий у
++          // `hooks.onFriction('denied')`, которого больше НЕТ внутри `apply()`.
++          hooks.onFriction('denied');
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'policy-denied',
++          });
+           status = '❌';
+           note = applied.text;
+           break;
+         }
+         if (!applied.ok) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'patch-not-applied',
++          });
+           applyProblem = applied.text;
+           note = applied.text.split('\n')[0] ?? applied.text;
+           continue;
+@@ -836,11 +944,23 @@ export class StepExecutor implements StageExecutor {
+         // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
+         const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
+         if (check.status === 'ok') {
++          annotateExchange(rawLogPath, {
++            accepted: this.o.check !== null,
++            oracle: this.o.check === null ? 'no-step-check' : `gate:${checkName ?? 'unnamed'}`,
++            target: 'plan-step',
++            reason: this.o.check === null ? 'no-mechanical-oracle' : 'check-passed',
++          });
+           status = '✅';
+           note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
+           break;
+         }
+         if (check.status === 'skipped') {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-skipped',
++          });
+           status = '✅';
+           note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
+           break;
+@@ -850,6 +970,12 @@ export class StepExecutor implements StageExecutor {
+         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
+         // прогон тестов после этапа.
+         if (!mentionsFile(check.problem, step.file)) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-not-attributable-to-step',
++          });
+           status = '✅';
+           note =
+             `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
+@@ -857,6 +983,12 @@ export class StepExecutor implements StageExecutor {
+           hooks.onWarn(`шаг ${step.n}: ${note}`);
+           break;
+         }
++        annotateExchange(rawLogPath, {
++          accepted: false,
++          oracle: `gate:${checkName ?? 'unnamed'}`,
++          target: 'plan-step',
++          reason: 'check-failed',
++        });
+         checkProblem = check.problem;
+         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
+       }
+@@ -893,6 +1025,7 @@ export class StepExecutor implements StageExecutor {
+     planBlock: string,
+     factsBlock: string,
+     briefBlock: string,
++    stepContext: string,
+     content: string | null,
+   ): string {
+     const card = [
+@@ -917,6 +1050,7 @@ export class StepExecutor implements StageExecutor {
+     ];
+     if (factsBlock !== '') parts.push('', factsBlock);
+     if (briefBlock !== '') parts.push('', briefBlock);
++    if (stepContext !== '') parts.push('', stepContext);
+     if (content !== null) {
+       const truncated = Buffer.byteLength(content, 'utf8') > this.o.maxResultBytes;
+       parts.push('', `## Текущее содержимое \`${step.file}\``, '', '```', cap(content, this.o.maxResultBytes), '```');
+diff --git a/server/src/probe.ts b/server/src/probe.ts
+index c1589a3..3c66e1c 100644
+--- a/server/src/probe.ts
++++ b/server/src/probe.ts
+@@ -21,6 +21,10 @@ import { specsFor } from './exec/toolSpecs.ts';
+ import { lexicalNormalize } from './policy/paths.ts';
+ import type { ChatMessage, ChatProvider, ChatToolCall } from './provider/ChatProvider.ts';
+ import type { ModelDef, ProviderDef } from './config/schema.ts';
++import { hunkQuestion, isNoAnswer, parseFindingAnswer, systemPrompt as reviewSystemPrompt } from './run/reviewFill.ts';
++import { anchorFound } from './run/verifyReport.ts';
++import type { Hunk } from './run/claimEvidence.ts';
++import type { NormalizedCall } from '@sdlc-runner/shared';
+ 
+ export interface ProbeCaseResult {
+   name: string;
+@@ -54,6 +58,13 @@ export interface ProbeReport {
+    * годную. Вызывающий отдаёт за это код 2, не 1.
+    */
+   envBlocked: boolean;
++  /**
++   * Какой набор кейсов гонялся — `formatProbe` строит по нему итоговую фразу отказа:
++   * `REVIEWER_PROBE_CASES` не вызывают ни одного инструмента вовсе, и «не дошла до вызова
++   * инструментов» была бы неверной причиной для роли рецензента. Необязательное — старый
++   * вызывающий код (до этой правки) читает как `'chunk'` (умолчание `formatProbe`).
++   */
++  role?: 'chunk' | 'verify';
+ }
+ 
+ const SYSTEM =
+@@ -401,6 +412,84 @@ async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
+   ]);
+ }
+ 
++/**
++ * Кейсы рецензента (критерий 3 квалификации рецензента,
++ * `docs/proposals/reviewer-qualification.md`): реальный `reviewFill` (`run/reviewFill.ts`)
++ * не вызывает ни одного инструмента — задаёт закрытый текстовый вопрос по ОДНОМУ фрагменту
++ * diff'а (`tools: []`) и ждёт ответ строками `СЕКЦИЯ | ЧТО НЕ ТАК | место` либо «нет».
++ * Кейсы ниже задают РОВНО тот же вопрос (`hunkQuestion`/`systemPrompt`, импортированы из
++ * `reviewFill.ts`, не переписаны заново) — иначе проба предсказывала бы не тот протокол,
++ * который потом измеряется дорогим прогоном. До этих кейсов `--preflight` проверял на
++ * роли рецензента только способности исполнителя chunk (Write/Edit) — нерелевантные:
++ * `qwen3.6-27b-iq4` (2026-09-27) прошла их и всё равно провалила настоящий `reviewFill`.
++ */
++function evidenceOf(call: NormalizedCall): string {
++  return call.kind === 'record_finding' ? call.evidence : '';
++}
++
++const REVIEW_DEFECT_HUNK: Hunk = {
++  file: 'src/tariffs.ts',
++  text: [
++    '@@ -12,7 +12,7 @@ function weightStep(weightG: number, steps: readonly number[]): number {',
++    '   for (let i = 0; i < steps.length; i++) {',
++    '     const limit = steps[i]!;',
++    '-    if (weightG <= limit) return i;',
++    '+    if (weightG < limit) return i;',
++    '   }',
++    '   return steps.length;',
++    ' }',
++  ].join('\n'),
++};
++
++/** Кейс: посеянный off-by-one на границе (класс 4 из `DEFECT_CHECKLIST`) — обязана назвать. */
++async function caseReviewFinding(c: CaseCtx): Promise<CaseOutcome> {
++  const turn = await chat(c, [{ role: 'system', content: reviewSystemPrompt('') }, { role: 'user', content: hunkQuestion(REVIEW_DEFECT_HUNK, 1, 1) }], []);
++  if (isNoAnswer(turn.text)) {
++    return { ok: false, detail: `ответила «нет» на посеянный off-by-one, текст: «${turn.text.slice(0, 120)}»` };
++  }
++  const findings = parseFindingAnswer(turn.text, REVIEW_DEFECT_HUNK.file);
++  if (findings.length === 0) {
++    return { ok: false, detail: `ответ не разобрался форматом «СЕКЦИЯ | ЧТО НЕ ТАК | место», текст: «${turn.text.slice(0, 120)}»` };
++  }
++  const anchored = findings.some((f) => anchorFound(evidenceOf(f), REVIEW_DEFECT_HUNK.text));
++  const first = findings[0]!;
++  const label = first.kind === 'record_finding' ? first.text : '';
++  return verdict(`находка разобралась и привязана к месту: «${label.slice(0, 80)}»`, [
++    [anchored, `находка есть, но без ссылки на место из фрагмента (планка «оформителя»), текст: «${turn.text.slice(0, 120)}»`],
++  ]);
++}
++
++const REVIEW_CLEAN_HUNK: Hunk = {
++  file: 'src/format.ts',
++  text: [
++    '@@ -3,6 +3,9 @@ export function formatPrice(kopeck: number): string {',
++    '   return `${(kopeck / 100).toFixed(2)} ₽`;',
++    ' }',
++    '+',
++    '+export function formatPercent(value: number): string {',
++    '+  return `${(value * 100).toFixed(1)}%`;',
++    '+}',
++  ].join('\n'),
++};
++
++/** Кейс: чистый фрагмент без дефектов из списка — обязана ответить «нет», не выдумывать. */
++async function caseReviewClean(c: CaseCtx): Promise<CaseOutcome> {
++  const turn = await chat(c, [{ role: 'system', content: reviewSystemPrompt('') }, { role: 'user', content: hunkQuestion(REVIEW_CLEAN_HUNK, 1, 1) }], []);
++  return verdict('ответила «нет» — чистый фрагмент без ложной находки', [
++    [isNoAnswer(turn.text), `ложное срабатывание на чистом фрагменте, текст: «${turn.text.slice(0, 200)}»`],
++  ]);
++}
++
++/**
++ * Набор для `--stage verify` (роль рецензента) — заменяет `PREFLIGHT_CASES` целиком, а не
++ * дополняет: кейсы Write/Edit там измеряют способности исполнителя chunk, которых
++ * `reviewFill` от модели не требует вовсе (см. докстринг выше).
++ */
++export const REVIEWER_PROBE_CASES: readonly ProbeCase[] = [
++  { name: 'находка по посеянному дефекту', run: caseReviewFinding },
++  { name: 'чистый фрагмент — без ложной находки', run: caseReviewClean },
++];
++
+ export interface ProbeCase {
+   name: string;
+   run: (c: CaseCtx) => Promise<CaseOutcome>;
+@@ -529,6 +618,7 @@ export async function probeModel(args: {
+     cases,
+     passed: cases.every((c) => c.ok),
+     envBlocked: cases.some((c) => c.env),
++    role: args.cases === REVIEWER_PROBE_CASES ? 'verify' : 'chunk',
+   };
+ }
+ 
+@@ -540,10 +630,14 @@ export function formatProbe(report: ProbeReport): string {
+       (c) => `  ${c.ok ? '✅' : c.env ? '⏭' : '❌'} ${c.name} — ${c.detail} (${(c.durationMs / 1000).toFixed(1)} с)`,
+     ),
+     report.passed
+-      ? 'Проба пройдена: модель доходит до корректных вызовов инструментов. Это скрининг, не замер этапа.'
++      ? report.role === 'verify'
++        ? 'Проба пройдена: модель разбирает фрагмент и отвечает по формату закрытого вопроса. Это скрининг, не замер этапа.'
++        : 'Проба пройдена: модель доходит до корректных вызовов инструментов. Это скрининг, не замер этапа.'
+       : report.envBlocked
+         ? 'Проба НЕ ИЗМЕРЕНА: часть кейсов упала средой (транспорт/сервер), а не моделью — почини среду и повтори.'
+-        : 'Проба НЕ пройдена: модель не дошла до вызова инструментов в микро-кейсах — дорогой замер этапа 5 не оправдан.',
++        : report.role === 'verify'
++          ? 'Проба НЕ пройдена: модель не разбирает фрагмент по формату закрытого вопроса рецензента — дорогой замер этапа 6 не оправдан.'
++          : 'Проба НЕ пройдена: модель не дошла до вызова инструментов в микро-кейсах — дорогой замер этапа 5 не оправдан.',
+   ];
+   return lines.join('\n');
+ }
+diff --git a/server/src/provider/ChatProvider.ts b/server/src/provider/ChatProvider.ts
+index c229ddc..e6f9657 100644
+--- a/server/src/provider/ChatProvider.ts
++++ b/server/src/provider/ChatProvider.ts
+@@ -39,6 +39,16 @@ export interface ChatTurn {
+   toolCalls: ChatToolCall[];
+   finishReason: FinishReason;
+   usage: Usage;
++  /**
++   * Путь файла сырого дампа этого обмена (`provider/rawLog.ts::dumpExchange`), если дамп
++   * включён и запись удалась. Отсутствует или `null` — дамп выключен, обмен без метки
++   * трассы или запись не прошла: потребитель размечает пару только когда путь известен,
++   * второго способа её найти нет намеренно (без сводного указателя, см. `rawLog.ts`).
++   * Опционально, а не обязательно: подставные провайдеры в тестах строят `ChatTurn`
++   * литералом без этого поля, и заводить его в каждом значило бы менять полтора десятка
++   * файлов ради поля, которое им не нужно.
++   */
++  rawLogPath?: string | null;
+ }
+ 
+ export interface ChatRequest {
+diff --git a/server/src/provider/OpenAiCompatProvider.ts b/server/src/provider/OpenAiCompatProvider.ts
+index a158195..ef76d6b 100644
+--- a/server/src/provider/OpenAiCompatProvider.ts
++++ b/server/src/provider/OpenAiCompatProvider.ts
+@@ -536,16 +536,20 @@ export class OpenAiCompatProvider implements ChatProvider {
+ 
+     // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
+     // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
+-    if (this.o.trace !== undefined) {
+-      dumpExchange(this.o.trace, {
+-        provider: this.name,
+-        model: req.model,
+-        request: body,
+-        response: text,
+-        status,
+-        durationMs: Date.now() - started,
+-      });
+-    }
++    // Путь несём дальше в `ChatTurn.rawLogPath`: потребители, узнающие исход хода ПОСЛЕ
++    // `chat()` (трение цикла, гейт после шага, разбор поля бланка), размечают именно этот
++    // файл — второго способа найти его нет намеренно (`rawLog.ts`, без сводного указателя).
++    const rawLogPath =
++      this.o.trace === undefined
++        ? null
++        : dumpExchange(this.o.trace, {
++            provider: this.name,
++            model: req.model,
++            request: body,
++            response: text,
++            status,
++            durationMs: Date.now() - started,
++          });
+ 
+     if (status < 200 || status >= 300) {
+       const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
+@@ -646,6 +650,7 @@ export class OpenAiCompatProvider implements ChatProvider {
+       toolCalls,
+       finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
+       usage,
++      rawLogPath,
+     };
+   }
+ }
+diff --git a/server/src/provider/ollamaContext.ts b/server/src/provider/ollamaContext.ts
+index 3510519..5edac83 100644
+--- a/server/src/provider/ollamaContext.ts
++++ b/server/src/provider/ollamaContext.ts
+@@ -113,7 +113,7 @@ function isLoopback(origin: string): boolean {
+  * выключен или завис, и «окна в порядке» на нём было бы ложным зелёным перед часами
+  * прогона. 5xx тоже не входит: сервер на месте и болен, это проблема.
+  */
+-function apiAbsent(f: FetchJsonFailure): boolean {
++export function apiAbsent(f: FetchJsonFailure): boolean {
+   return f.kind === 'json' || (f.kind === 'http' && (f.status === 404 || f.status === 401 || f.status === 403));
+ }
+ 
+diff --git a/server/src/provider/rawLog.ts b/server/src/provider/rawLog.ts
+index cea21de..efd2cb5 100644
+--- a/server/src/provider/rawLog.ts
++++ b/server/src/provider/rawLog.ts
+@@ -17,9 +17,11 @@
+  * просили. Прогон при этом ведёт себя ровно как раньше — дамп ничего не меняет во входе.
+  */
+ 
+-import { mkdirSync, writeFileSync } from 'node:fs';
++import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+ import { join } from 'node:path';
+ 
++import type { ExchangeLabel } from '@sdlc-runner/shared';
++
+ /**
+  * Кто спрашивает. Метка ставится на ПРОВАЙДЕР, а не на запрос: экземпляр провайдера
+  * создаётся под конкретный этап и режим (`Run.executorFor`, `topUpClaims`, `narrowRoute`),
+@@ -64,12 +66,28 @@ function targetDir(): string | null {
+   return dir;
+ }
+ 
+-/** Подряд идущие отказы записи. Успех обнуляет счётчик. */
+-let failures = 0;
+ const MAX_FAILURES = 3;
++
++/** Подряд идущие отказы записи ПАРЫ (`dumpExchange`). Успех обнуляет счётчик. */
++let failures = 0;
+ /** Почему дамп выключен отказами записи; `null` — не выключался. */
+ let disabledReason: string | null = null;
+ 
++/**
++ * Подряд идущие отказы записи МЕТКИ (`annotateExchange`) — СВОЙ счётчик, не общий с парой.
++ *
++ * До этой правки обе функции делили один `failures`/`dir`: три подряд неудачные записи
++ * ИМЕННО `.label.json` (например, путь `<путь пары>.label.json` на несколько символов
++ * длиннее самой пары и на Windows упирается в `MAX_PATH` там, где путь пары ещё укладывался)
++ * гасили `dumpExchange` вместе с разметкой — отказ третьесортной по цене операции убивал
++ * первосортный по цене дамп (code-review-all, 2026-09-27). Разметка выключается СВОЕЙ
++ * переменной (`labelDisabled`), путь дампа (`dir`) остаётся как был.
++ */
++let labelFailures = 0;
++let labelDisabled = false;
++/** Почему разметка выключена отказами записи; `null` — не выключалась. */
++let labelBlockedReason: string | null = null;
++
+ /**
+  * Отказ дампа не роняет оплаченный прогон — но и не молчит, и не выключает корпус с
+  * первого чиха.
+@@ -92,6 +110,19 @@ function noteFailure(e: unknown): void {
+   process.emitWarning(`SDLC_RAW_LOG_DIR: пара не записана (${failures} из ${MAX_FAILURES}) — ${reason}`);
+ }
+ 
++/** Тот же приём, что `noteFailure`, но выключает только разметку (`labelDisabled`), не дамп. */
++function noteLabelFailure(e: unknown): void {
++  labelFailures += 1;
++  const reason = e instanceof Error ? e.message : String(e);
++  if (labelFailures >= MAX_FAILURES) {
++    process.emitWarning(`SDLC_RAW_LOG_DIR: разметка обменов выключена после ${MAX_FAILURES} отказов подряд — ${reason}`);
++    labelDisabled = true;
++    labelBlockedReason = `выключена после ${MAX_FAILURES} отказов записи подряд — ${reason}`;
++    return;
++  }
++  process.emitWarning(`SDLC_RAW_LOG_DIR: метка не записана (${labelFailures} из ${MAX_FAILURES}) — ${reason}`);
++}
++
+ /**
+  * Записать пару «запрос → ответ». Возвращает путь файла либо `null`, если дамп выключен.
+  *
+@@ -154,6 +185,9 @@ export function resetRawLog(): void {
+   dir = undefined;
+   failures = 0;
+   disabledReason = null;
++  labelFailures = 0;
++  labelDisabled = false;
++  labelBlockedReason = null;
+ }
+ 
+ /** Почему дамп выключен отказами записи с последнего `resetRawLog`; `null` — не выключался. */
+@@ -161,8 +195,83 @@ export function rawLogDisabledReason(): string | null {
+   return disabledReason;
+ }
+ 
++/** Почему разметка выключена отказами записи с последнего `resetRawLog`; `null` — не выключалась. */
++export function labelDisabledReason(): string | null {
++  return labelBlockedReason;
++}
++
+ /** Только для тестов: забыть решение о каталоге и обнулить счётчик. */
+ export function resetRawLogForTests(): void {
+   resetRawLog();
+   seq = 0;
+ }
++
++/**
++ * Слить новую метку со старой (если файл уже существовал) для ОДНОГО обмена.
++ *
++ * Скалярные поля (`accepted`/`oracle`/`target`/`reason`) новая метка перекрывает — она
++ * описывает более позднее, точнее известное состояние того же обмена (например, «пуст»
++ * при первом взгляде → «принят» после успешного топ-апа). Массивы (`frictions`)
++ * НАКАПЛИВАЮТСЯ: несколько вызовов инструментов одного хода `LoopExecutor` делят ОДИН
++ * обмен модели, и вторая разметка не должна стирать трение, найденное первой
++ * (code-review-all, 2026-09-27) — без этого правила `writeFileSync` тем же путём просто
++ * заменял бы файл целиком, как было до этой правки.
++ */
++function mergeLabel(prior: ExchangeLabel, next: ExchangeLabel): ExchangeLabel {
++  const merged: ExchangeLabel = { ...prior };
++  for (const [key, value] of Object.entries(next) as [keyof ExchangeLabel, unknown][]) {
++    const before = (merged as Record<string, unknown>)[key];
++    (merged as Record<string, unknown>)[key] = Array.isArray(before) && Array.isArray(value) ? [...before, ...value] : value;
++  }
++  return merged;
++}
++
++/**
++ * Разметить уже записанную пару исходом хода — известным ТОЛЬКО потребителю (трение
++ * цикла, гейт после шага плана, разбор значения поля бланка), не самому дампу.
++ *
++ * Пишет файл `<путь пары>.label.json` РЯДОМ с парой, а не в неё: второй файл, а не
++ * дописывание существующего — на сетевой шаре `appendFileSync` падает `EBADF` там, где
++ * `writeFileSync` работает, и живой прогон уже гасил этим весь дамп (см. докстринг
++ * `dumpExchange`). Тот же метод (читаем целиком, пишем целиком через `writeFileSync`)
++ * используется здесь и для СЛИЯНИЯ повторной разметки (`mergeLabel`) — это не то же самое,
++ * что дописывание байт в конец файла, и второй точки отказа не заводит. Разбирающий
++ * корпус читает файл пары и файл метки по общему имени, если она есть; парные `seq` не
++ * гарантируются — потребитель размечает ПОСЛЕДНИЙ известный ему путь, а между дампом и
++ * разметкой мог случиться ещё один запрос того же исполнителя (например, добор
++ * `files_to_touch` в `FormFillExecutor`).
++ *
++ * Отказ записи метки НЕ гасит дамп пар (`dumpExchange`) — у него свой счётчик отказов
++ * (`noteLabelFailure`/`labelDisabled`), не общий с `failures`/`dir`: до этой правки три
++ * подряд отказа именно записи `.label.json` (например, превышение `MAX_PATH` на Windows у
++ * более длинного пути метки) выключали ВЕСЬ дамп процесса, а не только разметку
++ * (code-review-all, 2026-09-27).
++ *
++ * Синхронная (не `fs.promises`) пара `readFileSync`/`writeFileSync` — сознательно, а не по
++ * инерции с `dumpExchange`: вызывающие (`LoopExecutor.friction`, цикл полей
++ * `FormFillExecutor`) зовут эту функцию в потенциально горячих местах (несколько раз за
++ * ход/пачку), и синхронный I/O там платится реальной ценой на медленной ФС. Но переход на
++ * асинхронные `fs.promises.readFile`/`writeFile` без единой блокировки открыл бы окно
++ * между чтением и записью, где ДВА параллельных вызова (пачка `Promise.allSettled` в
++ * `FormFillExecutor`, параллельные субагенты в `LoopExecutor`) читают одно и то же старое
++ * содержимое и один перезаписывает слияние другого — ровно та гонка, ради устранения
++ * которой заведён `mergeLabel`. Дёшево и безопасно одновременно здесь не вышло: остаётся
++ * блокирующий, но корректный синхронный путь (code-review-all, 2026-09-27).
++ */
++export function annotateExchange(path: string | null, label: ExchangeLabel): void {
++  if (path === null || labelDisabled) return;
++  const file = `${path}.label.json`;
++  try {
++    let toWrite = label;
++    try {
++      const prior = JSON.parse(readFileSync(file, 'utf8')) as ExchangeLabel;
++      toWrite = mergeLabel(prior, label);
++    } catch {
++      // Файла нет (первая метка этого обмена) либо он битый — пишем новую метку как есть.
++    }
++    writeFileSync(file, `${JSON.stringify(toWrite, null, 1)}\n`, 'utf8');
++    labelFailures = 0;
++  } catch (e) {
++    noteLabelFailure(e);
++  }
++}
+diff --git a/server/src/run/Run.ts b/server/src/run/Run.ts
+index a2b6c6d..2b29de3 100644
+--- a/server/src/run/Run.ts
++++ b/server/src/run/Run.ts
+@@ -503,7 +503,10 @@ export class Run {
+    * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
+    * невосстановимым.
+    */
+-  private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
++  private readonly stageStats = new Map<
++    StageId,
++    { runs: number; usage: Usage; durationMs: number; requestDurationsMs: number[] }
++  >();
+   private readonly attemptsByChunk = new Map<number, number>();
+ 
+   /**
+@@ -657,6 +660,7 @@ export class Run {
+         runs: v.runs,
+         usage: v.usage,
+         durationMs: v.durationMs,
++        requestDurationsMs: v.requestDurationsMs,
+       })),
+       verdicts: { total: this.verdictCount, red: this.redCount },
+       redByCause: [...this.redByCause.entries()].map(([kind, count]) => ({ kind, count })),
+@@ -770,7 +774,12 @@ export class Run {
+     const m = normalizeMetrics(r.raw);
+ 
+     for (const s of m.stages) {
+-      this.stageStats.set(s.stage, { runs: s.runs, usage: s.usage, durationMs: s.durationMs });
++      this.stageStats.set(s.stage, {
++        runs: s.runs,
++        usage: s.usage,
++        durationMs: s.durationMs,
++        requestDurationsMs: s.requestDurationsMs,
++      });
+     }
+     // Расход витка восстанавливается ВМЕСТЕ с разбивкой по этапам. Пока он оставался
+     // нулём, одна и та же трата показывалась двумя разными числами на одном экране
+@@ -2342,7 +2351,7 @@ export class Run {
+     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
+     // старое, и считать по нему длительность значило бы терять её на длинных витках.
+     const stageStartedAt = Date.now();
+-    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0 };
++    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
+     stat.runs += 1;
+     this.stageStats.set(stage, stat);
+ 
+@@ -2679,7 +2688,14 @@ export class Run {
+ 
+         onUsage: (usage, durationMs) => {
+           const st = this.stageStats.get(stage);
+-          if (st !== undefined) st.usage = addUsage(st.usage, usage);
++          if (st !== undefined) {
++            st.usage = addUsage(st.usage, usage);
++            // Отдельно от суммы: критерий квалификации рецензента (пункт 2,
++            // `docs/proposals/reviewer-qualification.md`) судит по ОДНОМУ запросу, не по
++            // сумме — зависший на 20 минут запрос топит получасовой бюджет этапа, а сумма
++            // это не покажет.
++            if (durationMs !== undefined) st.requestDurationsMs.push(durationMs);
++          }
+           this.totalUsage = addUsage(this.totalUsage, usage);
+           // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
+           // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
+diff --git a/server/src/run/claimFill.ts b/server/src/run/claimFill.ts
+index c3898d4..97f4e30 100644
+--- a/server/src/run/claimFill.ts
++++ b/server/src/run/claimFill.ts
+@@ -22,6 +22,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+ 
+ import { normalize } from '../exec/normalize.ts';
+ import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { packForClaim, splitHunks } from './claimEvidence.ts';
+ 
+ export interface ClaimAsk {
+@@ -206,6 +207,18 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
+     i.onUsage?.(response.usage);
+     const { answeredIdx, calls } = parseClaimsCombinedAnswer(group, response.text);
+     out.push(...calls);
++    // Мишень корпуса `claimFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++    // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('verify',
++    // 'claimFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
++    // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
++    // формы, что у `reviewFill` по осям: «ровно N строк, в том же порядке», и `answeredIdx`
++    // считает попадание в форму независимо от статуса самого пункта.
++    annotateExchange(response.rawLogPath ?? null, {
++      accepted: answeredIdx.size === group.length,
++      oracle: 'record-claim-parse',
++      target: 'claim-fill',
++      reason: answeredIdx.size === group.length ? 'accepted' : `answered-${answeredIdx.size}-of-${group.length}`,
++    });
+     if (answeredIdx.size < group.length) {
+       i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);
+     }
+diff --git a/server/src/run/metricsSnapshot.ts b/server/src/run/metricsSnapshot.ts
+index da3a5ae..a590720 100644
+--- a/server/src/run/metricsSnapshot.ts
++++ b/server/src/run/metricsSnapshot.ts
+@@ -17,6 +17,7 @@ import type { WitokPaths } from '../artifacts/paths.ts';
+ 
+ const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
++const numList = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)) : []);
+ const obj = (v: unknown): Record<string, unknown> | null =>
+   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+ 
+@@ -54,6 +55,7 @@ export function normalizeMetrics(input: unknown): RunMetrics {
+       runs: num(s['runs']),
+       usage: { ...emptyUsage(), ...(u === null ? {} : (u as object)) },
+       durationMs: num(s['durationMs']),
++      requestDurationsMs: numList(s['requestDurationsMs']),
+     });
+   }
+   const verdicts = obj(m['verdicts']);
+diff --git a/server/src/run/planAxisFill.ts b/server/src/run/planAxisFill.ts
+index 84b98a2..7f9e309 100644
+--- a/server/src/run/planAxisFill.ts
++++ b/server/src/run/planAxisFill.ts
+@@ -25,6 +25,7 @@ import type { Usage } from '@sdlc-runner/shared';
+ import { AFFIRMATIVE_HEAD, AXIS_HINTS, axisHint } from './reviewFill.ts';
+ import { axisOutcomePromptOptions, matchAxisOutcome } from './axisOutcomes.ts';
+ import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { axisRowOf, axisRowProblems, type AxisContext, type AxisName } from '../artifacts/planAxes.ts';
+ import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
+ 
+@@ -96,7 +97,7 @@ export function planAxisContext(i: PlanAxisFillInput): AxisContext {
+ }
+ 
+ /** Исход одного вопроса добора; `env` — сбой среды, добор прекращается целиком. */
+-export type PlanAxisReply = { text: string } | { env: string } | { failed: string };
++export type PlanAxisReply = { text: string; rawLogPath: string | null } | { env: string } | { failed: string };
+ 
+ /**
+  * Один вопрос добора без истории: `system` этапа + вопрос. Общий для обеих форм добора —
+@@ -122,7 +123,7 @@ export async function askPlanAxes(i: PlanAxisFillInput, user: string): Promise<P
+     return { failed: e instanceof Error ? e.message : String(e) };
+   }
+   i.onUsage?.(response.usage);
+-  return { text: response.text };
++  return { text: response.text, rawLogPath: response.rawLogPath ?? null };
+ }
+ 
+ function planAxisQuestion(i: PlanAxisFillInput): string {
+@@ -406,6 +407,17 @@ export async function fillPlanAxes(i: PlanAxisFillInput): Promise<PlanAxisFillRe
+     return { answers: [], envFailure: 'env' in reply ? reply.env : null };
+   }
+   const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(i.axes, reply.text, planAxisContext(i));
++  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++  // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('plan',
++  // 'planAxisFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
++  // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
++  // формы «ровно N строк», что у `reviewFill`/`claimFill`.
++  annotateExchange(reply.rawLogPath, {
++    accepted: answeredIdx.size === i.axes.length,
++    oracle: 'plan-axis-parse',
++    target: 'plan-axis-fill',
++    reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
++  });
+   if (answeredIdx.size < i.axes.length) {
+     i.onProgress?.(`ответ по осям плана неполон: разобрано ${answeredIdx.size} из ${i.axes.length}`);
+   }
+diff --git a/server/src/run/planAxisStepwise.ts b/server/src/run/planAxisStepwise.ts
+index c8ece2f..200cd60 100644
+--- a/server/src/run/planAxisStepwise.ts
++++ b/server/src/run/planAxisStepwise.ts
+@@ -42,6 +42,7 @@ import {
+   type PlanAxisFillInput,
+   type PlanAxisFillResult,
+ } from './planAxisFill.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { axisRowOf, axisRowProblems, type AxisName } from '../artifacts/planAxes.ts';
+ import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
+ 
+@@ -298,6 +299,19 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+   // Отмена этапа: провайдер бросает обычную ошибку, и без этой проверки добор спрашивал
+   // бы дальше, а вызывающий — просил бы одобрить запись уже после отмены.
+   const cancelled = (): PlanAxisFillResult | null => (i.signal.aborted ? { answers: [], envFailure: null } : null);
++  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`) — та же, что у комбинированного
++  // добора (`planAxisFill.ts::fillPlanAxes`), но здесь на КАЖДЫЙ из пяти шагов свой обмен:
++  // до этой правки ни один из них не размечался (code-review-all, 2026-09-27). Оракул тот
++  // же контракт «ровно N строк», отдельное имя — чтобы не путать со сплошным разбором
++  // комбинированной формы при анализе корпуса.
++  const labelStep = (rawLogPath: string | null, accepted: boolean, reason: string): void => {
++    annotateExchange(rawLogPath, {
++      accepted,
++      oracle: 'plan-axis-parse-step',
++      target: 'plan-axis-fill',
++      reason: accepted ? 'accepted' : reason,
++    });
++  };
+ 
+   // Шаг 1: затронута?
+   const r1 = await askOnce(i, affectedQuestion(i));
+@@ -309,6 +323,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     return { answers, envFailure: null };
+   }
+   const affected = parseAffected(i.axes.length, r1.text);
++  labelStep(r1.rawLogPath, affected.size === i.axes.length, `affected-answered-${affected.size}-of-${i.axes.length}`);
+   if (affected.size < i.axes.length) note(`шаг «затронута?»: разобрано ${affected.size} из ${i.axes.length}`);
+   const yes = i.axes.filter((_, idx) => affected.get(idx) === true);
+   const no = i.axes.filter((_, idx) => affected.get(idx) === false);
+@@ -322,6 +337,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     if ('failed' in r2) note(`шаг «почему не затронута»: ${r2.failed}`);
+     else {
+       const reasons = parseNumberedLines(no.length, r2.text);
++      labelStep(r2.rawLogPath, reasons.size === no.length, `reasons-answered-${reasons.size}-of-${no.length}`);
+       for (const [idx, reason] of reasons) {
+         const axis = no[idx]!;
+         accept({ axis, affectedText: 'нет', what: `— / ${reason}`, outcome: `н/п — ${reason}` });
+@@ -342,6 +358,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     return { answers, envFailure: null };
+   }
+   const whats = parseNumberedLines(yes.length, r3.text);
++  labelStep(r3.rawLogPath, whats.size === yes.length, `what-answered-${whats.size}-of-${yes.length}`);
+   if (whats.size < yes.length) note(`шаг «что именно в шагах»: разобрано ${whats.size} из ${yes.length}`);
+ 
+   // Шаг 4: исход — по одной оси, одним ключом из конкретных адресатов.
+@@ -358,6 +375,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+       continue;
+     }
+     const choice = parseOutcomeChoice(r4.text, options);
++    labelStep(r4.rawLogPath, choice !== null, 'outcome-not-in-list');
+     if (choice === null) {
+       note(`исход оси «${axis}» не из списка адресатов: «${r4.text.trim().split('\n')[0] ?? ''}»`);
+       continue;
+@@ -376,6 +394,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+       continue;
+     }
+     const risk = parseRiskFields(r5.text);
++    labelStep(r5.rawLogPath, risk !== null, 'risk-fields-incomplete');
+     if (risk === null) {
+       note(`риск по оси «${axis}»: три поля не разобраны`);
+       continue;
+diff --git a/server/src/run/reviewFill.ts b/server/src/run/reviewFill.ts
+index 967f9fd..220ce10 100644
+--- a/server/src/run/reviewFill.ts
++++ b/server/src/run/reviewFill.ts
+@@ -34,6 +34,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+ import type { AxisName } from '../artifacts/planAxes.ts';
+ import { normalize } from '../exec/normalize.ts';
+ import type { ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { packForClaim, splitHunks, topFileForClaim, type Hunk } from './claimEvidence.ts';
+ 
+ /** Строка осей плана, как её видит конвейер: имя, затронута ли по плану, исход как есть. */
+@@ -276,7 +277,13 @@ export function parseAxisAnswer(
+   return call.kind === 'record_finding' ? call : null;
+ }
+ 
+-function systemPrompt(taskContext: string): string {
++/**
++ * Экспортирована для рецензентских кейсов пробы (`probe.ts`, критерий 3 квалификации
++ * рецензента, `docs/proposals/reviewer-qualification.md`): проба обязана задавать РОВНО
++ * тот же вопрос, что реальный `reviewFill`, а не похожий текст — иначе она предсказывает
++ * не тот протокол, который потом измеряется дорогим прогоном.
++ */
++export function systemPrompt(taskContext: string): string {
+   return [
+     'Ты — независимый рецензент правки кода. Твоя цель — опровергнуть, что сделано нужное,',
+     'но только по тому, что видно в показанном фрагменте: не гадай о коде, которого не видишь.',
+@@ -288,7 +295,8 @@ function systemPrompt(taskContext: string): string {
+   ].join('\n');
+ }
+ 
+-function hunkQuestion(h: Hunk, n: number, total: number): string {
++/** Экспортирована для рецензентских кейсов пробы — см. докстринг `systemPrompt` выше. */
++export function hunkQuestion(h: Hunk, n: number, total: number): string {
+   return [
+     `## Фрагмент ${n} из ${total} — файл \`${h.file}\``,
+     '',
+@@ -427,7 +435,12 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+   let hunksAnswered = 0;
+   let axesAnswered = 0;
+ 
+-  const ask = async (user: string): Promise<string | null> => {
++  // Мишень корпуса `reviewFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++  // `bench/src/corpus.ts`): до этой правки трасса писалась (`host.trace('verify',
++  // 'reviewFill')`), а метку не ставил никто — три из пяти заявленных обучаемых режимов
++  // были структурно недостижимы (code-review-all, 2026-09-27). Возвращает путь дампа вместе
++  // с текстом — вызывающий размечает его САМ, зная свой оракул (по хунку или по осям).
++  const ask = async (user: string): Promise<{ text: string; rawLogPath: string | null } | null> => {
+     try {
+       const r = await i.provider.chat({
+         model: i.model,
+@@ -441,7 +454,7 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+         params: i.params,
+       });
+       i.onUsage?.(r.usage);
+-      return r.text;
++      return { text: r.text, rawLogPath: r.rawLogPath ?? null };
+     } catch (e) {
+       i.onProgress?.(`вопрос не отвечен: ${(e as Error).message}`);
+       return null;
+@@ -464,7 +477,18 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+       const answer = a.status === 'fulfilled' ? a.value : null;
+       if (answer === null) continue;
+       hunksAnswered++;
+-      findings.push(...parseFindingAnswer(answer, h.file));
++      const parsed = parseFindingAnswer(answer.text, h.file);
++      // Оракул — механический: «нет» в закрытой форме или хотя бы одна разобравшаяся
++      // находка. Непустой ответ без единой распознанной строки — класс «оформитель»
++      // (докстринг модуля), а не пропущенный дефект: нормализатор его не примет, но и
++      // отличать от «дефектов нет» корпусу нужно.
++      annotateExchange(answer.rawLogPath, {
++        accepted: isNoAnswer(answer.text) || parsed.length > 0,
++        oracle: 'record-finding-parse',
++        target: 'review-fill-hunk',
++        reason: isNoAnswer(answer.text) ? 'accepted' : parsed.length > 0 ? 'accepted' : 'unparsed',
++      });
++      findings.push(...parsed);
+     }
+   }
+ 
+@@ -479,13 +503,23 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+     i.onProgress?.(`оси одним запросом: ${i.axes.map((a) => a.name).join(', ')}`);
+     const answer = await ask(axesCombinedQuestion(i.axes, packs));
+     if (answer !== null) {
+-      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer, fallbackFiles);
++      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer.text, fallbackFiles);
+       // Успешный ОТВЕТ (запрос не упал) засчитывает конвейеру ВСЕ оси — контракт
+       // `axesAnswered`/`axesAsked` про «рантайм провёл обмен», а не «модель ответила
+       // по форме на каждую строку»; см. докстринг `ReviewFillInput.onUsage` — тот же
+       // принцип уже действует для `hunksAnswered` (падение самого запроса, не разбора).
+       axesAnswered = i.axes.length;
+       findings.push(...axisFindings);
++      // Метка корпуса — по строгому контракту формы («ровно N строк, в том же порядке»,
++      // см. `axesCombinedQuestion`): каждая ось обязана попасть в `answeredIdx` независимо
++      // от да/нет содержимого строки. Неполный разбор — тот же класс «оформитель», что и у
++      // хунков выше, просто на всю пачку осей одним обменом.
++      annotateExchange(answer.rawLogPath, {
++        accepted: answeredIdx.size === i.axes.length,
++        oracle: 'record-finding-parse',
++        target: 'review-fill-axes',
++        reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
++      });
+       if (answeredIdx.size < i.axes.length) {
+         i.onProgress?.(`ответ по осям неполон: разобрано ${answeredIdx.size} из ${i.axes.length} строк`);
+       }
+diff --git a/server/src/run/stages/chunk/steps.ts b/server/src/run/stages/chunk/steps.ts
+index 6679ce5..00eafdf 100644
+--- a/server/src/run/stages/chunk/steps.ts
++++ b/server/src/run/stages/chunk/steps.ts
+@@ -140,6 +140,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
+     // `contextWindow` (`config/models.json`) не получали от него никакой защиты,
+     // потому что этот код его не читал (code-review-all, 2026-09-11).
+     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
++    stepContext: route.stepContext,
+     steps,
+     planText,
+     humanFacts: humanFactsBlock(host.paths.clarificationReport) ?? '',
+diff --git a/server/src/run/stages/verify/reviewer.ts b/server/src/run/stages/verify/reviewer.ts
+index ac518c1..365674f 100644
+--- a/server/src/run/stages/verify/reviewer.ts
++++ b/server/src/run/stages/verify/reviewer.ts
+@@ -18,10 +18,9 @@ import type { ExecHooks, SubagentDef } from '../../../exec/StageExecutor.ts';
+ import { isToolName } from '../../../exec/toolSpecs.ts';
+ import { createProvider } from '../../../provider/registry.ts';
+ import { AXIS_HINTS, reviewByHunks } from '../../reviewFill.ts';
+-import { anchorFound } from '../../verifyReport.ts';
+ import type { StageHost } from '../types.ts';
+ import { REVIEW_GATE } from './gates.ts';
+-import { acceptRecord, evidenceHaystack } from './records.ts';
++import { acceptRecord } from './records.ts';
+ 
+ /**
+  * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
+@@ -387,24 +386,3 @@ export function acceptReviewText(host: StageHost, text: string, source: string):
+   });
+   return { ok: true };
+ }
+-
+-export function reviewProblem(host: StageHost, text: string, anchorText = text): string | null {
+-  if (text.trim() === '') return 'рецензент не вернул текста — ревью не состоялось';
+-  // Якорь — по всему, что рецензент сказал (после повтора — по обоим ответам): повтор
+-  // просили о полноте листа, а ссылки на места патча могли остаться в первом ответе.
+-  if (!anchorFound(anchorText, evidenceHaystack(host))) {
+-    return 'в ответе рецензента нет ни одной ссылки на место из патча попытки — прогон состоялся, ревью не состоялось';
+-  }
+-  const missing = missingClaimIds(text, [...host.intentClaimLines().keys()]);
+-  if (missing.length > 0) return `ответ рецензента не называет пункты ${missing.join(', ')} — ревью неполно`;
+-  return null;
+-}
+-
+-/**
+- * Пункты приёмки задачи, которых ответ рецензента не называет ни разу (`claim-N` в любом
+- * регистре, с границей по цифре: `claim-1` не засчитывается упоминанием `claim-12`).
+- */
+-export function missingClaimIds(text: string, claimIds: readonly string[]): string[] {
+-  const lower = text.toLowerCase();
+-  return claimIds.filter((id) => !new RegExp(`${id.toLowerCase().replace(/[-]/g, '\\-')}(?!\\d)`).test(lower));
+-}
+diff --git a/server/test/axesGate.test.ts b/server/test/axesGate.test.ts
+index dbce4b1..e0301e0 100644
+--- a/server/test/axesGate.test.ts
++++ b/server/test/axesGate.test.ts
+@@ -53,6 +53,7 @@ function route(stage: StageId): ResolvedRoute {
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/chunkRestore.test.ts b/server/test/chunkRestore.test.ts
+index bbb0bbf..7cbb464 100644
+--- a/server/test/chunkRestore.test.ts
++++ b/server/test/chunkRestore.test.ts
+@@ -48,6 +48,7 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/claimFill.test.ts b/server/test/claimFill.test.ts
+index 46ede8c..eb3bd72 100644
+--- a/server/test/claimFill.test.ts
++++ b/server/test/claimFill.test.ts
+@@ -8,12 +8,20 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+ import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
+ import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer } from '../src/run/claimFill.ts';
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
+ const DIFF = [
+   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
+   '--- a/src/tariffs.ts',
+@@ -226,6 +234,74 @@ describe('добор группами (трек «сумма латентнос
+     strictEqual(envFailure, 'ollama: ECONNREFUSED');
+   });
+ 
++  it('метка корпуса `claimFill`: полностью разобранная группа — accepted: true (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider = {
++      name: 'stub',
++      async chat() {
++        return {
++          text: combinedAnswer([1, 2]),
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillClaims({
++      provider,
++      model: 'stub',
++      params: null,
++      system: 'ты рецензент',
++      claims: claims.slice(0, 2),
++      diff: DIFF,
++      tests: '',
++      evidenceBudgetBytes: 10_000,
++      signal: new AbortController().signal,
++    });
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'record-claim-parse', target: 'claim-fill', reason: 'accepted' });
++  });
++
++  it('метка корпуса `claimFill`: неполный разбор группы — accepted: false с числом разобранных строк', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider = {
++      name: 'stub',
++      async chat() {
++        // Отвечен только пункт 1 из двух запрошенных — вторая строка отсутствует вовсе.
++        return {
++          text: '1. ✅ | src/tariffs.ts:priceFor | н/п',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillClaims({
++      provider,
++      model: 'stub',
++      params: null,
++      system: 'ты рецензент',
++      claims: claims.slice(0, 2),
++      diff: DIFF,
++      tests: '',
++      evidenceBudgetBytes: 10_000,
++      signal: new AbortController().signal,
++    });
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: false,
++      oracle: 'record-claim-parse',
++      target: 'claim-fill',
++      reason: 'answered-1-of-2',
++    });
++  });
++
+   it('отмена останавливает добор перед следующей группой, не откатывая пришедший ответ текущей', async () => {
+     const ctl = new AbortController();
+     const provider = {
+diff --git a/server/test/ensembleVerdict.test.ts b/server/test/ensembleVerdict.test.ts
+index 726741d..8b24e59 100644
+--- a/server/test/ensembleVerdict.test.ts
++++ b/server/test/ensembleVerdict.test.ts
+@@ -110,6 +110,7 @@ function route(stage: StageId, modelId: string, rank: number): ResolvedRoute {
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/formFill.test.ts b/server/test/formFill.test.ts
+index 5f8ce3e..1b1a969 100644
+--- a/server/test/formFill.test.ts
++++ b/server/test/formFill.test.ts
+@@ -44,6 +44,29 @@ function fieldProvider(answers: Record<string, string>): ChatProvider {
+   } as unknown as ChatProvider;
+ }
+ 
++/**
++ * Провайдер: тот же поиск по подстроке, что у `fieldProvider`, но каждый ответ несёт СВОЙ
++ * `rawLogPath` — только так тест может отличить метку исходного обмена от метки топ-апа
++ * (до этого стаб всегда возвращал один путь на все ответы пачки, и тест не мог поймать
++ * находку «метка приклеена к обмену до топ-апа, а не после», code-review-all, 2026-09-27).
++ */
++function fieldProviderTraced(answers: Record<string, { text: string; rawLogPath: string | null }>): ChatProvider {
++  return {
++    name: 'stub-traced',
++    async chat(req: ChatRequest) {
++      const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++      const found = Object.entries(answers).find(([needle]) => user.includes(needle));
++      return {
++        text: found?.[1].text ?? '',
++        toolCalls: [],
++        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++        finishReason: 'end_turn' as const,
++        rawLogPath: found?.[1].rawLogPath ?? null,
++      };
++    },
++  } as unknown as ChatProvider;
++}
++
+ function hooks(seen: { writes: NormalizedCall[] }, allow: boolean): ExecHooks {
+   return {
+     onText: () => {},
+@@ -780,6 +803,152 @@ describe('заполнение бланка по полям', () => {
+   });
+ });
+ 
++describe('метка корпуса T2 (`docs/model-tuning.md`): исход ответа на поле разметчик пишет рядом с сырым дампом', () => {
++  it('принятый ответ поля помечается accepted: true', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: 'Демо работает',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'form-field-checks', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('пустой ответ помечается accepted: false, полем не считается', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange-empty.json');
++    const provider: ChatProvider = {
++      name: 'stub-empty',
++      async chat() {
++        return {
++          text: '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, false);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: false, oracle: 'form-field-checks', target: 'form-field', reason: 'empty-or-placeholder' });
++  });
++
++  it('без rawLogPath (дамп выключен) исполнение поля не падает и метки не появляется', async () => {
++    const { root, artifact } = setup();
++    const result = await exec(
++      fieldProvider({ 'что должно стать правдой': 'Демо работает', 'почему сейчас': 'Нужно к релизу' }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, true, result.note);
++  });
++
++  it('files_to_touch: топ-ап переезжает на СВОЙ обмен — исходный дефицитный отмечен отказом, топ-ап принят', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор files_to_touch': { text: '| `src/real.ts` | добавить проверку |', rawLogPath: topupPath },
++        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'files-to-touch-paths', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('files_to_touch: топ-ап реально провалился (пуст) — метка остаётся отказом, а не «принят» (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор files_to_touch': { text: '', rawLogPath: join(root, 'topup.json') },
++        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    // Провалившийся добор не мешает записи артефакта: невалидный путь всё равно уходит в
++    // текст как есть (`pathScope` политики на chunk — вот кто на самом деле его отклонит),
++    // и это НЕ регрессия фикса. Регрессией было бы то, что до фикса `accepted: true` шло на
++    // этот же обмен, потому что итоговая метка вообще не знала о `files_to_touch`.
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++  });
++
++  it('приёмочный лист: добор закрыл минимум — исходный обмен и незакрывшая попытка отмечены отказом, последний топ-ап принят', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'intent.md');
++    writeFileSync(
++      artifact,
++      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор приёмочного листа': {
++          text: '| `claim-3 [edge]` | ещё случай |\n| `claim-4 [edge]` | четвёртый |',
++          rawLogPath: topupPath,
++        },
++        'ОБРАЗЕЦ': {
++          text: '| `claim-1 [edge]` | базовый случай |\n| `claim-2` | ещё один |',
++          rawLogPath: originalPath,
++        },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'claims-minimum',
++      target: 'form-field',
++      reason: 'claims-below-minimum',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'claims-minimum', target: 'form-field', reason: 'accepted' });
++  });
++});
++
+ describe('cleanFieldAnswer', () => {
+   it('снимает fenced-блок и внешние кавычки, содержимое не редактирует', () => {
+     strictEqual(cleanFieldAnswer('```markdown\n- **Итог:** готово\n```'), '- **Итог:** готово');
+@@ -1082,4 +1251,80 @@ describe('режим compact: поля из схемы, ответ рисует
+     ok(text.includes('src/real.ts'), text);
+     ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться в артефакте');
+   });
++
++  it('compact: метка корпуса T2 появляется у обычного поля (accepted: true, оракул apply-fill) — до фикса этот путь не размечал ничего (code-review-all, 2026-09-27)', async () => {
++    const { root, artifact } = setupCompact();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-compact-traced',
++      async chat(req: ChatRequest) {
++        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++        return {
++          text: user.includes('`ветка витка`') ? 'sdlc/oversize' : '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: user.includes('`ветка витка`') ? rawPath : null,
++        };
++      },
++    } as unknown as ChatProvider;
++
++    await execCompact(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('compact: files_to_touch — метка переезжает на обмен топ-апа, исходный дефицитный отмечен отказом', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-compact-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const provider: ChatProvider = {
++      name: 'invented-then-fix-traced',
++      async chat(req: ChatRequest) {
++        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++        if (user.includes('Добор поля')) {
++          return {
++            text: '| `src/real.ts` | добавить проверку |',
++            toolCalls: [],
++            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++            finishReason: 'end_turn' as const,
++            rawLogPath: topupPath,
++          };
++        }
++        if (user.includes('`filestotouch`')) {
++          return {
++            text: '| `src/does-not-exist.ts` | поправить валидацию |',
++            toolCalls: [],
++            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++            finishReason: 'end_turn' as const,
++            rawLogPath: originalPath,
++          };
++        }
++        return {
++          text: '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++        };
++      },
++    } as unknown as ChatProvider;
++
++    await execCompact(provider, 'plan').run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
++
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
++  });
+ });
+diff --git a/server/test/methodologyTemplates.test.ts b/server/test/methodologyTemplates.test.ts
+index 4b67010..ebf8ab3 100644
+--- a/server/test/methodologyTemplates.test.ts
++++ b/server/test/methodologyTemplates.test.ts
+@@ -20,7 +20,6 @@ import { builtinFor } from '../src/gates/builtin/index.ts';
+ import { openDebt, parseGates, unimplementedGates } from '../src/gates/gatesFile.ts';
+ import { readinessVerdict } from '../src/run/stages/preconditions.ts';
+ import { RECONCILE_GATE, REVIEW_GATE, UNSCRIPTED_GATES } from '../src/run/stages/verify/gates.ts';
+-import { missingClaimIds } from '../src/run/stages/verify/reviewer.ts';
+ import { autofillVerificationReport, writeVerdictSection } from '../src/run/verifyAutofill.ts';
+ import { computeVerdict } from '../src/verdict/verdict.ts';
+ 
+@@ -106,10 +105,6 @@ describe('реальный шаблон готовности', () => {
+ });
+ 
+ describe('ответ рецензента и класс среды (без эталона)', () => {
+-  it('missingClaimIds: граница по цифре и регистр', () => {
+-    deepStrictEqual(missingClaimIds('CLAIM-1 ✅, claim-12 ❌', ['claim-1', 'claim-2', 'claim-12']), ['claim-2']);
+-  });
+-
+   const input = (over: Partial<VerdictInput>): VerdictInput => ({
+     gates: [],
+     claims: [],
+diff --git a/server/test/metricsReport.test.ts b/server/test/metricsReport.test.ts
+index 98cda2f..46dbd39 100644
+--- a/server/test/metricsReport.test.ts
++++ b/server/test/metricsReport.test.ts
+@@ -96,7 +96,7 @@ describe('metrics.md: связь с metrics.json', () => {
+     const b = metricsBlock(
+       metrics({
+         stages: [
+-          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: 0.5 }, durationMs: 10 },
++          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: 0.5 }, durationMs: 10, requestDurationsMs: [] },
+         ],
+       }),
+     );
+diff --git a/server/test/metricsRun.test.ts b/server/test/metricsRun.test.ts
+index 9c0fd1a..d9e55e4 100644
+--- a/server/test/metricsRun.test.ts
++++ b/server/test/metricsRun.test.ts
+@@ -62,6 +62,7 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+@@ -267,7 +268,7 @@ describe('восстановление метрик из metrics.json', () => {
+     // записанный до появления поля — сам тест и проверяет, что рестор не ломается на его
+     // отсутствии (тот же принцип, что уже проверен для gates/human/artifactGaps).
+     const snapshot: Omit<RunMetrics, 'chunkEvidence'> = {
+-      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000 }],
++      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000, requestDurationsMs: [] }],
+       verdicts: { total: 2, red: 1 },
+       redByCause: [{ kind: 'gate', count: 1 }],
+       attemptsByChunk: [{ chunk: 1, attempts: 2 }],
+diff --git a/server/test/planAxisFill.test.ts b/server/test/planAxisFill.test.ts
+index 62f392e..9d29e90 100644
+--- a/server/test/planAxisFill.test.ts
++++ b/server/test/planAxisFill.test.ts
+@@ -5,7 +5,10 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+ import { fillPlanAxes, parsePlanAxesCombinedAnswer } from '../src/run/planAxisFill.ts';
+@@ -574,6 +577,60 @@ describe('fillPlanAxes: вопрос только по проблемным ос
+   });
+ });
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
++describe('fillPlanAxes: метка корпуса (code-review-all, 2026-09-27)', () => {
++  it('полный разбор всех осей — accepted: true', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-traced',
++      async chat() {
++        return {
++          text: '1. да | шаг 1 | claim-1\n2. нет | н/п | н/п — п',
++          toolCalls: [],
++          usage: USAGE,
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillPlanAxes(baseInput({ provider }));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'plan-axis-parse', target: 'plan-axis-fill', reason: 'accepted' });
++  });
++
++  it('разобрана только одна ось из двух — accepted: false', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-traced',
++      async chat() {
++        return {
++          text: '1. да | шаг 1 | claim-1',
++          toolCalls: [],
++          usage: USAGE,
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillPlanAxes(baseInput({ provider }));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: false,
++      oracle: 'plan-axis-parse',
++      target: 'plan-axis-fill',
++      reason: 'answered-1-of-2',
++    });
++  });
++});
++
+ describe('fillPlanAxes: usage и ошибки среды', () => {
+   it('usage успешного запроса уходит в onUsage', async () => {
+     const usages: unknown[] = [];
+diff --git a/server/test/postmortem.test.ts b/server/test/postmortem.test.ts
+index c77db2f..5dc3acc 100644
+--- a/server/test/postmortem.test.ts
++++ b/server/test/postmortem.test.ts
+@@ -15,7 +15,7 @@ import { postmortemBlock } from '../src/run/postmortem.ts';
+ 
+ const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
+   stages: [
+-    { stage: 'chunk', runs: 2, usage: { ...emptyUsage(), inputTokens: 100, outputTokens: 50, costUsd: 0.12 }, durationMs: 65_000 },
++    { stage: 'chunk', runs: 2, usage: { ...emptyUsage(), inputTokens: 100, outputTokens: 50, costUsd: 0.12 }, durationMs: 65_000, requestDurationsMs: [] },
+   ],
+   verdicts: { total: 2, red: 1 },
+   redByCause: [{ kind: 'gate', count: 1 }],
+@@ -52,7 +52,7 @@ describe('пост-виток отчёт', () => {
+   it('локальный маршрут не превращается в $0', () => {
+     const b = postmortemBlock(
+       metrics({
+-        stages: [{ stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10 }],
++        stages: [{ stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10, requestDurationsMs: [] }],
+       }),
+     );
+     ok(b?.includes('без стоимости'));
+diff --git a/server/test/rawLog.test.ts b/server/test/rawLog.test.ts
+index fdf8913..253b1c8 100644
+--- a/server/test/rawLog.test.ts
++++ b/server/test/rawLog.test.ts
+@@ -8,7 +8,7 @@
+  */
+ 
+ import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+ import { createServer } from 'node:http';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
+ 
+ import type { ProviderDef } from '../src/config/schema.ts';
+ import { createProvider } from '../src/provider/registry.ts';
+-import { resetRawLogForTests } from '../src/provider/rawLog.ts';
++import { annotateExchange, labelDisabledReason, rawLogDisabledReason, resetRawLogForTests } from '../src/provider/rawLog.ts';
+ import { withEnvAsync } from './testUtils.ts';
+ 
+ const ANSWER = { choices: [{ message: { content: 'ответ' }, finish_reason: 'stop' }] };
+@@ -199,3 +199,78 @@ describe('сырой дамп запросов к модели', () => {
+     }
+   });
+ });
++
++describe('annotateExchange: слияние меток и изолированный счётчик отказов (code-review-all, 2026-09-27)', () => {
++  // Ниже вызываем `annotateExchange` напрямую, не через сетевую заглушку: в отличие от
++  // `dumpExchange` (проверяется описанием модуля выше — тот тест доказывает, что в файле
++  // легли байты, реально ушедшие в модель), `annotateExchange` — чисто файловый сайдкар без
++  // сети, и мерить его собственную логику (слияние, изоляция отказов) напрямую — не тот же
++  // самый обход, от которого предостерегает докстринг файла.
++
++  it('вторая разметка того же пути СЛИВАЕТСЯ с первой: массивы накапливаются, скаляры перекрываются', () => {
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-merge-'));
++    try {
++      const path = join(dir, 'exchange.json');
++      annotateExchange(path, { frictions: ['denied'] });
++      annotateExchange(path, { frictions: ['truncated'], accepted: false });
++      annotateExchange(path, { accepted: true, oracle: 'step-check', target: 'plan-step', reason: 'accepted' });
++      const label = JSON.parse(readFileSync(`${path}.label.json`, 'utf8')) as Record<string, unknown>;
++      // `frictions` — массив, накопивший ОБА трения; `accepted` — последнее известное
++      // значение (третий вызов), не перезаписанное молча вторым.
++      deepStrictEqual(label, {
++        frictions: ['denied', 'truncated'],
++        accepted: true,
++        oracle: 'step-check',
++        target: 'plan-step',
++        reason: 'accepted',
++      });
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  });
++
++  it('путь без разметки вовсе — annotateExchange(null, …) не создаёт файлов', () => {
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-null-'));
++    try {
++      annotateExchange(null, { accepted: true });
++      deepStrictEqual(readdirSync(dir), []);
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  });
++
++  it('три подряд отказа записи МЕТКИ выключают только разметку — дамп пар (dumpExchange) продолжает работать', async () => {
++    resetRawLogForTests();
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-failisolation-'));
++    try {
++      // Путь метки занят каталогом — `writeFileSync` даёт EISDIR на каждую попытку;
++      // сам дамп пар пишется совершенно в другое место и этой помехи не видит.
++      const busyExchange = join(dir, 'busy-exchange.json');
++      mkdirSync(`${busyExchange}.label.json`, { recursive: true });
++
++      for (let i = 0; i < 3; i++) annotateExchange(busyExchange, { accepted: true });
++
++      strictEqual(labelDisabledReason() !== null, true, 'разметка обязана быть выключена после 3 отказов');
++      strictEqual(rawLogDisabledReason(), null, 'дамп пар не должен гаситься отказами МЕТКИ');
++
++      await withStub(async (baseUrl, bodies) => {
++        await withEnvAsync('SDLC_RAW_LOG_DIR', dir, async () => {
++          const turn = (await ask(baseUrl, { slug: 'витокД', stage: 'chunk', mode: 'step' })) as { text: string };
++          strictEqual(turn.text, 'ответ', 'ход прошёл штатно — отказы разметки на него не влияют');
++        });
++        strictEqual(bodies.length, 1);
++        // Дамп пары РЕАЛЬНО записан — отказы записи МЕТКИ не погасили `dumpExchange`.
++        deepStrictEqual(readdirSync(join(dir, 'витокД')), ['00001-chunk-step.json']);
++      });
++
++      // Разметка ДРУГОГО (не занятого) пути после отключения всё равно не пишется —
++      // выключение затрагивает всю разметку процесса, не только занятый путь.
++      const freePath = join(dir, 'free-exchange.json');
++      annotateExchange(freePath, { accepted: true });
++      strictEqual(existsSync(`${freePath}.label.json`), false);
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++      resetRawLogForTests();
++    }
++  });
++});
+diff --git a/server/test/reviewFill.test.ts b/server/test/reviewFill.test.ts
+index 96c267f..39c1b7c 100644
+--- a/server/test/reviewFill.test.ts
++++ b/server/test/reviewFill.test.ts
+@@ -9,7 +9,10 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
+ import {
+@@ -58,6 +61,29 @@ function scripted(answers: string[]): ChatProvider & { asked: string[] } {
+   } as unknown as ChatProvider & { asked: string[] };
+ }
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
++/** Тот же `scripted`, но каждый ответ несёт СВОЙ путь дампа — по порядку, тем же индексом. */
++function scriptedTraced(answers: { text: string; rawLogPath: string }[]): ChatProvider {
++  const queue = [...answers];
++  return {
++    name: 'stub-traced',
++    async chat() {
++      const next = queue.shift() ?? { text: 'нет', rawLogPath: null };
++      return {
++        text: next.text,
++        toolCalls: [],
++        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++        finishReason: 'end_turn' as const,
++        rawLogPath: next.rawLogPath,
++      };
++    },
++  } as unknown as ChatProvider;
++}
++
+ describe('разбор ответа по фрагменту', () => {
+   it('строка «секция | текст | место» становится записью record_finding', () => {
+     const calls = parseFindingAnswer('review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', 'src/tariffs.ts');
+@@ -234,6 +260,45 @@ describe('конвейер', () => {
+     ok(r.text.includes('фрагментов проверено 2 из 2'));
+   });
+ 
++  it('метка корпуса `reviewFill`: хунк с находкой и хунк без — оба принятые обмены; неполный ответ по осям отклонён (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-reviewfill-'));
++    roots.push(root);
++    const hunkFoundPath = join(root, 'hunk-found.json');
++    const hunkCleanPath = join(root, 'hunk-clean.json');
++    const axesPath = join(root, 'axes.json');
++    const provider = scriptedTraced([
++      { text: 'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', rawLogPath: hunkFoundPath },
++      { text: 'нет', rawLogPath: hunkCleanPath },
++      // Отвечена только ось 1 из двух запрошенных — форма «ровно N строк» не выдержана.
++      { text: '1. нет', rawLogPath: axesPath },
++    ]);
++    await reviewByHunks({
++      provider,
++      model: 'stub',
++      params: null,
++      taskContext: '',
++      diff: DIFF,
++      axes: [
++        { name: 'Настройки', affected: false, outcomeRaw: '' },
++        { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
++      ],
++      hunkBudgetBytes: 12_000,
++      signal: new AbortController().signal,
++    });
++
++    const foundLabel = JSON.parse(readFileSync(`${hunkFoundPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(foundLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
++    const cleanLabel = JSON.parse(readFileSync(`${hunkCleanPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(cleanLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
++    const axesLabel = JSON.parse(readFileSync(`${axesPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(axesLabel, {
++      accepted: false,
++      oracle: 'record-finding-parse',
++      target: 'review-fill-axes',
++      reason: 'answered-1-of-2',
++    });
++  });
++
+   it('оси задаются ОДНИМ запросом независимо от их числа — цена размышления платится один раз, не N раз', async () => {
+     // Замер 2026-09-09: latency запроса локальной модели без ручки reasoning_effort почти
+     // не зависит от размера содержимого (~130 с что на тривиальном вопросе, что на
+diff --git a/server/test/reviewGateBlocker.test.ts b/server/test/reviewGateBlocker.test.ts
+index 2bf4d50..163ec3c 100644
+--- a/server/test/reviewGateBlocker.test.ts
++++ b/server/test/reviewGateBlocker.test.ts
+@@ -45,6 +45,7 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/runStageGolden.test.ts b/server/test/runStageGolden.test.ts
+index f431a0f..9f68300 100644
+--- a/server/test/runStageGolden.test.ts
++++ b/server/test/runStageGolden.test.ts
+@@ -263,6 +263,7 @@ function makeRun(
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/salvageDecisions.test.ts b/server/test/salvageDecisions.test.ts
+index 9b5cfef..b889f91 100644
+--- a/server/test/salvageDecisions.test.ts
++++ b/server/test/salvageDecisions.test.ts
+@@ -47,6 +47,7 @@ function route(stage: StageId): ResolvedRoute {
+     skipTurnAfterReviewFill: false,
+     planAxisFill: false,
+     stepFill: false,
++    stepContext: false,
+     compactForms: 'off',
+     exploreIndex: false,
+     exploreFill: false,
+diff --git a/server/test/stepExecutor.test.ts b/server/test/stepExecutor.test.ts
+index 984f14c..b6f17c6 100644
+--- a/server/test/stepExecutor.test.ts
++++ b/server/test/stepExecutor.test.ts
+@@ -7,7 +7,7 @@
+  * считается по шагам, а не по числу запросов; лимит ходов этапа действует.
+  */
+ 
+-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
++import { deepStrictEqual, match, ok, strictEqual } from 'node:assert/strict';
+ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+@@ -23,6 +23,7 @@ import {
+   noChangeReason,
+   parseFileContent,
+   parseSearchReplace,
++  repairGuidance,
+ } from '../src/exec/StepExecutor.ts';
+ import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
+ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
+@@ -116,12 +117,19 @@ function setup(content = A_TS): string {
+ }
+ 
+ type Check = ((s: PlanStep) => Promise<StepCheck>) | null;
+-const exec = (provider: ChatProvider, steps: PlanStep[], check: Check = null, retryBrief: string | null = null): StepExecutor =>
++const exec = (
++  provider: ChatProvider,
++  steps: PlanStep[],
++  check: Check = null,
++  retryBrief: string | null = null,
++  stepContext = false,
++): StepExecutor =>
+   new StepExecutor({
+     provider,
+     maxResultBytes: 12_000,
+     readRangeRequiredAboveBytes: 120_000,
+     bashTimeoutMs: 1000,
++    stepContext,
+     steps,
+     planText: '# План\n\n## Шаги\n1. …',
+     humanFacts: '## Факты от человека\n- ставка 90 %',
+@@ -181,6 +189,28 @@ describe('разбор ответов шага', () => {
+     const text = 'SEARCH: `  return a + b;`\nREPLACE: `  return a + b + 1;`\n\nПояснение вокруг.';
+     deepStrictEqual(parseSearchReplace(text), []);
+   });
++
++  it('вложенные и незакрытые маркеры никогда не попадают в содержимое замены', () => {
++    const nested = [
++      '<<<<<<< SEARCH',
++      'outer old',
++      '=======',
++      'outer new',
++      '<<<<<<< SEARCH',
++      'inner old',
++      '=======',
++      'inner new',
++      '>>>>>>> REPLACE',
++    ].join('\n');
++    deepStrictEqual(parseSearchReplace(nested), [{ oldStr: 'inner old', newStr: 'inner new' }]);
++    deepStrictEqual(parseSearchReplace('<<<<<<< SEARCH\nold\n=======\nnew'), []);
++  });
++
++  it('принимает только полный многострочный fenced-вариант SEARCH/REPLACE', () => {
++    const answer = ['SEARCH:', '```ts', 'const old = 1;', '```', '', 'REPLACE:', '```ts', 'const next = 2;', '```'].join('\n');
++    deepStrictEqual(parseSearchReplace(answer), [{ oldStr: 'const old = 1;', newStr: 'const next = 2;' }]);
++    deepStrictEqual(parseSearchReplace('SEARCH: `const old = 1;`\nREPLACE: `const next = 2;`'), []);
++  });
+ });
+ 
+ describe('исполнение по шагам', () => {
+@@ -290,6 +320,37 @@ describe('исполнение по шагам', () => {
+     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
+   });
+ 
++  it('пишет положительную метку корпуса только после механической проверки шага', async () => {
++    const root = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: SR('  return a + b;', '  return a + b + 1;'),
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn',
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
++    const result = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'ok' })).run(
++      request(root),
++      hooks(seen),
++    );
++
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: true,
++      oracle: 'gate:Сборка',
++      target: 'plan-step',
++      reason: 'check-passed',
++    });
++  });
++
+   it('новый файл с красной проверкой чинится блоками замены, а не файлом целиком', async () => {
+     const root = setup();
+     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+@@ -512,6 +573,27 @@ describe('исполнение по шагам', () => {
+   });
+ });
+ 
++describe('stepContext (ModelDef.stepContext)', () => {
++  it('выключен по умолчанию: `buildStepContext` не подмешивается в промпт шага', async () => {
++    const root = setup();
++    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
++    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
++    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
++    await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
++    ok(!provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
++  });
++
++  it('включён явно: карта экспортов проекта попадает в промпт шага', async () => {
++    const root = setup();
++    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
++    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
++    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
++    await exec(provider, [step({ file: 'src/a.ts' })], null, null, true).run(request(root), hooks(seen));
++    ok(provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
++    ok(provider.asked[0]!.includes('src/b.ts'), provider.asked[0]);
++  });
++});
++
+ describe('mentionsFile', () => {
+   it('явное место падения побеждает — своя строка возвращает true сразу, без substring-фолбэка', () => {
+     // Живой текст (сокращённый) d2-devstral-vat-rounding, попытка 3: ошибка называет и
+@@ -551,3 +633,33 @@ describe('mentionsFile', () => {
+     ok(mentionsFile('index.ts(5,1): ошибка', 'server/src/exec/index.ts'));
+   });
+ });
++
++describe('repairGuidance', () => {
++  it('показывает все текущие объявления повторённого идентификатора', () => {
++    const hints = repairGuidance(
++      "SyntaxError: Identifier 'sub' has already been declared",
++      'const sub = subtotal(lines);\nconst invoice = {};\nconst sub = subtotal(lines);\n',
++    );
++    strictEqual(hints.length, 1);
++    match(hints[0]!, /не добавляй ещё одно/);
++    match(hints[0]!, /1: const sub/);
++    match(hints[0]!, /3: const sub/);
++  });
++
++  it('даёт отдельные ограничения для ESM и отсутствующего экспорта', () => {
++    const hints = repairGuidance(
++      "require is not defined; module does not provide an export named 'Money'",
++      null,
++    );
++    ok(hints.some((hint) => hint.includes('ESM')));
++    ok(hints.some((hint) => hint.includes('Money')));
++  });
++
++  it('показывает строки вокруг позиции синтаксической ошибки', () => {
++    const hints = repairGuidance(
++      'file:///C:/work/src/a.ts:3\nSyntaxError: Expression expected',
++      'export function a() {\n  return 1;\n}\n}\n',
++    );
++    ok(hints.some((hint) => hint.includes('строки 3') && hint.includes('4: }')));
++  });
++});
+diff --git a/shared/src/api.ts b/shared/src/api.ts
+index 6fedb8a..f3f8c96 100644
+--- a/shared/src/api.ts
++++ b/shared/src/api.ts
+@@ -264,6 +264,16 @@ export interface RunMetrics {
+     usage: Usage;
+     /** Суммарное время исполнения этапа, мс. */
+     durationMs: number;
++    /**
++     * Длительность КАЖДОГО запроса к модели этого этапа, мс, по порядку — не сумма
++     * (`durationMs` уже сумма). Нужна отдельно: `Usage.durationMs` складывается через
++     * `addUsage` и не умеет отвечать на вопрос «а не завис ли ОДИН запрос», который
++     * решает судьбу рецензента иначе, чем сумма (`docs/proposals/reviewer-qualification.md`,
++     * критерий 2: один зависший запрос на 20 минут сжигает получасовой бюджет этапа, а
++     * средняя/суммарная длительность этого не покажет). Старый снапшот `metrics.json` этого
++     * поля не несёт — читается пустым массивом, как и остальные поля этой секции.
++     */
++    requestDurationsMs: number[];
+   }[];
+   /** Посчитанные вердикты: сколько всего и сколько из них красных. */
+   verdicts: { total: number; red: number };
+diff --git a/shared/src/index.ts b/shared/src/index.ts
+index faef2c7..8a2cb1f 100644
+--- a/shared/src/index.ts
++++ b/shared/src/index.ts
+@@ -2,3 +2,4 @@ export * from './types.ts';
+ export * from './describeCall.ts';
+ export * from './api.ts';
+ export * from './markdownTable.ts';
++export * from './exchangeLabel.ts';

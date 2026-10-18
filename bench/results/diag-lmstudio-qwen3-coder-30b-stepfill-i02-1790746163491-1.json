@@ -1,0 +1,270 @@
+{
+  "run": {
+    "slug": "diag-lmstudio-qwen3-coder-30b-stepfill-i02-1790746163491-1",
+    "model": "lmstudio:qwen3-coder-30b-stepfill",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-coder-30b-stepfill",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-30T05:29:25.491Z",
+    "finishedAt": "2026-09-30T05:30:06.762Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ❌; приёмка ✅ (14 пунктов, 4 [edge]); процедуры проверки ✅; инварианты ✅; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 15
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 86900,
+          "outputTokens": 1770,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 65684
+        },
+        "durationMs": 40675,
+        "requestDurationsMs": [
+          5948,
+          7936,
+          9051,
+          2008,
+          3307,
+          3828,
+          733,
+          1176,
+          13719,
+          7109,
+          509,
+          2072,
+          4487,
+          1676,
+          2137
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:1dc2955a-09fc-40db-8822-3376d3794557",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-lmstudio-qwen3-coder-30b-stepfill-i02-1790746163491-1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "**[блокирующий]** Что именно должно быть изменено в `src/reserve.ts` для поддержки поля `priority` в `ReserveOptions`, и как это отразится на существующем коде?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "**Что должно получиться** — это описание цели витка, которое нужно разбить на секции формы. Вопрос должен быть: **«Какие изменения в коде будут реализованы по этой задаче?»**"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10913,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-c9a2df54-59bf-46f7-8c61-7849a51d7f68-1",
+        "questionId": "intent-open-0",
+        "text": "**[блокирующий]** Что именно должно быть изменено в `src/reserve.ts` для поддержки поля `priority` в `ReserveOptions`, и как это отразится на существующем коде?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-c9a2df54-59bf-46f7-8c61-7849a51d7f68-1",
+        "questionId": "intent-open-1",
+        "text": "**Что должно получиться** — это описание цели витка, которое нужно разбить на секции формы. Вопрос должен быть: **«Какие изменения в коде будут реализованы по этой задаче?»**"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "c04f7e021b9b8fb4f91a9da8f970789ea9b565dbe35b4eb08eed9c9eb95637b6",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "06d194147bb19783329d55c8e5de9ad027b3d98f7ffeb0658af5c55861ccf075",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 120000,
+      "runTimeoutMs": 120000
+    },
+    "workspaceHash": "459892d59d6a443305b046cf8d2c1fe8d372f2809fb896fc57436212bdd73a1e",
+    "state": "finished",
+    "capturedAt": "2026-09-30T05:30:06.779Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-30T05:30:06.759Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "856f437a78e008f89d455a746f9d26e45b9fcdb5ae39ba4915c1a07781c6262e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "da63adbe9299bc5cf8bd5b35a538e17e55ccb78d4e2c7ea6beeeae8ef4a67e98",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "83925d0cf9c28d214b2a374ac7e3bd1eb56340667ba748b90724645585c8b3d7",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "43762c1d8b8ae0e08c5350f691118b9bda640c01153f97a840f56874d8be9f0c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "model": "assistant-session",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Work on the human task within the supplied boundaries. Read relevant code, implement, run checks, repair, then summarize evidence and remaining limitations.\nUse one continuous investigation and implementation loop. No process documents or mandatory plan artifacts are required.\nUse AskHuman only for missing business facts, contradictions, or a required scope change. Never invent missing facts. A question does not grant a scope expansion.\nUse mcp__task__check to run all registered visible checks. Shell commands are unavailable. Checks must pass after your final edit.\nPassing visible checks establishes readiness for review, not proof of all requirements. Compare the patch against every requirement before finishing."
+    },
+    {
+      "role": "user",
+      "content": "Task:\n# Артикул: `code` → `sku`\n\nПриёмка и склад зовут артикул `sku`, каталог — `code`. Одно поле под двумя именами путает в\nкаждом разборе расхождений между складским остатком и каталогом. Терминологию приводим к\nприёмочной.\n\n## Что должно получиться\n\n1. `Product` (`src/product.ts`) получает поле `sku` вместо `code`; конструктор `product()`\n   собирает запись с ним. Название и цена как были.\n2. Чтение старых файлов обязано работать: `parse` (`src/store.ts`) принимает и\n   `{\"code\": …}`, и `{\"sku\": …}`. Если в строке оба имени — побеждает `sku`: новое имя\n   пишет наш код, старое могло остаться от ручной правки файла.\n3. Запись — только новое имя: `serialize` пишет `sku`, ключа `code` в выводе нет вовсе — ни\n   как поля, ни как дубля «на всякий случай»: строку с обоими именами внешние службы\n   прочитают каждая по-своему.\n4. Существующие тесты остаются зелёными **без правки**. Они собирают записи конструктором и\n   сверяют round-trip `parse(serialize(p))`, а не имя поля, — и после переименования\n   round-trip обязан сходиться: то, что пишет `serialize`, читает `parse`. Это часть\n   совместимости, а не поблажка: если для зелёных тестов понадобилось их править — формат\n   сломан.\n5. На совместимость (старая строка читается, новая пишется, при обоих именах побеждает\n   `sku`) есть тест рядом с существующими (`test/`), и набор прогнан по-настоящему командой\n   проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Формат, как он у нас записан\n\n- Формат строки задокументирован таблицей в README; таблицу полей приводим к новому имени и\n  отмечаем, что старое имя читается.\n- Одна запись — одна строка, порядок полей в строке закреплён: `sku` встаёт на место `code`.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/rename-field`. Виток полный — мелким контуром не закрывать.\n- Существующие тестовые файлы не правятся (см. п. 4). Название, цена и формат файла (JSONL,\n  строка на запись) не меняются.\n\n\nHuman write boundaries (file or directory prefix):\n[\"src/\",\"test/\",\"README.md\"]\nProtected paths:\n[\"test/store.test.ts\",\"test/product.test.ts\",\"package.json\",\"package-lock.json\",\"scripts/\"]\n\nRegistered checks: build, test\nBaseline:\nbuild: PASS\nok   index.ts\nok   product.ts\nok   store.ts\nмодулей загружено: 3 из 3\n\n\ntest: PASS\n▶ товар\n  ✔ собирается из артикула, названия и цены (0.9667ms)\n  ✔ пустой артикул отвергается (0.3168ms)\n  ✔ цена — целые копейки, не меньше нуля (0.1271ms)\n✔ товар (2.1926ms)\n▶ строка каталога\n  ✔ serialize → parse возвращает ту же запись (1.1343ms)\n  ✔ строка одна: переносов внутри нет (0.1441ms)\n  ✔ строка без цены или с дробной ценой отвергается (0.3671ms)\n  ✔ не-JSON и не-объект отвергаются (0.156ms)\n✔ строка каталога (2.6526ms)\n▶ файл каталога\n  ✔ saveAll → loadAll возвращает те же записи в том же порядке (0.2273ms)\n  ✔ каждая строка файла завершена переводом строки (0.1292ms)\n  ✔ пустые строки и хвостовой перевод строки записями не считаются (0.1722ms)\n  ✔ пустой файл — пустой каталог (0.1127ms)\n✔ файл каталога (1.3669ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 139.5918\n"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Строка, с которой начать (с 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Сколько строк прочитать"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Glob",
+      "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob-шаблон"
+          },
+          "path": {
+            "type": "string",
+            "description": "Каталог поиска; по умолчанию корень проекта"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Grep",
+      "description": "Поиск по содержимому файлов регулярным выражением.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Регулярное выражение"
+          },
+          "path": {
+            "type": "string",
+            "description": "Файл или каталог поиска; по умолчанию корень проекта"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Дополнительный фильтр по именам файлов"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Create or replace a file inside the human write boundaries. Protected paths and destructive overwrites are rejected.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "content": {
+            "type": "string",
+            "description": "Полное содержимое"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Фрагмент, который заменяем"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Чем заменяем"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Заменить все вхождения"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "AskHuman",
+      "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "Полный текст вопроса"
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Короткая метка, до 12 символов"
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "description": "Можно выбрать несколько"
+                },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Вариант"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Что это значит и чем грозит ошибка"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "question",
+                "header",
+                "multiSelect",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__task__check",
+      "description": "Run all registered visible project checks on the current files.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "params": null
+}

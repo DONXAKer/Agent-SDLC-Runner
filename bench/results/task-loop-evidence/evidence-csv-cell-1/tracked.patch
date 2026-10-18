@@ -1,0 +1,19 @@
+diff --git a/src/format.mjs b/src/format.mjs
+index e8014d2..2ff6703 100644
+--- a/src/format.mjs
++++ b/src/format.mjs
+@@ -1 +1,14 @@
+ export const protocolVersion = 1;
++
++const needsQuoting = /[",\r\n]/;
++
++function formatCell(value) {
++  if (needsQuoting.test(value)) {
++    return `"${value.replace(/"/g, '""')}"`;
++  }
++  return value;
++}
++
++export function csvRow(values) {
++  return values.map(formatCell).join(',');
++}

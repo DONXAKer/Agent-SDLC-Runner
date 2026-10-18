@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "task": "config-default",
+  "model": "assistant-session",
+  "sourceHash": "737dce6990896ce0241a22fd9e181176ba14a4483a3cc4134c4e72d65de5aaa3",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-LwIMyc",
+  "baseCommit": "62e718241b9860f971ab0615045c0fb2578fa6f1",
+  "contract": {
+    "task": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются.\n",
+    "writable": [
+      "src/",
+      "test/",
+      "README.md"
+    ],
+    "protected": [
+      "src/money.ts",
+      "test/money.test.ts",
+      "test/lines.test.ts",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build-check.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/**/*.test.ts"
+      ]
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": null,
+  "contextWindow": null,
+  "control": "non-blind assistant session; same tool loop; token accounting unavailable",
+  "startedAt": "2026-10-14T11:56:10.515Z"
+}

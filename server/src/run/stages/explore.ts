@@ -1,23 +1,27 @@
 /** Этап 2 — разведка: определение этапа и проверка фактичности отчёта разведки. */
 
-import { localResultBytes } from '../../config/limits.ts';
+import { exploreChatTimeoutMs, localResultBytes } from '../../config/limits.ts';
 import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
+import { isPreparationV2, preparation, preparationExploreEvidenceProblem, preparationReferencedCodePaths, recordPreparationRead } from '../../artifacts/preparation.ts';
 import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
-import { TOUCH_SECTION, claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
+import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, readinessReady, relOf } from './preconditions.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { ExploreExecutor } from '../../exec/ExploreExecutor.ts';
+import { GuidedExploreExecutor } from '../../exec/GuidedExploreExecutor.ts';
+import { readGuided } from '../guidedState.ts';
+import { documentFacts } from '../../exec/guidedProtocol.ts';
 import { loadSubagent } from '../../exec/subagents.ts';
 import { cardBudgetPerFile, fileCard, packCards } from '../../explore/cards.ts';
 import type { AuthorClaim } from '../../explore/compare.ts';
 import { intentKeywords } from '../../explore/keywords.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../../explore/render.ts';
 import { readTree } from '../../explore/tree.ts';
-import { buildView, type EcosystemLine } from '../../explore/view.ts';
+import { buildView, includeExplicitRequestPaths, type EcosystemLine } from '../../explore/view.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
 import type { GateRow, GatesFile } from '../../gates/gatesFile.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
@@ -54,7 +58,25 @@ const PROSE_LOOKING_LIKE_PATH = new Set(['н/п', 'н/д', 'т.е.', 'т.д.', '
  *
  * Хвостовая пунктуация снимается: в перечислении «src/a.ts, src/b.ts» первым токеном
  * шла «src/a.ts,» — с запятой, которой на диске нет.
+ *
+ * Ячейка с обратными кавычками разбирается по фрагментам, а не целиком: живой прогон b6-2
+ * (gpt-oss-20b, 2026-09-24) написал в «Опорах осей» `` `longestSide`/`dimensionSum` `` —
+ * два настоящих символа проекта, — а со снятыми кавычками это читалось путём
+ * `longestSide/dimensionSum`, и честный отчёт закрыл виток на этапе 2. Фрагмент в кавычках
+ * — то, что модель сама назвала адресом; каждый судится отдельно, и `src/fake.ts` в паре
+ * с настоящим символом по-прежнему ловится.
  */
+function pathCandidates(rawCell: string): string[] {
+  const quoted = [...rawCell.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? '');
+  const parts = quoted.length > 0 ? quoted : [rawCell];
+  const out: string[] = [];
+  for (const part of parts) {
+    const rel = pathCandidate(part);
+    if (rel !== null) out.push(rel);
+  }
+  return out;
+}
+
 function pathCandidate(raw: string): string | null {
   const rel = (raw.split(/\s/)[0] ?? '')
     .replace(/[),;»"'`]+$/u, '')
@@ -138,7 +160,7 @@ export function explorationPathProblem(c: StageContext): string | null {
           // не нужно: её и так пропустит фильтр словесных описаний ниже.
           const namedHeader = /^(файл|путь)/i.test((table.header[0] ?? '').trim());
           for (const row of namedHeader ? table.rows : [table.header, ...table.rows]) {
-            const first = (row[0] ?? '').replace(/`/g, '').trim();
+            const first = (row[0] ?? '').trim();
             if (first === '') continue;
             // Путь, объявленный БУДУЩИМ, законно не существует.
             //
@@ -155,11 +177,11 @@ export function explorationPathProblem(c: StageContext): string | null {
             // начало слова: подстрока ловила «осНОВной» и «обНОВление».
             if (declaredAsNew(row)) continue;
             // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
-            const rel = pathCandidate(first);
-            if (rel === null) continue;
             // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
             // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
-            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+            for (const rel of pathCandidates(first)) {
+              if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+            }
           }
         }
       }
@@ -179,14 +201,14 @@ export function explorationPathProblem(c: StageContext): string | null {
         for (const table of parseTables(report.text.slice(range.start, range.end))) {
           const col = columnIndex(table.header, 'механизм');
           for (const row of [table.header, ...table.rows]) {
-            const cell = (row[col >= 0 ? col : 1] ?? '').replace(/`/g, '').trim();
+            const cell = (row[col >= 0 ? col : 1] ?? '').trim();
             if (cell === '' || cell.includes('‹')) continue;
             if (declaredAsNew(row)) continue;
             // «нет механизма» и прочая проза путём не являются — тем же фильтром, что в
             // карте, и ИМЕННО тем же: две копии этого правила уже успели разойтись.
-            const rel = pathCandidate(cell);
-            if (rel === null) continue;
-            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
+            for (const rel of pathCandidates(cell)) {
+              if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
+            }
           }
         }
       }
@@ -214,9 +236,9 @@ export function explorationPathProblem(c: StageContext): string | null {
 /**
  * Секция задачи «Что придётся тронуть» закрыта — проверка в ходу САМОЙ разведки.
  *
- * Секция исключена из предусловия входа в разведку (`filledExceptTouchSection`): на первом
+ * Секция исключена из предусловия входа в разведку (`intentFilled(…, false)`): на первом
  * проходе она законно пуста, заполнить её обязана разведка. Но предусловие входа в ПЛАН
- * считает места обычным `filled`, то есть эту секцию уже считает — а требовать её закрытия
+ * (`intentFilled(…, true)`) эту секцию уже считает (кроме мелкого контура) — а требовать её закрытия
  * было некому: страж `intent` её исключает по построению, у `explore` проверки не было
  * вовсе. Два счётчика на одном файле давали противоположные решения, и разбор серии v9
  * (2026-09-15) показал цену: 5 прогонов из 5 закрыли `intent` и `explore` зелёными и
@@ -253,8 +275,8 @@ export const exploreStage: StageDef = {
   subagents: ['sdlc-claims'],
   produces: (c) => [c.paths.explorationReport],
   requires: [
-    filledExceptTouchSection('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
-    exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
+    intentFilled('задача заполнена без плейсхолдеров', false),
+    readinessReady('проверка готовности пройдена (прогон 1)', 1),
     claimsMinimum(),
   ],
   protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.plan)],
@@ -306,12 +328,14 @@ export function exploreIndexFor(
 ): { index: ExploreIndex; kw: Keywords; built: BuiltView } {
   const intent = readArtifact(host.paths.intent);
   const intentText = intent.exists ? intent.text : '';
+  const originalRequest = preparation(host.paths)?.requests.at(-1) ?? '';
   const axesEnabled = host.axesEnabled();
-  const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}`;
+  const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}\n${originalRequest}`;
   if (host.exploreState.indexCache !== null && host.exploreState.indexCache.key === key) return host.exploreState.indexCache;
   const index = readTree(host.projectRoot);
-  const kw = intentKeywords(intentText);
-  const built = buildView(index, ecosystem, kw, axesEnabled);
+  const kw = intentKeywords(intentText, originalRequest);
+  const built = includeExplicitRequestPaths(index, buildView(index, ecosystem, kw, axesEnabled),
+    preparationReferencedCodePaths(originalRequest));
   host.exploreState.indexCache = { key, index, kw, built };
   return host.exploreState.indexCache;
 }
@@ -335,7 +359,11 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   }
   const def = loadSubagent(host.runner().agentsDir, 'sdlc-claims');
   if (def === null) {
-    host.exploreState.claims.skipReason = `определение субагента sdlc-claims не найдено в ${host.runner().agentsDir}`;
+    const dir = host.runner().agentsDir;
+    host.exploreState.claims.skipReason =
+      dir === ''
+        ? 'каталог субагентов не задан (нет methodologyDir/agentsDir) — определения sdlc-claims нет'
+        : `определение субагента sdlc-claims не найдено в ${dir}`;
     warn(`слепой вывод листа не запущен: ${host.exploreState.claims.skipReason}`);
     return;
   }
@@ -351,7 +379,10 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   const cardBudget = localResultBytes(limits);
   const perCard = cardBudgetPerFile(cardBudget, built.ranked.length);
   const result = await deriveClaimsBlind({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('explore', 'claimsBlind')),
+    ...(readGuided(host.paths) ? { guidedData: { sections: Object.fromEntries(Object.entries(sections).map(([name, text]) => [name, documentFacts(text)])),
+      index: built.ranked.map(r => r.file.path), sources: built.ranked.map(r => ({ path: r.file.path,
+        content: r.file.text.slice(0, perCard), partial: r.file.text.length > perCard })) } } : {}),
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace('explore', 'claimsBlind')),
     model: route.model,
     params: route.params,
     system: def.prompt,
@@ -382,7 +413,7 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
  * вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан
  * (`runClaimsBlind`) и лежит в `ExploreState.claims`.
  */
-export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): ExploreExecutor {
+export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): ExploreExecutor | GuidedExploreExecutor {
   const stage = 'explore';
   const limits = host.limits();
   const ecosystem = host.ecosystemFor(stage);
@@ -399,8 +430,10 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
       `переиспользования ${built.reuse.length}; AskHuman и Task в режиме нет — вопросы уходят в «Всплывшие вопросы», ` +
       'решение о полноте листа остаётся полем человека',
   });
-  return new ExploreExecutor({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'explore')),
+  const Executor = readGuided(host.paths) ? GuidedExploreExecutor : ExploreExecutor;
+  return new Executor({
+    originalRequests: preparation(host.paths)?.requests ?? [],
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace(stage, 'explore')),
     params: route.params,
     currency: route.providerDef.currency ?? 'USD',
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
@@ -418,7 +451,11 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
       claims,
       notDoing: notDoingLines(intentText),
     },
+    ...(isPreparationV2(host.paths) ? {
+      acceptanceChecks: claims.map((claim) => `${claim.id}: ${claim.text}`),
+    } : {}),
     reportPath: host.paths.explorationReport,
+    onSourceProvided: (path, excerpt) => recordPreparationRead(host.paths, stage, path, excerpt),
     claims: host.exploreState.claims.result,
     claimsSkipReason: host.exploreState.claims.skipReason,
     axesEnabled: host.axesEnabled(),
@@ -429,7 +466,9 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
 }
 
 export const exploreModule: StageModule = {
+  tracksPreparationReads: true,
   def: exploreStage,
+  runtimeFacts: [],
   formFillExecutor: false,
   leanDocTools: false,
   mechanicalJobs: (host) => [{ path: host.paths.explorationReport, fill: async (t) => autofillTitle(t, host.slug) }],
@@ -438,7 +477,7 @@ export const exploreModule: StageModule = {
     // Слепой вывод листа (агент 2 этапа 2) — шаг РАНТАЙМА до создания исполнителя: конвейер
     // `exploreFill` забирает его итог из `exploreState.claims` при конструировании.
     beforeExecutor: async () => {
-      if (usesExploreFill(route)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
+      if (usesExploreFill(route) && !isPreparationV2(host.paths)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
     },
 
     // Разведка дозаполняется по полям — с 2026-09-04. Раньше её здесь не было потому, что
@@ -456,7 +495,7 @@ export const exploreModule: StageModule = {
     // В режиме `exploreFill` дозаполнение уже внутри конвейера (вложенным
     // `FormFillExecutor` со `skipFields`) — второй проход здесь переспрашивал бы поля.
     formFinish: () =>
-      usesExploreFill(route)
+      usesExploreFill(route) || isPreparationV2(host.paths)
         ? null
         : {
             path: host.paths.explorationReport,
@@ -480,6 +519,10 @@ export const exploreModule: StageModule = {
           `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
           `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
         );
+      }
+      if (isPreparationV2(host.paths)) {
+        const evidence = preparationExploreEvidenceProblem(host.paths);
+        if (evidence !== null) return evidence;
       }
       // Вторая находка того же стража: «Что придётся тронуть» в задаче заполняет разведка,
       // и спросить об этом больше некого — этап 4 на входе считает эту секцию.

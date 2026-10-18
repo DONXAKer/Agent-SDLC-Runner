@@ -1,0 +1,612 @@
+{
+  "run": {
+    "slug": "run-20261002-qwencoder-silent-contract",
+    "model": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+    "task": "silent-contract",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T10:17:50.313Z",
+    "finishedAt": "2026-10-02T10:26:08.002Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 21
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "files_to_touch разошёлся с «Что придётся тронуть» разведки без объяснения — в files_to_touch нет и в «Из задачи исключено» не названы: test/invoice.test.ts; в files_to_touch есть, а в «Что придётся тронуть» и в «Добавлено сверх разведки» — нет: test/bill.test.ts.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 64
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 18813,
+          "outputTokens": 1192,
+          "cacheReadTokens": 14903,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 98742
+        },
+        "durationMs": 49133,
+        "requestDurationsMs": [
+          5190,
+          6031,
+          6851,
+          3068,
+          8171,
+          13142,
+          7813,
+          19702,
+          24069,
+          4715
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 137560,
+          "outputTokens": 4462,
+          "cacheReadTokens": 114253,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 256040
+        },
+        "durationMs": 240519,
+        "requestDurationsMs": [
+          46649,
+          23503,
+          13992,
+          1720,
+          8305,
+          3864,
+          4073,
+          3380,
+          3033,
+          4324,
+          4380,
+          36072,
+          3787,
+          3390,
+          2581,
+          44477,
+          1715,
+          3554,
+          8015,
+          10410,
+          23030,
+          1806
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 463508,
+          "outputTokens": 4276,
+          "cacheReadTokens": 443906,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 380932
+        },
+        "durationMs": 206904,
+        "requestDurationsMs": [
+          9068,
+          18492,
+          19751,
+          1397,
+          2286,
+          4000,
+          1833,
+          4737,
+          6421,
+          1192,
+          3036,
+          4363,
+          2056,
+          5312,
+          9578,
+          1377,
+          3831,
+          5268,
+          1980,
+          3488,
+          5483,
+          1219,
+          2957,
+          4342,
+          2020,
+          4828,
+          6648,
+          1392,
+          3187,
+          4309,
+          4025,
+          6163,
+          8427,
+          1309,
+          2604,
+          10262,
+          1291,
+          12302,
+          13784,
+          6832,
+          7040,
+          1777,
+          3205,
+          20126,
+          1937,
+          29744,
+          32035,
+          1339,
+          2033,
+          3173,
+          1924,
+          4852,
+          7702,
+          1532,
+          3961,
+          5976,
+          2623,
+          5157,
+          7854,
+          2794,
+          6944,
+          9806,
+          1392,
+          3190
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 4,
+        "approvals": 1,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 22
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:fef91c29-8572-44bf-9c56-4d5353f7472b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:b3140c6e-aab3-48a4-88fa-7369f99e9f34",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:6173d9c0-2267-4553-9b35-92e341efe20a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:6a70a4ab-c05a-4fb2-82bd-1845f5d30766",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:9a3b0615-e7f0-4682-911d-b0ca7d7b1b3a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:e107496b-2302-4ac7-8e49-d92208b141e2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:0be77df2-f1a6-43dd-8db0-c23e59b98441",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-qwencoder-silent-contract\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Что именно должно быть передано в поле `issuer`, если оно указано в вызове функции `bill`?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Какие значения допустимы для поля `issuer` и есть ли ограничения на его формат?"
+          },
+          {
+            "id": "intent-open-2",
+            "question": "Будет ли поле `issuer` добавлено в структуру счёта даже при отсутствии значения или оно будет исключено?"
+          },
+          {
+            "id": "intent-open-3",
+            "question": "Какие существующие тесты проверяются на предмет backward compatibility, чтобы убедиться, что вызовы без `issuer` не сломались?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11266,
+        "userChars": 3956,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9541,
+        "userChars": 15826,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 19273,
+        "userChars": 19656,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-544cbc80-1af1-4fff-8be3-c7ecc0227e3e-1",
+        "questionId": "intent-open-0",
+        "text": "Что именно должно быть передано в поле `issuer`, если оно указано в вызове функции `bill`?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-544cbc80-1af1-4fff-8be3-c7ecc0227e3e-1",
+        "questionId": "intent-open-1",
+        "text": "Какие значения допустимы для поля `issuer` и есть ли ограничения на его формат?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-544cbc80-1af1-4fff-8be3-c7ecc0227e3e-1",
+        "questionId": "intent-open-2",
+        "text": "Будет ли поле `issuer` добавлено в структуру счёта даже при отсутствии значения или оно будет исключено?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-544cbc80-1af1-4fff-8be3-c7ecc0227e3e-1",
+        "questionId": "intent-open-3",
+        "text": "Какие существующие тесты проверяются на предмет backward compatibility, чтобы убедиться, что вызовы без `issuer` не сломались?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e78a5c6373a68f86059524d61c1493b3d337d284db42edfea1594a64bb3464af",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "016e875bce5b973d9bdd886f9a327222b1178ed43ff03bfa5498ea50d8f984b1",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "ef2e3c007f00649d2dda30e368e16699529ecffbea89d4d164d1fff15c610a41",
+    "state": "finished",
+    "capturedAt": "2026-10-02T10:26:08.030Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-02T10:26:07.999Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "38e012317ff6105533e7406053f3fa908f8d95ac4b903b98b169aae63650b296",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "b9310ad4ca36f2b2feff244b3634840f3044c16e19440509eab2e95371b73683",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "ca290d2628123652a87746461097f1bf00085207124c37a212d789f820034b2a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "3e88db443355ea0a52a49378fecec2bf6676777939478463ca49093e45495132",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "a1871e40cfb33fbe9f6fcbf9b477ec70f64243eb2e1ecac151eb00cd027b6e35",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "46cf8712c791e381a05449a16e98b2c641785f1983e694a29dc68d908ae5e30b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

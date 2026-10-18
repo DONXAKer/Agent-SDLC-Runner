@@ -1,0 +1,274 @@
+{
+  "guided": null,
+  "run": {
+    "slug": "diag-ollama-qwen3-8-27b-iq4-gpumax-i02-1791545647896-3",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "executionMode": "legacy",
+    "preparationVersion": 1,
+    "strictQuestions": false,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-10-09T11:34:09.629Z",
+    "finishedAt": "2026-10-09T11:35:12.798Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (6 пунктов, 3 [edge]); процедуры проверки ❌; инварианты ✅; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 14
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 23473,
+          "outputTokens": 734,
+          "cacheReadTokens": 16506,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 103697
+        },
+        "durationMs": 62573,
+        "requestDurationsMs": [
+          7619,
+          10767,
+          15583,
+          3110,
+          5098,
+          6765,
+          1969,
+          4059,
+          23610,
+          2493,
+          4379,
+          10221,
+          2024,
+          6011
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:16067932-0e22-4a7c-8b5f-e9d3fcd3b6cb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8-27b-iq4-gpumax-i02-1791545647896-3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Требует решения человека: нужно ли сохранять превышение остатка в STOK_TABLE (например, отрицательное значение или отдельный столбец) при резервировании приоритетного заказа, или зарезервированное количество не отражается в остатке на складе"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Требуется уточнение: в задаче и входных данных указаны процент (120%), но отсутствуют фактические значения остатка на складе для позиций, с которыми будут проводиться тесты. Необходима конкретика: какая позиция, какой текущий остаток и какое количество запрашивается в тестовом кейсе для проверки приоритетного резерва (например, «Остаток 10, приоритетный заказ 11 — отказ; 12 — ок»)."
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.priority"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11379,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-f4db3479-067d-4126-8b59-becda5979311-1",
+        "questionId": "intent-open-0",
+        "text": "Требует решения человека: нужно ли сохранять превышение остатка в STOK_TABLE (например, отрицательное значение или отдельный столбец) при резервировании приоритетного заказа, или зарезервированное количество не отражается в остатке на складе"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-f4db3479-067d-4126-8b59-becda5979311-1",
+        "questionId": "intent-open-1",
+        "text": "Требуется уточнение: в задаче и входных данных указаны процент (120%), но отсутствуют фактические значения остатка на складе для позиций, с которыми будут проводиться тесты. Необходима конкретика: какая позиция, какой текущий остаток и какое количество запрашивается в тестовом кейсе для проверки приоритетного резерва (например, «Остаток 10, приоритетный заказ 11 — отказ; 12 — ок»)."
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+      "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+      "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+      "localEndpoints": {},
+      "inputHash": "5f52fedadfe8a927455277c531da460d3f6ad7f3ca2c837b5616aeac0ba6e7de",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 120000,
+      "runTimeoutMs": 120000
+    },
+    "workspaceHash": "8cbd9edcd00ac33a2c759e445a06215f27a6e10f121148ed285c5f85d519770d",
+    "state": "finished",
+    "capturedAt": "2026-10-09T11:35:12.821Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-09T11:35:12.775Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "74cf740f13474e781528f5979f4685383f5a7afeec39bb3a6a3e1ec1aa235378",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "3a4b712f6e3ea4675ab33eca27b1f3d10e2633afbb1254168c5c784fd74de093",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "26fabb6aa5f8578ac934a48ed5eb046a9c8acda2393d4e1c4582ecc096ef5f3e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "18e290b6e0d12dd5dc48169366389bf8bf1c3fabdcaab86867f989e764a921e1",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

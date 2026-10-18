@@ -11,6 +11,9 @@
  * и она переживает F5. Выбранный этап сюда по-прежнему не кладём: его ссылку давать незачем.
  */
 
+import { DASHBOARD_SOURCES } from '@sdlc-runner/shared';
+import type { DashboardCardRef } from '@sdlc-runner/shared';
+
 /** Вкладки режима наблюдения. Порядок — порядок кнопок на странице витка. */
 export const OBS_TABS = ['events', 'diff', 'metrics', 'context'] as const;
 export type ObsTab = (typeof OBS_TABS)[number];
@@ -19,7 +22,12 @@ export type Route =
   | { kind: 'start' }
   | { kind: 'run'; runId: string; view: 'now' }
   | { kind: 'run'; runId: string; view: 'obs'; tab: ObsTab }
-  | { kind: 'archive'; project: string; slug: string };
+  | { kind: 'archive'; project: string; slug: string }
+  /**
+   * Дашборд запусков; `card` — открытая карточка. Фильтры в адрес не кладём: ссылку дают
+   * на карточку, а не на «фильтр по стенду» (фильтры помнит localStorage).
+   */
+  | { kind: 'dashboard'; card: DashboardCardRef | null };
 
 const START: Route = { kind: 'start' };
 
@@ -28,21 +36,47 @@ const START: Route = { kind: 'start' };
  * открыть рабочий экран, а не пустоту с ошибкой. `#/run/<id>` без режима — «Сейчас»:
  * старые ссылки и кнопки «назад» обязаны открывать виток, а не ломаться.
  */
+/**
+ * Раскодировать сегмент; битая `%`-последовательность — `null`. `decodeURIComponent` на ней
+ * бросает `URIError`, а разбор адреса идёт в инициализаторе состояния приложения: обрезанная
+ * ссылка роняла весь интерфейс в белый экран вместо обещанного «непонятное — стартовый экран».
+ */
+function dec(s: string | undefined): string | null {
+  if (s === undefined || s === '') return null;
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+}
+
 export function parseHash(hash: string): Route {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash;
   const parts = raw.replace(/^\/+/, '').split('/');
   const [kind, a, b, c] = parts;
 
-  if (kind === 'run' && a !== undefined && a !== '') {
-    const runId = decodeURIComponent(a);
+  const runId = kind === 'run' ? dec(a) : null;
+  if (runId !== null) {
     if (b === 'obs') {
       const tab = OBS_TABS.find((t) => t === c) ?? 'events';
       return { kind: 'run', runId, view: 'obs', tab };
     }
     return { kind: 'run', runId, view: 'now' };
   }
-  if (kind === 'archive' && a !== undefined && a !== '' && b !== undefined && b !== '') {
-    return { kind: 'archive', project: decodeURIComponent(a), slug: decodeURIComponent(b) };
+  if (kind === 'archive') {
+    const project = dec(a);
+    const slug = dec(b);
+    if (project !== null && slug !== null) return { kind: 'archive', project, slug };
+  }
+  if (kind === 'dashboard') {
+    // Битая или неполная карточка — сетка дашборда, а не старт: человек шёл сюда.
+    const source = DASHBOARD_SOURCES.find((s) => s === a);
+    const project = dec(b);
+    const slug = dec(c);
+    if (source !== undefined && project !== null && slug !== null) {
+      return { kind: 'dashboard', card: { source, project, slug } };
+    }
+    return { kind: 'dashboard', card: null };
   }
   return START;
 }
@@ -58,6 +92,11 @@ export function formatHash(route: Route): string {
   }
   if (route.kind === 'archive') {
     return `#/archive/${encodeURIComponent(route.project)}/${encodeURIComponent(route.slug)}`;
+  }
+  if (route.kind === 'dashboard') {
+    if (route.card === null) return '#/dashboard';
+    const { source, project, slug } = route.card;
+    return `#/dashboard/${source}/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`;
   }
   return '#/';
 }

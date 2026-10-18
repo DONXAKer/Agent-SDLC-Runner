@@ -14,10 +14,14 @@ import { readFileSync } from 'node:fs';
 
 import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 
+import { worstGateStatus } from '@sdlc-runner/shared';
+
 import type { GateContext } from './builtin/index.ts';
-import { builtinFor, outputTailOf } from './builtin/index.ts';
+import { builtinFor, fullOutputOf, outputTailOf } from './builtin/index.ts';
+import { CONTRACT_EXIT, CONTRACT_GLYPH, parseGateContract } from './contract.ts';
 import type { GateRow, GatesFile } from './gatesFile.ts';
 import { gateKey, gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
+import { missingTool } from './missingTool.ts';
 import { runShell } from './shell.ts';
 import { ensureSandboxFor } from '../sandbox/registry.ts';
 
@@ -95,24 +99,89 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
     // (её можно ускорить или поднять лимит), а отказ оператора — решение человека; ни то,
     // ни другое не «чинится на другой машине», и подмешивать их сюда значит объявлять
     // окружением всё, что не дошло до кода возврата.
-    const envBlocked = toolMissing(r.exitCode, r.lastLine);
-    const status: GateStatus =
-      r.denied !== null || r.timedOut || envBlocked ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
+    const output = fullOutputOf(r.stdout, r.stderr);
+    const tails = output === '' ? {} : { outputTail: outputTailOf(r.stdout, r.stderr), output };
+    const base = { name: row.name, command: row.command, exitCode: r.exitCode, durationMs: r.durationMs, ...tails };
+
+    if (r.denied !== null || r.timedOut) {
+      // Средой считается ТОЛЬКО отсутствие инструмента. Таймаут — свойство самой команды
+      // (её можно ускорить или поднять лимит), а отказ пола безопасности — дефект набора;
+      // ни то, ни другое не «чинится на другой машине».
+      return {
+        ...base,
+        status: '⏭',
+        lastLine: r.timedOut ? `команда не уложилась в ${i.timeoutMs} мс` : r.lastLine,
+        envBlocked: false,
+        missingTool: null,
+        contract: 'exit-code',
+      };
+    }
+
+    // Контракт гейт-скрипта (`contract.ts`): статус — по артефакту прогона, который скрипт
+    // разобрал сам, а код возврата — зеркало. Скрипт, назвавший себя чужим именем, статуса
+    // строке не даёт: сверка отчёта с набором идёт по именам, и подмена одного гейта другим
+    // лишила бы строку проверки молча.
+    const contract = parseGateContract(r.stdout);
+    if (contract !== null) {
+      const notes: string[] = [];
+      if (gateKey(contract.gate) !== gateKey(row.name)) {
+        return {
+          ...base,
+          status: '⏭',
+          lastLine:
+            `скрипт отчитался за гейт «${contract.gate}», а строка набора — «${row.name}»: статус не принят, ` +
+            'почини имя в скрипте или в наборе',
+          envBlocked: false,
+          missingTool: null,
+          contract: 'json',
+          evidence: contract.evidence,
+        };
+      }
+      let status: GateStatus = CONTRACT_GLYPH[contract.status];
+      if (contract.missing_tool !== null && status === '✅') {
+        // «Отказ инструмента среды — skip с missing_tool, никогда pass».
+        status = '⏭';
+        notes.push('контракт нарушен: pass вместе с missing_tool читается как skip');
+      }
+      const expected = CONTRACT_EXIT[contract.status];
+      if (r.exitCode !== expected) {
+        const byExit: GateStatus = r.exitCode === 0 ? '✅' : r.exitCode === 3 || r.exitCode === 2 ? '⏭' : '❌';
+        status = worstGateStatus(status, byExit);
+        notes.push(`код возврата ${r.exitCode ?? '—'} разошёлся с контрактом (${contract.status} → ${expected}) — взят худший`);
+      }
+      const envBlocked = status === '⏭' && contract.missing_tool !== null;
+      const detail = contract.detail !== '' ? contract.detail : r.lastLine;
+      return {
+        ...base,
+        status,
+        lastLine:
+          (envBlocked ? `инструмента нет в среде: ${contract.missing_tool} — ` : '') +
+          detail +
+          (contract.evidence.length > 0 ? ` · улик: ${contract.evidence.length}` : '') +
+          (notes.length > 0 ? ` · ${notes.join('; ')}` : ''),
+        envBlocked,
+        missingTool: envBlocked ? contract.missing_tool : null,
+        contract: 'json',
+        evidence: contract.evidence,
+      };
+    }
+
+    // Без JSON — прежнее правило по коду возврата: 0 — ✅, иначе ❌. Коды 2/3 контракта
+    // действуют только у скриптов, печатающих JSON: у обычных команд это провал (`make`
+    // отдаёт 2 на упавшей цели, `mocha` — число упавших тестов). Улика среды, а не догадка
+    // по коду: строка оболочки обязана назвать сам инструмент команды
+    // (`gates/missingTool.ts`) — «No such file or directory» из лога тестов, где тест
+    // честно проверяет отсутствующий файл, средой не является.
+    const missing = missingTool(output, row.command, r.exitCode);
+    const envBlocked = missing !== null;
+    const status: GateStatus = envBlocked ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
     return {
-      name: row.name,
+      ...base,
       status,
-      command: row.command,
-      exitCode: r.exitCode,
-      lastLine: r.timedOut
-        ? `команда не уложилась в ${i.timeoutMs} мс`
-        : toolMissing(r.exitCode, r.lastLine)
-          ? `инструмента нет в среде (код ${r.exitCode}): ${r.lastLine}`
-          : r.lastLine,
-      durationMs: r.durationMs,
+      lastLine: missing !== null ? `инструмента нет в среде (код ${r.exitCode}): ${missing}` : r.lastLine,
       envBlocked,
-      // Хвост вывода — для улики о тестах: команда набора имеет приоритет над встроенной,
-      // и без этой строки хвост существовал только у встроенных реализаций.
-      ...(r.stdout === '' && r.stderr === '' ? {} : { outputTail: outputTailOf(r.stdout, r.stderr) }),
+      missingTool: missing,
+      contract: 'exit-code',
     };
   }
 
@@ -143,6 +212,11 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
     ...outcome,
     durationMs: Date.now() - started,
     envBlocked: outcome.envBlocked ?? false,
+    // У встроенной реализации улика инструмента — её собственная: причину незапуска она
+    // называет сама в `lastLine`, и только когда причина в среде (`envBlocked`). Явный
+    // `missingTool: null` («раннер не обнаружен» — дефект набора, не среда) сохраняется как
+    // есть: `??` подменял его на `lastLine` и давал ложный `blocked_env` (ревью).
+    missingTool: outcome.missingTool !== undefined ? outcome.missingTool : outcome.envBlocked === true ? outcome.lastLine : null,
   };
 }
 
@@ -202,6 +276,12 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     // рядом с clarificationPath выше — на этапе verify гейт получал ctx.slug === undefined
     // и резервировал состояние в общий файл на весь projectRoot, а не под `.sdlc/<slug>/`.
     ...(i.slug === undefined ? {} : { slug: i.slug }),
+    // Факты попытки для гейтов от базы (`overwrite.ts`, `baseCheck.ts`, `testsClaims.ts`).
+    ...(i.baseSha === undefined ? {} : { baseSha: i.baseSha }),
+    ...(i.attemptPatchPath === undefined ? {} : { attemptPatchPath: i.attemptPatchPath }),
+    ...(i.claimIds === undefined ? {} : { claimIds: i.claimIds }),
+    ...(i.journalPath === undefined ? {} : { journalPath: i.journalPath }),
+    ...(i.testsCommand === undefined ? {} : { testsCommand: i.testsCommand }),
   };
 
   const out: GateRunResult[] = [];
@@ -212,21 +292,4 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     i.onResult?.(r);
   }
   return out;
-}
-
-/**
- * Код возврата, означающий «инструмента нет», а не «проверка провалилась».
- *
- * 127 — команда не найдена, 126 — найдена, но не исполняется, 9009 — то же самое от
- * командного процессора Windows. Отличать это от настоящего провала обязала методология:
- * иначе отсутствие `java` в контейнере роняет вердикт витка, который к java не имеет
- * отношения.
- */
-function toolMissing(exitCode: number | null, lastLine: string): boolean {
-  if (exitCode === 127 || exitCode === 126 || exitCode === 9009) return true;
-  // Windows-`cmd` на отсутствующую команду отдаёт код 1 — по нему её не отличить от
-  // настоящего провала, — но пишет узнаваемую строку. По-русски она приходит в чужой
-  // кодировке и признаком служить не может: там гейт останется ❌, и это ограничение
-  // названо, а не замаскировано подгонкой под мусорные байты.
-  return /is not recognized as an internal or external command/i.test(lastLine);
 }

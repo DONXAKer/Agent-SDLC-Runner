@@ -4,21 +4,8 @@ import type { RunDiff } from '@sdlc-runner/shared';
 
 import { api } from '../lib/api.ts';
 import { orderFiles } from '../lib/diffStats.ts';
-import { diffLineTone } from '../lib/tones.ts';
 import { useToggleSet } from '../lib/useToggleSet.ts';
-
-/** Построчная раскраска текста патча — общая для компактного и полного вида. */
-function PatchText({ text }: { text: string }): JSX.Element {
-  return (
-    <pre className="max-h-[50vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-4">
-      {text.split('\n').map((line, i) => (
-        <div key={i} className={diffLineTone(line)}>
-          {line === '' ? ' ' : line}
-        </div>
-      ))}
-    </pre>
-  );
-}
+import { PatchText } from './PatchText.tsx';
 
 /**
  * Сводный просмотр патча попытки.

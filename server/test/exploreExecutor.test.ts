@@ -26,6 +26,7 @@ import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { intentKeywords } from '../src/explore/keywords.ts';
 import { readTree } from '../src/explore/tree.ts';
 import { buildView } from '../src/explore/view.ts';
+import type { RankedFile } from '../src/explore/rank.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import { explorationPathProblem, hasOpenQuestions } from '../src/run/stages.ts';
 
@@ -169,7 +170,7 @@ const QUESTIONS = '1. блокирующий | Распространяется 
 
 function provider(
   seen: ChatRequest[],
-  answers: Partial<Record<'map' | 'axes' | 'questions', string>> & { reuse?: string | readonly string[] } = {},
+  answers: Partial<Record<'map' | 'axes' | 'questions' | 'reuseFix', string>> & { reuse?: string | readonly string[] } = {},
 ): ChatProvider {
   // По кандидату (2.2): нет больше ОДНОГО вопроса «найдено для переиспользования» — есть
   // N вопросов «переиспользование: путь:символ», по одному на кандидата, и мок отвечает на
@@ -182,12 +183,13 @@ function provider(
       seen.push(req);
       const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
       let text = 'н/п';
-      if (user.includes('## Сейчас — карта кодовой базы')) text = answers.map ?? MAP;
+      if (user.includes('## Сейчас — карта кодовой базы')) text = (answers.map ?? MAP) + '\n4. no\n5. no\n6. no\n7. no';
       else if (user.includes('## Сейчас — переиспользование:')) {
         const list = answers.reuse === undefined ? REUSE_PER_CANDIDATE : answers.reuse;
         text = typeof list === 'string' ? list : (list[reuseCalls] ?? 'нет');
         reuseCalls++;
-      } else if (user.includes('## Сейчас — опоры осей')) text = answers.axes ?? AXES;
+      } else if (user.includes('## Сейчас — исправление переиспользования:')) text = answers.reuseFix ?? 'н/п';
+      else if (user.includes('## Сейчас — опоры осей')) text = answers.axes ?? AXES;
       else if (user.includes('## Сейчас — всплывшие вопросы')) text = answers.questions ?? QUESTIONS;
       else if (user.includes('- id: `конвенции`')) text = 'деньги в копейках целым числом';
       else if (user.includes('- id: `требования к окружению прогона`')) text = 'ничего особенного';
@@ -239,12 +241,13 @@ const eco = [{ dir: '.', label: 'Node.js', build: null, test: 'node --test' }];
 function executor(
   root: string,
   paths: WitokPaths,
-  over: { axesEnabled?: boolean; claims?: null; provider?: ChatProvider } = {},
+  over: { axesEnabled?: boolean; claims?: null; provider?: ChatProvider; onSourceProvided?: (path: string, excerpt: string) => void; mapRanked?: RankedFile[] } = {},
 ): ExploreExecutor {
   const index = readTree(root);
   const kw = intentKeywords(INTENT);
   const axesEnabled = over.axesEnabled ?? false;
   const built = buildView(index, eco, kw, axesEnabled);
+  if (over.mapRanked !== undefined) built.ranked = over.mapRanked;
   return new ExploreExecutor({
     provider: over.provider ?? provider([]),
     maxResultBytes: 12_000,
@@ -266,6 +269,7 @@ function executor(
       notDoing: ['- не меняем порядок применения скидки лояльности (`discountFor`)'],
     },
     reportPath: paths.explorationReport,
+    ...(over.onSourceProvided === undefined ? {} : { onSourceProvided: over.onSourceProvided }),
     claims:
       over.claims === null
         ? null
@@ -323,7 +327,98 @@ async function scenario(blank: string, over: { axesEnabled?: boolean; claims?: n
   return { root, paths, seen, result, report: readFileSync(paths.explorationReport, 'utf8'), intent: readFileSync(paths.intent, 'utf8') };
 }
 
+describe('переиспользование: неполная строка «да»', () => {
+  const incomplete = ['да | |', 'нет', 'нет'];
+  it('один переспрос дополняет строку, стража не ломает', async () => {
+    const { root, paths } = setup(BLANK);
+    const stub = provider([], { reuse: incomplete, reuseFix: 'да | считает итог | вызываем после льготы' });
+    const questions: string[] = [];
+    const base = stub.chat.bind(stub);
+    stub.chat = async (req) => { questions.push(req.messages.at(-1)?.content ?? ''); return base(req); };
+    const result = await executor(root, paths, { provider: stub }).run(request(root, paths), hooks({ calls: [], warns: [] }));
+    ok(!result.note.includes('переиспользование не заполнено'), result.note);
+    strictEqual(questions.filter((q) => q.includes('## Сейчас — исправление переиспользования:')).length, 1);
+    ok(readFileSync(paths.explorationReport, 'utf8').includes('вызываем после льготы'));
+  });
+  it('повторно пустой ответ: ровно один переспрос и конкретная причина', async () => {
+    const { root, paths } = setup(BLANK);
+    const stub = provider([], { reuse: incomplete, reuseFix: 'да | |' });
+    const questions: string[] = [];
+    const base = stub.chat.bind(stub);
+    stub.chat = async (req) => { questions.push(req.messages.at(-1)?.content ?? ''); return base(req); };
+    const result = await executor(root, paths, { provider: stub }).run(request(root, paths), hooks({ calls: [], warns: [] }));
+    strictEqual(result.ok, false);
+    ok(result.note.includes('переиспользование не заполнено'), result.note);
+    strictEqual(questions.filter((q) => q.includes('## Сейчас — исправление переиспользования:')).length, 1);
+  });
+});
+
 describe('конвейер разведки на копии бланка', () => {
+  it('передаёт седьмой обязательный источник: у карты нет жёсткого потолка в шесть файлов', async () => {
+    const { root, paths } = setup(BLANK);
+    const index = readTree(root);
+    const target = index.files.find((file) => file.path === 'src/discounts.ts')!;
+    const fillers = index.files.filter((file) => file.kind !== 'doc' && file.path !== target.path).slice(0, 6);
+    strictEqual(fillers.length, 6);
+    const ranked: RankedFile[] = [...fillers, target].map((file, i) => ({ file, score: 10 - i, why: ['test candidate'] }));
+    const seen: ChatRequest[] = [];
+    const provided: string[] = [];
+    await executor(root, paths, {
+      provider: provider(seen),
+      mapRanked: ranked,
+      onSourceProvided: (path) => provided.push(path),
+    }).run(request(root, paths), hooks({ calls: [], warns: [] }));
+    const mapPrompt = seen.find((item) => (item.messages.at(-1)?.content ?? '').includes('## Сейчас — карта кодовой базы'))?.messages.at(-1)?.content ?? '';
+    ok(mapPrompt.includes('7. `src/discounts.ts`'), mapPrompt);
+    ok(provided.includes('src/discounts.ts'), JSON.stringify(provided));
+  });
+
+  it('reports only source cards actually included in the delivered map prompt', async () => {
+    const { root, paths } = setup(BLANK);
+    const provided: Array<{ path: string; excerpt: string }> = [];
+    await executor(root, paths, { onSourceProvided: (path, excerpt) => provided.push({ path, excerpt }) })
+      .run(request(root, paths), hooks({ calls: [], warns: [] }));
+    ok(provided.length > 0);
+    for (const card of provided) {
+      ok(card.excerpt.includes(`### \`${card.path}\``) || card.excerpt.includes(`### \`${card.path}:`), `source card header missing for ${card.path}`);
+    }
+  });
+
+  for (const budget of [1, 2, 30]) it(`частичная карта: один переспрос и общий бюджет ${budget}`, async () => {
+    const { root, paths } = setup(BLANK);
+    const seen: ChatRequest[] = [];
+    const stub = provider(seen);
+    const original = stub.chat.bind(stub);
+    const questions: string[] = [];
+    stub.chat = async (req) => {
+      const user = req.messages.at(-1)?.content ?? '';
+      questions.push(user);
+      const result = await original(req);
+      if (user.includes('## Сейчас — карта кодовой базы')) result.text = '1. да | priceFor | изменить льготу';
+      if (user.includes('## Сейчас — исправление карты')) result.text = 'непонятный ответ';
+      return result;
+    };
+    const result = await executor(root, paths, { provider: stub }).run({ ...request(root, paths), maxTurns: budget }, hooks({ calls: [], warns: [] }));
+    strictEqual(result.ok, false);
+    ok(result.note.includes('карта не уточнена'), result.note);
+    strictEqual(questions.filter((q) => q.includes('## Сейчас — исправление карты')).length, budget === 1 ? 0 : 1);
+    ok(seen.length <= budget);
+    const retry = questions.find((q) => q.includes('## Сейчас — исправление карты'));
+    if (retry) ok(!retry.includes('1. src/tariffs.ts'), retry);
+  });
+  it('именованный путь из выданного индекса заполняет карту и touch, выдуманный путь не принимается', async () => {
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    await executor(root, paths, { provider: provider([], { map:
+      '1. src/tariffs.ts | priceFor | добавить льготу\n2. нет\n3. src/invented.ts | модуль | изменить',
+    }) }).run(request(root, paths), hooks(seen));
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    const intent = readFileSync(paths.intent, 'utf8');
+    ok(report.includes('| src/tariffs.ts | priceFor | добавить льготу |'), report);
+    strictEqual(report.includes('src/invented.ts'), false);
+    ok(intent.includes('src/tariffs.ts — добавить льготу'), intent);
+    strictEqual(intent.includes('‹path/to/file›'), false);
+  });
   it('карта из индекса, новый файл помечен, вопросы видны этапу 3, записи только через гейт', async () => {
     const { seen, result, report, intent, paths } = await scenario(BLANK);
     ok(result.ok, result.note);

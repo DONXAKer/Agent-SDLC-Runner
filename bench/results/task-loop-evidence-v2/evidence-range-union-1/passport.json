@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "range-union",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-EbRiGI",
+  "baseCommit": "479c685fcbfad33e79c351d445748f616825e197",
+  "contract": {
+    "task": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": true,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/range-union.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T17:44:19.700Z"
+}

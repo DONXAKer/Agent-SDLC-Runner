@@ -20,6 +20,8 @@ import { anchorFound, renderRecords } from '../../verifyReport.ts';
 import type { ClaimRecord } from '../../verifyReport.ts';
 import type { StageDef, StageHost } from '../types.ts';
 import { evidenceHaystack } from './records.ts';
+import { routeKey } from '../../reviewRoute.ts';
+import { readGuided } from '../../guidedState.ts';
 
 /**
  * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
@@ -61,6 +63,8 @@ export async function narrowRoute(
 ): Promise<void> {
   const limits = host.limits();
   const { calls, envFailure } = await fillClaims({
+    guided: readGuided(host.paths) !== null,
+    onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,
@@ -141,6 +145,10 @@ export async function runEnsembleReviewers(
   // подписью «по словам рецензента», а находки — дублями от каждого маршрута.
   const primaryClaims = new Map(verify.claimRecords);
   const primaryFindings = [...verify.findingRecords];
+  // Ответ рецензента по контракту — тоже основного маршрута: `Task`-путь маршрута
+  // ансамбля иначе перезаписывал его своим (ревью).
+  const primaryReview = verify.reviewJson;
+  const primaryReviewText = verify.reviewText;
 
   for (const [i, other] of extraRoutes.entries()) {
     if (host.aborterSignal()?.aborted === true) break;
@@ -224,9 +232,16 @@ export async function runEnsembleReviewers(
     // пункт `⚠`. Запись напрямую, как у узкого маршрута: канонический файл — рабочая копия
     // ансамбля, а не артефакт, который правит модель.
     if (!narrowed && (verify.claimRecords.size > 0 || verify.findingRecords.length > 0)) {
+      // Записи пришли через общий `onRecord` и помечены по основному маршруту —
+      // перепомечаем по автору ЭТОГО: блокирующими остаются только находки рецензента,
+      // не совпадающего с исполнителем (маршрутом chunk).
+      const findings = verify.findingRecords.map((f) => ({
+        ...f,
+        advisory: routeKey(other) === routeKey(host.profile().routes.chunk),
+      }));
       const { text } = renderRecords(readArtifact(canonical).text, {
         claims: [...verify.claimRecords.values()],
-        findings: verify.findingRecords,
+        findings,
         titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
       });
       writeArtifact(canonical, text);
@@ -239,4 +254,6 @@ export async function runEnsembleReviewers(
   writeArtifact(canonical, primary);
   verify.claimRecords = primaryClaims;
   verify.findingRecords = primaryFindings;
+  verify.reviewJson = primaryReview;
+  verify.reviewText = primaryReviewText;
 }

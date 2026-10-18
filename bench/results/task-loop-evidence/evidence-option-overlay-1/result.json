@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "option-overlay",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "ac37171789249cde7ce329964e0c61006e863f6000e650b2476dbe1d1dc71d5a",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-3YjPYm",
+    "baseCommit": "ced17d822a129a848a48116bdedbd3cae1725a5a",
+    "contract": {
+      "task": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/option-overlay.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T15:08:07.695Z"
+  },
+  "finishedAt": "2026-10-14T15:09:53.663Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "All checks pass.\n\n## Summary\n\n**`src/options.mjs`** (18 lines) — added `resolveOptions(base, override)` next to the preserved `protocolVersion` export:\n- Copies base's **own enumerable string keys** (`Object.keys`) into a new result object, then applies override keys.\n- `undefined` override values are skipped → base value kept; if the key was absent from base it stays omitted.\n- `null`, `false`, `0`, `''` are explicit values and get copied through.\n- New object returned, inputs never mutated (only reads, no writes to inputs).\n- `Object.keys` ignores inherited members, so prototype keys are skipped on both inputs.\n\n**`test/resolveOptions.test.mjs`** (60 lines) — 9 executable tests covering: merge, undefined-keeps-base, undefined-absent-omitted, explicit `null`/`false`/`0`/`''` preservation, non-mutation + fresh-object identity, inherited-key ignoring (via `Object.create` bases with prototype props), empty inputs, and override-only keys. Existing `test/existing.test.mjs` untouched.\n\n**Registered checks:**\n- `build`: PASS (`src/options.mjs` imports cleanly)\n- `test`: PASS — 10/10 (existing public API + 9 new)\n- `public-examples`: PASS\n\n**Remaining limits:** the `full-contract` binding has no dedicated checker — it's covered by the build/test/public-examples evidence and the tests above, but there's no automated proof beyond them.",
+    "usage": {
+      "inputTokens": 20916,
+      "outputTokens": 1580,
+      "cacheReadTokens": 18827,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 104623
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "2910d5de6a7c4234fe375b43efbdc7fa08f2ede05f5afc7643c17d781e5f8161",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "2910d5de6a7c4234fe375b43efbdc7fa08f2ede05f5afc7643c17d781e5f8161",
+        "passed": true,
+        "output": "✔ existing public API (1.012ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 92.3413\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "passed": true,
+        "output": "✔ existing public API (0.5784ms)\n✔ protocolVersion still exported (0.7738ms)\n✔ shallow-merges override onto base (0.649ms)\n✔ undefined override values keep base values (0.6443ms)\n✔ undefined override keys absent from base are omitted (0.1449ms)\n✔ preserves null, false, zero and empty string as explicit overrides (0.1589ms)\n✔ returns a new object and never mutates inputs (0.1896ms)\n✔ ignores inherited keys on both inputs (0.5528ms)\n✔ handles empty inputs (0.1264ms)\n✔ override can add keys not present in base (0.1824ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 104.4262\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.047ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 85.0586\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 8,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 30760.9774,
+      "firstCheckMs": 81879.0135,
+      "humanWaitMs": 0,
+      "activeMs": 105391.3391,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.047ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 85.0586\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+            "passed": true,
+            "output": "✔ existing public API (0.5784ms)\n✔ protocolVersion still exported (0.7738ms)\n✔ shallow-merges override onto base (0.649ms)\n✔ undefined override values keep base values (0.6443ms)\n✔ undefined override keys absent from base are omitted (0.1449ms)\n✔ preserves null, false, zero and empty string as explicit overrides (0.1589ms)\n✔ returns a new object and never mutates inputs (0.1896ms)\n✔ ignores inherited keys on both inputs (0.5528ms)\n✔ handles empty inputs (0.1264ms)\n✔ override can add keys not present in base (0.1824ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 104.4262\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/options.mjs",
+    "test/resolveOptions.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 1,
+    "fail": 1,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "not ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": true,
+  "frozenRevision": "c21bd7af935724f93ec27096d4711c4035d6aba5c36c5fb2c2b7b30f4e8ae00d",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

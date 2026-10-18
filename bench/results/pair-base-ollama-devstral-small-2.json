@@ -1,0 +1,317 @@
+{
+  "run": {
+    "slug": "pair-base-ollama-devstral-small-2",
+    "model": "ollama:devstral-small-2",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:devstral-small-2",
+      "explore": "ollama:devstral-small-2",
+      "ask": "ollama:devstral-small-2",
+      "plan": "ollama:devstral-small-2",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "ollama:devstral-small-2",
+      "handoff": "ollama:devstral-small-2"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T15:15:40.679Z",
+    "finishedAt": "2026-09-29T15:22:50.637Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 0 полей модели; добор поля приемочный лист (попытка 1): запрошен и добавлен; ответ на поле прогон 1/2/где видно / что чинить отклонён: поле «прогон 1/2/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 23
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ru1QZl\\.sdlc\\pair-base-ollama-devstral-small-2\\readiness.md)",
+        "blockers": [
+          "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ru1QZl\\.sdlc\\pair-base-ollama-devstral-small-2\\readiness.md)"
+        ],
+        "timedOut": false,
+        "skipped": false,
+        "blamedStage": "intent"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 129461,
+          "outputTokens": 1659,
+          "cacheReadTokens": 118108,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 857511
+        },
+        "durationMs": 429411,
+        "requestDurationsMs": [
+          44727,
+          49710,
+          54531,
+          21598,
+          26647,
+          78623,
+          43631,
+          5195,
+          17106,
+          24549,
+          16401,
+          34188,
+          49344,
+          68502,
+          80763,
+          93505,
+          20206,
+          27124,
+          43819,
+          16338,
+          30899,
+          2853,
+          7267
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 19
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:283430f1-bf53-4d0b-8ec3-f330f2d81462",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-devstral-small-2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:7abac44f-e797-48aa-9329-226f72dd758d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-devstral-small-2\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:b1e9faa9-9bad-4063-bcbd-ffb32e0c829e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-devstral-small-2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:906a5a55-a2e0-4e3d-90f2-dc42298df738",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-devstral-small-2\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10931,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "543f66891f73e8a6871b7bf2b9ff8804d112b4a59691bb0093342287deeac004",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "40566285a945e1f69def9dd390d5677154390d8d4c0af1b119f0354d08767311",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "354a75d7c326a84621d8cf387678ca7ae91b5f01efee45131e583e8654cd0d8f",
+    "state": "finished",
+    "capturedAt": "2026-09-29T15:22:50.655Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T15:22:50.632Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "b0c96f8fb36ff6d2501b99dae2bcc6df68bbb6d0c3b501c09bdf8df17f7a0b1c",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "e90731995e0ebb36dce37fad05afc66d863d934edd4b7f13adfbf42d1710368c",
+        "placeholders": 2,
+        "uncheckedQuestions": 1,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "0fee85d0ad87aac144b71e83bef981368cc21e86c8946ce9bf22a7ad56e46544",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

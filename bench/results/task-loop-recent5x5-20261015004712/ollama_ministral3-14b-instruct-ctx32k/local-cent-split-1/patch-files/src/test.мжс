@@ -1,0 +1,25 @@
+export const protocolVersion = 1;
+
+/**
+ * splitCents(total, count):
+ * Distributes total cents into count shares.
+ * Shares differ by at most one, extras to earliest indices.
+ */
+
+export function splitCents(total, count) {
+   if (!Number.isSafeInteger(total) || total < 0) {
+   throw new RangeError("total must be nonnegative SafeInteger");
+   }
+   
+  if (!Number.isSafeInteger(count) || count <= 0 || count > 1000) {
+      throw new RangeError("count must be positive SafeInteger ≤ 1000");
+   }
+   
+  const baseShare = Math.floor(total / count);
+  const remainder = total % count;
+  
+  const shares = [].fill().map(((v, i) => 
+               baseShare + (i >= count - remainder ? 1 : 0)));
+
+    return shares;
+  }

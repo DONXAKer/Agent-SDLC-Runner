@@ -1,0 +1,318 @@
+{
+  "run": {
+    "slug": "prep-local-add-validator-plan",
+    "model": "ollama:gpt-oss-20b-agent-stepfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-agent-inputs",
+      "explore": "ollama:gpt-oss-20b-agent-inputs",
+      "ask": "ollama:gpt-oss-20b-agent-inputs",
+      "plan": "ollama:gpt-oss-20b-agent-inputs",
+      "chunk": "ollama:gpt-oss-20b-agent-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-27T06:44:46.299Z",
+    "finishedAt": "2026-09-27T07:07:09.466Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 29, осталось на диске 5 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 41
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-fyEd8s\\.sdlc\\prep-local-add-validator-plan\\exploration-report.md. Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit. — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 15, осталось на диске 3 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 6,
+        "modelRequests": 24
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 198961,
+          "outputTokens": 57167,
+          "cacheReadTokens": 179923,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2009786
+        },
+        "durationMs": 1007512
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 196564,
+          "outputTokens": 18321,
+          "cacheReadTokens": 174953,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 537734
+        },
+        "durationMs": 335618
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 17
+      },
+      {
+        "stage": "explore",
+        "questions": 1,
+        "approvals": 2,
+        "waitMs": 17
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 11
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:3d650b54-11e2-47a7-85a8-6254176b40f5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-local-add-validator-plan\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:0cb8a7d5-fcbe-4a1d-8f3c-bf65d4320168",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-local-add-validator-plan\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:4f1b072f-7d98-47ee-bbba-2d834f54ace0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-local-add-validator-plan\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:274e10d5-e232-4105-b242-5eb1eec628a0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-local-add-validator-plan\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:1ce13d1a-ea49-46e0-83ca-b1e133055e49",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\prep-local-add-validator-plan\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "The readiness check indicates it requires a decision. Do you consider the task ready to proceed with exploration?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11022,
+        "userChars": 3620,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10886,
+        "userChars": 8590,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-6d7b7fb5-cc91-4d5e-8150-a588c7c64eb9-1",
+        "questionId": "q1",
+        "text": "The readiness check indicates it requires a decision. Do you consider the task ready to proceed with exploration?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

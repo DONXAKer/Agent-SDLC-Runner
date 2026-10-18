@@ -1,0 +1,114 @@
+import { existsSync } from 'node:fs';
+
+import type { StageContext } from './stages/types.ts';
+import { readArtifact, readField, hasNamedInvariants } from '../artifacts/artifact.ts';
+import { countClaims } from '../artifacts/claims.ts';
+import { configProblems, parseGates } from '../gates/gatesFile.ts';
+import { h2SectionRanges, splitRow } from '../md/table.ts';
+import { hasOpenQuestions, intentPlaceholdersOutsideTouch, intentTamperedSections, isSmallContour } from './stages/preconditions.ts';
+import { CLAIMS_MINIMUM } from '../artifacts/claims.ts';
+import { isPreparationV2, preparation, researchProblem, requirementProblem, blockingQuestions } from '../artifacts/preparation.ts';
+
+export interface ReadinessCheckResult {
+  checks: string;
+  ready: boolean;
+}
+
+function filled(value: string | null): boolean {
+  return value !== null && value.trim() !== '' && !/[‹›]/u.test(value);
+}
+
+export function hasRuntimeReadiness(text: string): boolean {
+  return text.includes('**Проверки:**') || /^\|\s*#\s*\|\s*Проверка\s*\|\s*Статус\s*\|/mu.test(text);
+}
+
+function fieldOrSection(text: string, label: string): string | null {
+  const field = readField(text, label);
+  if (field !== null) return field;
+  const section = h2SectionRanges(text, new RegExp(`^${label}$`, 'iu'))[0];
+  if (section === undefined) return null;
+  return text.slice(section.start, section.end)
+    .replace(/^##[^\n]*\n?/u, '')
+    .replace(/^_[\s\S]*?_\s*$/gmu, '')
+    .trim();
+}
+
+function claimRows(intent: string): string[] {
+  return intent.split(/\r?\n/u).filter((line) => /^\s*\|\s*`?claim-\d+\b/iu.test(line));
+}
+
+function verifiableClaims(intent: string): boolean {
+  const rows = claimRows(intent);
+  return rows.length > 0 && rows.every((line) => {
+    const cells = splitRow(line);
+    const procedure = cells.at(-1)?.trim() ?? '';
+    return procedure.length >= 12 && !/[‹›]/u.test(procedure);
+  });
+}
+
+export function readinessRun1(c: StageContext): ReadinessCheckResult {
+  const intent = readArtifact(c.paths.intent);
+  const gates = readArtifact(c.paths.gates);
+  const text = intent.exists ? intent.text : '';
+  if (isPreparationV2(c.paths)) {
+    const problem = researchProblem(text);
+    return { ready: problem === null, checks: problem ?? 'готова к исследованию: цель, результат и границы названы; приёмка уточняется до реализации' };
+  }
+  const gateProblems = gates.exists ? configProblems(parseGates(gates.text)) : ['файл гейтов отсутствует'];
+  const gateOk = gateProblems.length === 0;
+  const scopeOk = filled(fieldOrSection(text, 'Что делаем')) && filled(fieldOrSection(text, 'Чего не делаем'));
+  const counts = countClaims(text);
+  const small = isSmallContour(c);
+  const claimsOk = counts.rows >= (small ? 1 : CLAIMS_MINIMUM.rows) && counts.edges >= (small ? 0 : CLAIMS_MINIMUM.edges);
+  const checksOk = verifiableClaims(text);
+  const invariantsOk = hasNamedInvariants(text);
+  const questionsOk = !hasOpenQuestions(text);
+  const placeholders = intent.exists ? intentPlaceholdersOutsideTouch(text) : 1;
+  const ready = gateOk && scopeOk && claimsOk && checksOk && invariantsOk && questionsOk && placeholders === 0;
+  const checks = [
+    `гейты ${gateOk ? '✅' : `❌ (${gateProblems.length})`}`,
+    `границы задачи ${scopeOk ? '✅' : '❌'}`,
+    `приёмка ${claimsOk ? '✅' : '❌'} (${counts.rows} пунктов, ${counts.edges} [edge])`,
+    `процедуры проверки ${checksOk ? '✅' : '❌'}`,
+    `инварианты ${invariantsOk ? '✅' : '❌'}`,
+    `ответы на блокирующие вопросы ${questionsOk ? '✅' : '❌'}`,
+    `плейсхолдеры ${placeholders === 0 ? '✅' : `❌ (${placeholders})`}`,
+  ].join('; ');
+  return { checks, ready };
+}
+
+export function readinessRun2(c: StageContext): ReadinessCheckResult {
+  const intent = readArtifact(c.paths.intent);
+  const exploration = readArtifact(c.paths.explorationReport);
+  const text = intent.exists ? intent.text : '';
+  if (isPreparationV2(c.paths)) {
+    const state = preparation(c.paths);
+    const problem = requirementProblem(text, state?.version === 3 && state.structuredTablesRendered === true ? state.canonical?.requirements : undefined);
+    const questions = blockingQuestions(exploration.text);
+    const researched = exploration.exists && exploration.placeholders === 0;
+    return { ready: problem === null && !questions && researched,
+      checks: [problem ?? 'требования: основания, сценарии, проверки и контрпримеры заполнены',
+        researched ? 'исследование записано' : 'заверши исследование', questions ? 'закрой существенные вопросы разведки' : 'существенных вопросов разведки нет'].join('; ') };
+  }
+  const open = hasOpenQuestions(text) || (exploration.exists && hasOpenQuestions(exploration.text));
+  const touch = fieldOrSection(text, 'Что придётся тронуть');
+  const touchOk = isSmallContour(c) || filled(touch);
+  const counts = countClaims(text);
+  const small = isSmallContour(c);
+  const claimsOk = counts.rows >= (small ? 1 : CLAIMS_MINIMUM.rows) && counts.edges >= (small ? 0 : CLAIMS_MINIMUM.edges);
+  const structureOk = claimsOk && verifiableClaims(text);
+  const intentPlaceholders = intent.exists ? intentPlaceholdersOutsideTouch(text) : 1;
+  const remaining = intentPlaceholders + (touchOk ? 0 : 1) + (exploration.exists ? (exploration.placeholders ?? 0) : 0);
+  const snapshotExists = existsSync(c.paths.intentSections);
+  const tampered = intentTamperedSections(c);
+  const examplesOk = snapshotExists && tampered === null;
+  const ready = !open && remaining === 0 && touchOk && structureOk && examplesOk;
+  const checks = [
+    `блокирующие вопросы ${open ? '❌' : '✅'}`,
+    `плейсхолдеры ${remaining === 0 ? '✅' : `❌ (${remaining})`}`,
+    `разведка заполнила файлы ${touchOk ? '✅' : '❌'}`,
+    `критерии изменялись ${examplesOk ? 'нет; пересчёт не нужен' : 'да; требуется пересчёт'}`,
+    `структура и [edge] ${structureOk ? '✅' : `❌ (${counts.rows}/${counts.edges})`}`,
+  ].join('; ');
+  return { checks, ready };
+}

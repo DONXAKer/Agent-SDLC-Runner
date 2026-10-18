@@ -113,6 +113,20 @@ const CASES: Case[] = [
     expect: { kind: 'glob', pattern: '**/*.java', path: null },
   },
   {
+    // Фильтр имён решает вердикт политики на verify (`readDenied`): флоу обязаны
+    // доносить его одинаково, `type` ripgrep'а — тем же шаблоном.
+    what: 'поиск по содержимому с фильтром имён',
+    sdk: ['Grep', { pattern: 'foo', glob: '*.java' }],
+    loop: ['Grep', { pattern: 'foo', glob: '*.java' }],
+    expect: { kind: 'grep', pattern: 'foo', path: null, glob: '*.java' },
+  },
+  {
+    what: 'поиск по содержимому с типом файлов',
+    sdk: ['Grep', { pattern: 'foo', type: 'java' }],
+    loop: ['Grep', { pattern: 'foo', glob: '*.java' }],
+    expect: { kind: 'grep', pattern: 'foo', path: null, glob: '*.java' },
+  },
+  {
     what: 'субагент',
     sdk: ['Task', { subagent_type: 'sdlc-reviewer', prompt: 'проверь' }],
     loop: ['Agent', { agent: 'sdlc-reviewer', prompt: 'проверь' }],

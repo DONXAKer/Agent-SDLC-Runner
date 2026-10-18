@@ -20,23 +20,36 @@ export function ArchivedRunView({
   slug,
   stageTitles,
   onExit,
+  onOpenDashboard,
 }: {
   project: string;
   slug: string;
   /** Заголовки этапов из `/api/config` — тот же список, что рисует `HistoryList`/`StageRail`. */
   stageTitles: Partial<Record<StageId, string>>;
   onExit: () => void;
+  onOpenDashboard?: () => void;
 }): JSX.Element {
   const [events, setEvents] = useState<RunEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<StageId | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     setEvents(null);
     setError(null);
     setStage(null);
-    api.historyEvents(project, slug).then(setEvents).catch((e: Error) => setError(e.message));
-  }, [project, slug]);
+    const controller = new AbortController();
+    let disposed = false;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 30000);
+    api.historyEvents(project, slug, controller.signal)
+      .then(value => { if (!disposed) setEvents(value); })
+      .catch((e: Error) => {
+        if (!disposed) setError(timedOut ? 'Сервер не загрузил ленту за 30 секунд. Попробуйте повторить запрос.' : e.message);
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => { disposed = true; clearTimeout(timeout); controller.abort(); };
+  }, [project, slug, reload]);
 
   // Порядок — канонический STAGE_ORDER, отфильтрованный до этапов, реально встретившихся
   // в ленте: виток, оборвавшийся на `plan`, не должен показывать пустые вкладки `chunk`/
@@ -74,6 +87,15 @@ export function ArchivedRunView({
         >
           ← к списку витков
         </button>
+        {onOpenDashboard !== undefined ? (
+          <button
+            type="button"
+            onClick={onOpenDashboard}
+            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+          >
+            запуски
+          </button>
+        ) : null}
         <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-xs text-neutral-400">
           архив
         </span>
@@ -85,6 +107,9 @@ export function ArchivedRunView({
       {error !== null ? (
         <div className={`m-4 whitespace-pre-wrap rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
           {error}
+          <button type="button" onClick={() => setReload(value => value + 1)} className="ml-3 rounded border border-neutral-700 px-2 py-1 text-xs">
+            Повторить загрузку
+          </button>
         </div>
       ) : null}
 

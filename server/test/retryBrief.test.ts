@@ -111,6 +111,16 @@ describe('выжимка причин для ретрая', () => {
     strictEqual(signed, null);
   });
 
+  it('retry_instruction рецензента идёт первой строкой после шапки, «н/п» — не идёт', () => {
+    const red = input({ claims: [{ id: 'claim-1', status: '❌' }] });
+    const brief = buildRetryBrief(red, [], { retryInstruction: 'убрать условие sku !== "" в src/store.ts:35' });
+    ok(brief !== null);
+    const at = brief.indexOf('Рецензент: в первую очередь — убрать условие');
+    ok(at >= 0 && at < brief.indexOf('claim-1 — опровергнут'), brief);
+    const none = buildRetryBrief(red, [], { retryInstruction: 'н/п' });
+    ok(none !== null && !none.includes('в первую очередь'));
+  });
+
   it('переносит расхождения ревью, инварианты и регрессии', () => {
     const brief = buildRetryBrief(
       input({
@@ -206,6 +216,73 @@ describe('выжимка причин для ретрая', () => {
     match(brief, /Ожидалось 0, получено NaN/);
     match(brief, /FAIL src\/report\.ts/);
     strictEqual(/node_modules/.test(brief), false);
+  });
+
+  it('визитка node --test (счётчики + повторный список провалов) не вытесняет саму ошибку', () => {
+    // Живой вывод (сокращённый) d2-devstral-vat-rounding, chunk-1-attempt-3, 2026-09-25:
+    // модель добавила `import { Line } from "../src/lines.ts"` при экспорте `Line` только
+    // типом (`export interface Line`) — Node стирает интерфейсы при исполнении TS и падает
+    // на загрузке модуля. Окно ретрая ДО фикса состояло целиком из строк ниже SyntaxError:
+    // счётчиков и повторного «✖ failing tests:» — три попытки подряд без единого слова о
+    // причине.
+    const out = [
+      '✔ деньги (4.9425ms)',
+      'file:///ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      '         ^^^^',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '    at #asyncInstantiate (node:internal/modules/esm/module_job:327:21)',
+      '    at async ModuleJob.run (node:internal/modules/esm/module_job:431:5)',
+      'Node.js v24.18.0',
+      '✖ test\\vat.test.ts (166.0493ms)',
+      'ℹ tests 11',
+      'ℹ suites 3',
+      'ℹ pass 10',
+      'ℹ fail 1',
+      'ℹ cancelled 0',
+      'ℹ skipped 0',
+      'ℹ todo 0',
+      'ℹ duration_ms 257.3565',
+      '✖ failing tests:',
+      'test at test\\vat.test.ts:1:1',
+      '✖ test\\vat.test.ts (166.0493ms)',
+      "  'test failed'",
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /does not provide an export named 'Line'/);
+    match(brief, /import \{ Line \} from "\.\.\/src\/lines\.ts"/);
+    strictEqual(/ℹ tests \d/.test(brief), false, 'счётчики выброшены');
+    strictEqual(/✖ failing tests:/.test(brief), false, 'заголовок повтора выброшен');
+    // Живая строка «✖ test\vat.test.ts (166.0493ms)» (до заголовка recap) остаётся —
+    // резать нужно только её повтор внутри «✖ failing tests:», не первое появление.
+    strictEqual((brief.match(/✖ test\\vat\.test\.ts \(166\.0493ms\)/g) ?? []).length, 1);
+    strictEqual(/'test failed'/.test(brief), false);
+  });
+
+  it('живая строка «✖ <говорящее имя теста> (Nms)» — единственный диагноз без сообщения об ошибке — не вырезается', () => {
+    // code-review-all, 2026-09-26: безусловный фильтр по форме «✖ … (Nms)» резал бы и
+    // ЖИВОЙ (первый) экземпляр — а для теста без явного assert.message (assert.fail(),
+    // кастомный throw без текста) говорящее название it() остаётся ЕДИНСТВЕННЫМ местом с
+    // содержательным текстом. Recap-блок здесь есть — режется только его повтор.
+    const out = [
+      "✖ сумма по складам не сходится с ожидаемой (2.1ms)",
+      '  AssertionError [ERR_ASSERTION]',
+      '',
+      'ℹ tests 5',
+      'ℹ pass 4',
+      'ℹ fail 1',
+      '✖ failing tests:',
+      'test at test/stock.test.ts:12:3',
+      "✖ сумма по складам не сходится с ожидаемой (2.1ms)",
+      "  'test failed'",
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /сумма по складам не сходится с ожидаемой/);
+    strictEqual((brief.match(/сумма по складам не сходится с ожидаемой/g) ?? []).length, 1, 'живая строка одна, recap-повтор вырезан');
+    strictEqual(/✖ failing tests:/.test(brief), false);
+    strictEqual(/test at test\/stock\.test\.ts/.test(brief), false);
   });
 
   it('«н\/п» в графе «что чинить» не показывается', () => {

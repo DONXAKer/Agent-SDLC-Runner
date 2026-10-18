@@ -1,0 +1,362 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 191166,
+    "remainingMs": 3408834,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-09T06:57:51.285Z",
+        "inputRevision": "4c75a7edefa631eec2da870d143ed72e11fd5e8a0dcbda10c2d52cfdc08eb2de",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "        \"sections\": [\n          {"
+          },
+          {
+            "source": "stage-input",
+            "quote": "            \"section\": \"Набор гейтов: billing\",\n            \"values\": [\n              \"_Файл проекта, не витка. Строки не удаляются — только переключаются. Обязательный минимум\","
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "All functional specifications, constraints, and integration points are fully described in the provided request.",
+        "status": "ready",
+        "changed": false
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-09T07:00:53.176Z",
+        "inputRevision": "831358bfb6f430ef5084daab69239b9b5418137ac73fe9033de4b735f0546fbf",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет.\n2. Правила email: ровно одна `@`; локальная часть непустая; домен содержит точку и не\n   начинается и не заканчивается на неё; пробелов нигде нет.\n3. Правила телефона: либо `+7` и ровно 10 цифр после, либо `8` и ровно 10 цифр после.\n   Никаких других символов (пробелов, скобок, дефисов) не допускаем — форма их не ставит."
+          }
+        ],
+        "uncertainties": [
+          "Проверить детали реализации и подготовить план работы"
+        ],
+        "action": "read",
+        "reason": "Проверить детали реализации и подготовить план работы",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": false,
+          "text": "операция не удалась: EISDIR: illegal operation on a directory, read"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-09T07:00:53.196Z",
+        "inputRevision": "831358bfb6f430ef5084daab69239b9b5418137ac73fe9033de4b735f0546fbf",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Не удалось получить данные: операция не удалась: EISDIR: illegal operation on a directory, read"
+        ],
+        "action": "blocked",
+        "reason": "Не удалось получить данные: операция не удалась: EISDIR: illegal operation on a directory, read",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "json-flow-final-20261009065718375-m1-t1",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-09T06:57:41.376Z",
+    "finishedAt": "2026-10-09T07:00:53.227Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Не удалось получить данные: операция не удалась: EISDIR: illegal operation on a directory, read",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 1
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 28495,
+          "outputTokens": 9723,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 282198
+        },
+        "durationMs": 179884,
+        "requestDurationsMs": [
+          9062,
+          8685,
+          17946,
+          24763,
+          7664,
+          68476,
+          79261,
+          17077,
+          40609,
+          8669
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 5898,
+          "outputTokens": 520,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 11241
+        },
+        "durationMs": 11341,
+        "requestDurationsMs": [
+          11242
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:81fc191f-f144-4135-8f06-d5fa6b94ba8d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\json-flow-final-20261009065718375-m1-t1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4856,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5375,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 19846,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "8af3b2dac19be14d72419f758a858b543601442d",
+      "sourceHash": "18b14b7cf5ab2c9460957c1b1cbfd373544e1ee428c6119a5848a0d5dc99aa1c",
+      "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+      "localEndpoints": {},
+      "inputHash": "7b34e2f69ba3107f8ad8e272ad0253d6aa926af44455ea9893cd2d536bd3462f",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "712929f71f3710e1d622c59720959f7d556426152e50f92ccb506325a33f031d",
+    "state": "finished",
+    "capturedAt": "2026-10-09T07:00:53.252Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-09T07:00:53.200Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "c60450bd05d4bc60cfd77ec158cc270f9bfde89c9311b37a81cc0bafab0a36e4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "88d8d02478e6c01cfe3206fce1315744550ebf650e2b896f84ac210c906c173d",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "093dd063ffea5f541d2a1605af372ad4956d33649a337069e2f5df7a8592da8c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "da819ec7d2fb416e566dc7f30741c87f3edf3b910649a11b78802ba301067435",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

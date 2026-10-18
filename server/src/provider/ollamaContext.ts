@@ -113,7 +113,20 @@ function isLoopback(origin: string): boolean {
  * выключен или завис, и «окна в порядке» на нём было бы ложным зелёным перед часами
  * прогона. 5xx тоже не входит: сервер на месте и болен, это проблема.
  */
-function apiAbsent(f: FetchJsonFailure): boolean {
+/**
+ * Без явного тега (`ministral3-14b-ctx32k`, не `…:latest`) `config/models.json` называет
+ * модель тем же именем, каким её создали (`ollama create <имя> -f Modelfile`) — но
+ * `/api/tags`/`/api/ps` отдают имя с суффиксом `:latest` уже приписанным. Сравнение строк
+ * без нормализации сжигало живой прогон ложным «мёртвый тег» на РАБОЧЕЙ модели (`ollama
+ * ps`/`ollama list` в момент отказа видели тег штатно) — bench-серия v5, 2026-09-14.
+ * Экспортирована: тот же приём нужен `ollamaLayout.ts` для раскладки по VRAM — правка
+ * нормализации тега не должна чиниться в одной копии и оставаться сломанной во второй.
+ */
+export function stripLatest(n: string): string {
+  return n.replace(/:latest$/, '');
+}
+
+export function apiAbsent(f: FetchJsonFailure): boolean {
   return f.kind === 'json' || (f.kind === 'http' && (f.status === 404 || f.status === 401 || f.status === 403));
 }
 
@@ -157,12 +170,6 @@ export async function checkOllamaContext(
   const names = models
     .flatMap((m) => [m.name, m.model])
     .filter((n): n is string => n !== undefined && n !== '');
-  // Без явного тега (`ministral3-14b-ctx32k`, не `…:latest`) `config/models.json` называет
-  // модель тем же именем, каким её создали (`ollama create <имя> -f Modelfile`) — но
-  // `/api/tags` отдаёт имя с суффиксом `:latest` уже приписанным. Сравнение строк без
-  // нормализации сжигало живой прогон ложным «мёртвый тег» на РАБОЧЕЙ модели (`ollama
-  // ps`/`ollama list` в момент отказа видели тег штатно) — bench-серия v5, 2026-09-14.
-  const stripLatest = (n: string): string => n.replace(/:latest$/, '');
   if (!names.some((n) => stripLatest(n) === stripLatest(modelId))) {
     return fail(
       `модель «${modelId}» не найдена в Ollama (\`ollama list\` не видит её под этим именем — ` +
@@ -209,6 +216,20 @@ export async function checkOllamaContext(
       `тег «${modelId}» даёт окно ${effective}${windowSource} — ` +
         `один Read вымоет его целиком. Заяви \`contextWindow\` в config/models.json и создай производный тег ` +
         `(\`ollama create ${modelId}-ctx16k -f Modelfile\` с \`PARAMETER num_ctx 16384\`)`,
+      effective,
+    );
+  }
+  // Тег несёт СОБСТВЕННЫЙ зашитый num_ctx (не подставленный сервером умолчанием/env) —
+  // раннер обязан о нём знать, а не просто «не упасть на голом теге» (проверка выше).
+  // Найдено серией local6 (2026-09-24): `ollama:gpt-oss-20b-agent`, `granite4.2-8b-ctx32k-mt`
+  // без `contextWindow` в конфиге шли «окно не задано» — бюджет истории (`Р1`) и потолок
+  // `max_tokens` (`Р2`) не считались вовсе, явный `params.max_tokens` заменял расчёт
+  // вслепую. Раньше это было предупреждением (⚠ в преполёте плана), а не красным здесь.
+  if (numCtx !== null) {
+    return fail(
+      `тег «${modelId}» несёт зашитый num_ctx ${numCtx}, а запись в config/models.json не заявляет ` +
+        `\`contextWindow\` — раннер не считает по нему ни бюджет истории, ни \`max_tokens\`. ` +
+        `Добавь \`"contextWindow": ${numCtx}\` записи модели`,
       effective,
     );
   }

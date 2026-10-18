@@ -1,0 +1,25 @@
+export const protocolVersion = 1;
+
+export function csvRow(values) {
+  if (!Array.isArray(values)) {
+    throw new TypeError('Values must be an array');
+  }
+
+  const escapedCells = values.map(value => {
+    // Convert to string to preserve whitespace, Unicode and handle empty cells
+    const strValue = String(value);
+    
+    // Check if we need to quote the cell
+    if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\r') || strValue.includes('\n')) {
+      // Escape double quotes by doubling them
+      const escaped = strValue.replace(/\"/g, '""');
+      // Wrap in double quotes
+      return `"${escaped}"`;
+    }
+    
+    return strValue;
+  });
+
+  // Join with commas and return without trailing newline
+  return escapedCells.join(',');
+}

@@ -7,35 +7,15 @@
  * шапка как строка данных), и каждое расхождение стоило ложного статуса.
  */
 
+import { splitRow } from '@sdlc-runner/shared';
+
+export { splitRow };
+
 export interface MdTable {
   /** Ближайший предшествующий заголовок без решёток. Пусто, если таблица до заголовков. */
   section: string;
   header: string[];
   rows: string[][];
-}
-
-/** Строка в ячейки. Вертикальная черта внутри значения экранируется как `\|`. */
-export function splitRow(line: string): string[] {
-  const cells: string[] = [];
-  let cur = '';
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
-    if (ch === '\\' && line[i + 1] === '|') {
-      cur += '|';
-      i++;
-      continue;
-    }
-    if (ch === '|') {
-      cells.push(cur);
-      cur = '';
-      continue;
-    }
-    cur += ch;
-  }
-  cells.push(cur);
-  if (cells.length > 0 && cells[0]!.trim() === '') cells.shift();
-  if (cells.length > 0 && cells[cells.length - 1]!.trim() === '') cells.pop();
-  return cells.map((c) => c.trim());
 }
 
 const SEPARATOR = /^\|?[\s:|-]+\|[\s:|-]*$/;

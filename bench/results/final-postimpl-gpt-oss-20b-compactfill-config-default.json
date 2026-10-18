@@ -1,0 +1,612 @@
+{
+  "run": {
+    "slug": "final-postimpl-gpt-oss-20b-compactfill-config-default",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T02:53:28.559Z",
+    "finishedAt": "2026-09-29T03:19:46.416Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 40, осталось на диске 1 полей модели; ответ на поле прогон 1/1/где видно / что чинить отклонён: поле «прогон 1/1/где видно / что чинить»: пустой ответ; ответ на поле вердикт прогона 1 отклонён: ответ не совпал ни с одним из вариантов поля «вердикт прогона 1»: готова, не готова —; ответ на поле прогон 1/1/где видно / что чинить отклонён: поле «прогон 1/1/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 20
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ответы человека не сопоставлены с исходными требованиями; план нельзя одобрять:\n- ответ-1: вопрос не совпадает с clarification-report.md\n- ответ-1: ответ не совпадает с clarification-report.md",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 34
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 216346,
+          "outputTokens": 27473,
+          "cacheReadTokens": 200967,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 961162
+        },
+        "durationMs": 487399,
+        "requestDurationsMs": [
+          5771,
+          8670,
+          11942,
+          5147,
+          12827,
+          26264,
+          19029,
+          26434,
+          53021,
+          4645,
+          4698,
+          10476,
+          21734,
+          15195,
+          23859,
+          34362,
+          2653,
+          6560,
+          19089,
+          32333,
+          40562,
+          47029,
+          13006,
+          26303,
+          30070,
+          13489,
+          21181,
+          39472,
+          9442,
+          25200,
+          35212,
+          14380,
+          35565,
+          43119,
+          17211,
+          23917,
+          37188,
+          20244,
+          29558,
+          42414,
+          14661,
+          10456,
+          26809
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 171796,
+          "outputTokens": 40418,
+          "cacheReadTokens": 135125,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 829388
+        },
+        "durationMs": 720560,
+        "requestDurationsMs": [
+          40570,
+          22968,
+          8654,
+          17937,
+          32278,
+          28466,
+          33939,
+          60700,
+          6079,
+          47590,
+          48664,
+          51045,
+          57307,
+          39138,
+          27481,
+          30155,
+          58976,
+          126173,
+          19810,
+          33263,
+          38214
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 394861,
+          "outputTokens": 20096,
+          "cacheReadTokens": 371825,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 677678
+        },
+        "durationMs": 369198,
+        "requestDurationsMs": [
+          16920,
+          23040,
+          30524,
+          12083,
+          15288,
+          29201,
+          12934,
+          23799,
+          35090,
+          15962,
+          14739,
+          12156,
+          17477,
+          31466,
+          10723,
+          23354,
+          25763,
+          2509,
+          16251,
+          29881,
+          7299,
+          12358,
+          21496,
+          32843,
+          15776,
+          14915,
+          14314,
+          29271,
+          32658,
+          12726,
+          24156,
+          36853,
+          7930,
+          15948
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 16
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 16
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 14
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 30
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:4469de43-7ef2-49f9-beae-74cadda81c2e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:3fd0d87d-4786-4bd9-a2dc-74c60a10ec3e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:55dfe689-488d-414d-8d11-4e8ac277b2b5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:63194a98-0f12-4ca8-afa6-2b8dbeae2af5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:529b4a8c-d122-4040-a9d3-d1878da3ed5e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:1ee2a3cc-1557-4ae2-b7f5-6baccafb8136",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:2b3d8e44-8226-41b7-801d-2fad1cb91ba8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:7868ff06-d8b8-4d95-a929-f93f6201b589",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:27383d42-a008-4930-98c9-6f5010b28ef3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:60027baf-5bb6-46af-9cc8-15a9bdea0893",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\final-postimpl-gpt-oss-20b-compactfill-config-default\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11031,
+        "userChars": 4251,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9601,
+        "userChars": 16166,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 17959,
+        "userChars": 19737,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "6288aa0a9c2b1b36d19753593b5f47a92126998432619d649d9c4e3c7b749e53",
+      "configHash": "43d59d2e3ec3448eed7a285a5b42c44ed0246e8a7fe894d43c6626a6b4688abd",
+      "inputHash": "1b53cb1104959e90e16751cb6f060186d4e8a569204ce6eff41b74a3c5029bcf",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "d3e2856569617b5fd9710130de63338390e9052a2f8ceae554269d2ba471c399",
+    "state": "finished",
+    "capturedAt": "2026-09-29T03:19:46.442Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-09-29T03:19:46.413Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "45abba91a63cef71af19bd0f2b724bafa3d1f5e48b1571bf1e29ec2761c3e564",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "ac2ce926b1493da80b01f7bb720faaa12abae1085c87ea8750fab963548fb1d7",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "faf84115e8754f052004416649b7eafa355ad8250d885ccbd9ca427b99801631",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "23f66452b1f50a4b72e7e410544ac7d451806106fb469f5c9bd993e45d93f644",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "4f3b02e32cd7baf59854b56e47694735b2409db05e7f3e045bbaf859e12a69ce",
+        "placeholders": 30,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "a5159b4b19cff3749f6e433e7595b8c8d4cf1492597c9bc0a1da2bb961afdd22",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

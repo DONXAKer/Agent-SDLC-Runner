@@ -13,6 +13,34 @@
  * разобрать.
  */
 
+import { hostname, networkInterfaces } from 'node:os';
+
+function hostOf(baseUrl: string): string | null {
+  try {
+    return new URL(baseUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Адрес указывает на ЭТУ машину: петля в любом написании (`localhost`, `127.*`, `::1`,
+ * IPv4-mapped `::ffff:7f00:1`), `0.0.0.0`, имя машины и адреса её интерфейсов. Нужен тем,
+ * кто говорит с сервером мимо HTTP — через локальный CLI (`lms ps`, `lms load`): их ответ
+ * про локальную загрузку верен только для локального сервера. Узкая проверка (одна петля)
+ * молча выключала сверку слотов для `http://<своё-имя>:1434` (code-review-all 2026-09-23).
+ */
+export function isLoopbackUrl(baseUrl: string): boolean {
+  const host = hostOf(baseUrl);
+  if (host === null) return false;
+  if (host === 'localhost' || host === '::1' || host === '0.0.0.0' || host.startsWith('127.')) return true;
+  if (host.startsWith('::ffff:7f') || host.startsWith('::ffff:127.')) return true;
+  if (host === hostname().toLowerCase()) return true;
+  return Object.values(networkInterfaces())
+    .flat()
+    .some((i) => i !== undefined && i.address.toLowerCase() === host);
+}
+
 /** `http://localhost:11434/v1` → `http://localhost:11434` — общий хост для `/api/*`. */
 export function apiOrigin(baseUrl: string): string {
   return baseUrl.replace(/\/v1\/?$/, '');

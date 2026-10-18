@@ -13,11 +13,7 @@ export type BenchMode =
   /** Измеряемая модель на одном этапе, остальные — контрольный маршрут. */
   | { kind: 'stage'; stage: StageId }
   /**
-   * Измеряемая модель на всех этапах, КРОМЕ verify.
-   *
-   * Не «на всём витке»: правило рецензента требует строго `rank(verify) > rank(chunk)`,
-   * поэтому этап 6 всегда идёт по контрольному маршруту. Называть это «вся модель на
-   * витке» значило бы отчитаться о том, чего не было.
+   * Measure the full cycle, including verify, with optional explicit control overrides.
    */
   | { kind: 'all' };
 
@@ -31,6 +27,20 @@ export const TASKS: readonly TaskId[] = TASK_DEFS.map((t) => t.id);
 export type Task = TaskId;
 
 export interface BenchOptions {
+  /** Формат проработки; стенд по умолчанию сохраняет исторический v1. */
+  preparationVersion?: 1 | 2 | 3;
+  executionMode?: 'legacy' | 'guided';
+  guidedEngineVersion?: 1 | 2 | 3 | 4;
+  planCandidates?: 1 | 2 | 3;
+  planJudge?: string;
+  chunkCandidates?: 2 | 3;
+  consumerContext?: boolean;
+  evidenceRepair?: boolean;
+  chunkJudge?: string;
+  chunkCandidateTimeoutMs?: number;
+  strictQuestions?: boolean;
+  /** Stop the measurement at this stage, without executing downstream routes. */
+  stopAfterStage?: StageId;
   mode: BenchMode;
   /** Измеряемая модель — id из `config/models.json`. */
   model: string;
@@ -41,6 +51,14 @@ export interface BenchOptions {
   controlOverrides: Partial<Record<StageId, string>>;
   stageTimeoutMs: number;
   runTimeoutMs: number;
+  /**
+   * Потолок стенных часов на ОДИН кейс расширенной пробы преполёта (`--preflight`),
+   * `null` — умолчание `PROBE_CASE_TIMEOUT_MS` (`server/src/probe.ts`, 120 с). Найдено
+   * серией local6 (2026-09-24): плотная медленная модель (`apriel-1.6-15b`) стабильно
+   * отменялась по этому потолку и красилась средой (код 2), хотя движок отвечал —
+   * ручка нужна, чтобы отличить «дай ей больше времени» от смены модели/роли.
+   */
+  probeTimeoutMs: number | null;
   /**
    * Значение `--max-turns`. Действует ТОЛЬКО при `maxTurnsExplicit`: без ключа лимит —
    * штатный из загруженного конфига (`resolveTurnLimits`), а здесь лежит заглушка разбора.
@@ -87,6 +105,15 @@ export interface BenchOptions {
    */
   preflight: boolean;
   /**
+   * Явное разрешение преполёту ОДИН раз перезагрузить модель при средовом сбое движка
+   * (`--engine-reload`) и повторить прогрев движка. Кейсы пробы не перезапускаются: сбой
+   * движка ловит прогрев, стоящий перед ними. По умолчанию выключено: GPU общий,
+   * и молча дёргать загрузку моделей нельзя — нужен флаг оператора (§2.1 п.4
+   * docs/proposals/model-flow-improvements.md). Необязательное поле — как `rawLog`:
+   * литеральные BenchOptions в тестах не обязаны его называть.
+   */
+  engineReload?: boolean;
+  /**
    * Не печатать живой ход прогона (этапы, вызовы, ветки решений, контекст) — `--quiet`.
    * По умолчанию печатается: без него прогон молчал часами до итоговой сводки.
    */
@@ -97,6 +124,8 @@ export interface BenchOptions {
    * это отдельный режим, не довесок к измерению.
    */
   makeSnapshot: string | null;
+  /** Preserve approved inputs after each successful stage of a full cycle. */
+  captureInputs?: boolean;
   /**
    * Имя снимка, с которого восстановить рабочую копию вместо прохода этапов с начала.
    * Точка снимка хранится в нём самом (`stoppedAfterStage`) — driver стартует со
@@ -204,15 +233,27 @@ export const USAGE = `
   --task <имя>          задача бенчмарка (умолчание oversize), по семействам фикстур:
 ${taskListForUsage()}
   --stage <этап>        измерять один этап: intent|explore|ask|plan|chunk|verify|handoff
-  --all                 измерять все этапы, КРОМЕ verify (правило рецензента)
+  --all                 measure all seven stages, including verify
   --slug <имя>          слаг витка (умолчание: bench-<модель>-<режим>)
   --control-<этап> <id> заменить контрольный маршрут этапа
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
+  --probe-timeout <мин> потолок на ОДИН кейс расширенной пробы преполёта (умолчание 2 мин)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
   --max-turns <n>       ходов на этап (умолчание — штатный лимит config/runner.json); явный
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
+  --guided-engine-version <1|2|3|4> версия guided: 1 прежняя, 2 прогресс, 3 runtime-предусловия, 4 проверенный контракт и инварианты
+  --plan-candidates <1|2|3> эксперимент Plan: один вариант либо выбор среди кандидатов
+  --plan-judge <id>       локальный оценщик для нескольких кандидатов; по умолчанию модель Plan
+  --chunk-candidates <2|3> выбор патча группы Chunk; по умолчанию выключен
+  --consumer-context      эксперимент: контекст прямых потребителей (guided v4)
+  --evidence-repair       эксперимент: ремонт реализации по наблюдениям (guided v4)
+  --chunk-judge <id>      локальный оценщик; по умолчанию модель Chunk
+  --chunk-candidate-seconds <n> лимит времени одного кандидата, по умолчанию 60 секунд
+  --preparation-version <1|2|3> версия проработки (стенд: 1; guided: 3)
+  --execution-mode <legacy|guided> текущий флоу или проверяемые группы одной локальной модели
+  --strict-questions             отвечать только по банку бизнес-фактов, без fallback
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
   --no-raw-log          живой прогон без сырого дампа запросов в bench/traces/raw
   --keep-workspace      не удалять рабочую копию в tmp
@@ -221,9 +262,14 @@ ${taskListForUsage()}
   --preflight           преполётный тест вместо прогона: среда (фикстура/снимок/конфиг) +
                         расширенная проба модели (точность записи, честность путей, длина ответа)
   --no-preflight        не гонять преполёт автоматически перед живым прогоном (по умолчанию гоняется)
+  --engine-reload       разрешить преполёту ОДНУ перезагрузку модели при средовом сбое движка
+                        на прогреве (lms load для LM Studio) и один повтор прогрева; по умолчанию выключено —
+                        GPU общий, молча дёргать загрузку моделей нельзя
   --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
+  --capture-inputs сохранять входы после успешных этапов живого прогона для диагностики
+  --stop-after-stage <этап> остановить измерение после этапа, не запускать следующие маршруты
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
   --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
                         ${seedIds().join(' | ')}
@@ -244,6 +290,17 @@ function positiveNumber(raw: string, what: string): number {
 }
 
 export function parseArgs(argv: readonly string[]): BenchOptions {
+  let preparationVersion: 1 | 2 | 3 | undefined;
+  let executionMode: 'legacy' | 'guided' | undefined;
+  let guidedEngineVersion: 1 | 2 | 3 | 4 | undefined;
+  let planCandidates: 1 | 2 | 3 | undefined;
+  let planJudge: string | undefined;
+  let chunkCandidates: 2 | 3 | undefined;
+  let consumerContext = false;
+  let evidenceRepair = false;
+  let chunkJudge: string | undefined;
+  let chunkCandidateTimeoutMs: number | undefined;
+  let strictQuestions = false;
   let mode: BenchMode | null = null;
   let model: string | null = null;
   let task: Task = 'oversize';
@@ -251,6 +308,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   const controlOverrides: Partial<Record<StageId, string>> = {};
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
   let runTimeoutMs = DEFAULTS.runTimeoutMs;
+  let probeTimeoutMs: number | null = null;
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
   let maxTurnsExplicit = false;
   let rawLog = true;
@@ -262,12 +320,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let probe = false;
   let preflightOnly = false;
   let preflight = true;
+  let engineReload = false;
   let quiet = false;
   let makeSnapshot: string | null = null;
+  let captureInputs = false;
   let fromSnapshot: string | null = null;
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
   // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
   let snapshotAfter: StageId | null = null;
+  let stopAfterStage: StageId | undefined;
   let seed: string | null = null;
 
   const next = (i: number, key: string): string => {
@@ -330,6 +391,10 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         runTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
         i++;
         break;
+      case '--probe-timeout':
+        probeTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
+        i++;
+        break;
       case '--max-turns':
         maxIterationsPerStage = positiveNumber(next(i, key), key);
         maxTurnsExplicit = true;
@@ -372,6 +437,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       case '--no-preflight':
         preflight = false;
         break;
+      case '--engine-reload':
+        engineReload = true;
+        break;
       case '--quiet':
         quiet = true;
         break;
@@ -391,6 +459,70 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--stop-after-stage': {
+        const value = next(i, key);
+        if (!STAGE_ORDER.includes(value as StageId)) throw new OptionsError(`неизвестный этап: ${value}`);
+        stopAfterStage = value as StageId;
+        i++;
+        break;
+      }
+      case '--preparation-version': {
+        const value = next(i, key);
+        if (value !== '1' && value !== '2' && value !== '3') throw new OptionsError('--preparation-version: ожидается 1, 2 или 3');
+        preparationVersion = Number(value) as 1 | 2 | 3;
+        i++;
+        break;
+      }
+      case '--guided-engine-version': {
+        const value = next(i, key);
+        if (!['1', '2', '3', '4'].includes(value)) throw new OptionsError('--guided-engine-version: ожидается 1, 2, 3 или 4');
+        guidedEngineVersion = Number(value) as 1 | 2 | 3 | 4;
+        i++;
+        break;
+      }
+      case '--plan-candidates': {
+        const value = next(i, key);
+        if (!['1', '2', '3'].includes(value)) throw new OptionsError('--plan-candidates: ожидается 1, 2 или 3');
+        planCandidates = Number(value) as 1 | 2 | 3;
+        i++;
+        break;
+      }
+      case '--chunk-candidates': {
+        const value = next(i, key);
+        if (!['2', '3'].includes(value)) throw new OptionsError('--chunk-candidates: ожидается 2 или 3');
+        chunkCandidates = Number(value) as 2 | 3; i++; break;
+      }
+      case '--consumer-context': consumerContext = true; break;
+      case '--evidence-repair': evidenceRepair = true; break;
+      case '--chunk-judge': {
+        chunkJudge = next(i, key);
+        if (!chunkJudge.trim()) throw new OptionsError('--chunk-judge: требуется id модели');
+        i++; break;
+      }
+      case '--chunk-candidate-seconds': {
+        chunkCandidateTimeoutMs = positiveNumber(next(i, key), key) * 1000;
+        if (!Number.isSafeInteger(chunkCandidateTimeoutMs) || chunkCandidateTimeoutMs > 2147483647) throw new OptionsError('Недопустимый таймаут кандидата');
+        i++; break;
+      }
+      case '--plan-judge': {
+        planJudge = next(i, key);
+        if (!planJudge.trim()) throw new OptionsError('--plan-judge: требуется id модели');
+        i++;
+        break;
+      }
+      case '--execution-mode': {
+        const value = next(i, key);
+        if (value !== 'legacy' && value !== 'guided') throw new OptionsError('--execution-mode: ожидается legacy или guided');
+        executionMode = value;
+        i++;
+        break;
+      }
+      case '--strict-questions':
+        strictQuestions = true;
+        break;
+      case '--capture-inputs':
+        captureInputs = true;
+        break;
       case '--from-snapshot':
         fromSnapshot = next(i, key);
         i++;
@@ -462,17 +594,54 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   }
 
   const resolvedMode: BenchMode = mode ?? { kind: 'all' };
+  if ([stageTimeoutMs, runTimeoutMs, probeTimeoutMs ?? 1].some(value => value > 2_147_483_647)) {
+    throw new OptionsError('таймаут превышает максимальный таймер Node; единица параметра — минуты');
+  }
+  if (executionMode === 'guided' && (resolvedMode.kind !== 'all' || (preparationVersion !== undefined && preparationVersion !== 3) ||
+      Object.keys(controlOverrides).some(stage => stage !== 'plan' || planCandidates === undefined))) {
+    throw new OptionsError('guided требует --all, preparation-version 3 и одну модель; control-plan доступен только в явном эксперименте выбора плана');
+  }
+  if (guidedEngineVersion !== undefined && executionMode !== 'guided') throw new OptionsError('--guided-engine-version требует --execution-mode guided');
+  if (planCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--plan-candidates требует --execution-mode guided');
+  if (planJudge !== undefined && planCandidates === undefined) throw new OptionsError('--plan-judge требует --plan-candidates');
+  if (planJudge !== undefined && planCandidates === 1) throw new OptionsError('--plan-judge требует несколько кандидатов');
+  if (chunkCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--chunk-candidates требует guided');
+  if ((consumerContext || evidenceRepair) && (executionMode !== 'guided' || guidedEngineVersion !== 4)) throw new OptionsError('Эксперименты контекста/ремонта требуют guided v4');
+  if ((chunkJudge !== undefined || chunkCandidateTimeoutMs !== undefined) && chunkCandidates === undefined) throw new OptionsError('Настройки оценщика Chunk требуют --chunk-candidates');
+  if (stopAfterStage !== undefined) {
+    if (makeSnapshot !== null || probe || preflightOnly) throw new OptionsError('--stop-after-stage несовместим со снимком или пробой');
+    if (resolvedMode.kind === 'stage' && STAGE_ORDER.indexOf(stopAfterStage) < STAGE_ORDER.indexOf(resolvedMode.stage)) {
+      throw new OptionsError('--stop-after-stage не может предшествовать измеряемому этапу');
+    }
+  }
   const resolvedModel = model ?? '';
   const modeTag = resolvedMode.kind === 'all' ? 'all' : resolvedMode.stage;
 
+  if (captureInputs && (dryRun || probe || preflightOnly || makeSnapshot !== null)) {
+    throw new OptionsError('--capture-inputs требует живого прогона без --make-snapshot');
+  }
   return {
+    ...(captureInputs ? { captureInputs } : {}),
+    ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,
+    ...(preparationVersion === undefined ? {} : { preparationVersion }),
+    ...(executionMode === undefined ? {} : { executionMode }),
+    ...(guidedEngineVersion === undefined ? {} : { guidedEngineVersion }),
+    ...(planCandidates === undefined ? {} : { planCandidates }),
+    ...(planJudge === undefined ? {} : { planJudge }),
+    ...(chunkCandidates === undefined ? {} : { chunkCandidates }),
+    ...(consumerContext ? { consumerContext } : {}),
+    ...(evidenceRepair ? { evidenceRepair } : {}),
+    ...(chunkJudge === undefined ? {} : { chunkJudge }),
+    ...(chunkCandidateTimeoutMs === undefined ? {} : { chunkCandidateTimeoutMs }),
+    ...(strictQuestions ? { strictQuestions: true } : {}),
     model: resolvedModel,
     task,
     slug: slug ?? `bench-${task}-${(resolvedModel || 'dry').replace(/[^\w.-]+/g, '-')}-${modeTag}`,
     controlOverrides,
     stageTimeoutMs,
     runTimeoutMs,
+    probeTimeoutMs,
     maxIterationsPerStage,
     maxTurnsExplicit,
     rawLog,
@@ -484,6 +653,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     probe,
     preflightOnly,
     preflight,
+    engineReload,
     quiet,
     makeSnapshot,
     fromSnapshot,

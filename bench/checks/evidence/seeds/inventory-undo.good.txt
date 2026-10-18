@@ -1,0 +1,2 @@
+export const protocolVersion = 1;
+export function createInventory(initial) { const stock=new Map(Object.entries(initial)), tokens=new Map(); return {available:sku=>stock.get(sku)??0,reserve(sku,q){if(!Number.isSafeInteger(q)||q<=0)throw new RangeError();if(!stock.has(sku)||stock.get(sku)<q)return null;const t={};stock.set(sku,stock.get(sku)-q);tokens.set(t,[sku,q]);return t;},release(t){const entry=tokens.get(t);if(!entry)return false;tokens.delete(t);stock.set(entry[0],stock.get(entry[0])+entry[1]);return true;}}; }

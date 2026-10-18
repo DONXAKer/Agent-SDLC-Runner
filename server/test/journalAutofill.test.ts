@@ -10,7 +10,7 @@
 import { ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { autofillChunkJournal, autofillJournalOutcome } from '../src/run/journalAutofill.ts';
+import { approvedPlanDate, autofillChunkJournal, autofillJournalOutcome } from '../src/run/journalAutofill.ts';
 import type { ChunkJournalFacts } from '../src/run/journalAutofill.ts';
 
 const TEMPLATE = [
@@ -42,6 +42,16 @@ const FACTS: ChunkJournalFacts = {
   attemptBudget: 3,
   planApprovedOn: '2026-08-29',
 };
+
+describe('approvedPlanDate', () => {
+  it('returns a date only when a human approval is recorded', () => {
+    strictEqual(approvedPlanDate('- **Одобрение:** А. Г. · 2026-09-01'), '2026-09-01');
+    strictEqual(approvedPlanDate('- **Одобрение:** А. Г. · 1.9.2026'), '1.9.2026');
+    strictEqual(approvedPlanDate('- **Одобрение:** ‹имя› · ‹дата› / **не одобрен**'), null);
+    strictEqual(approvedPlanDate('- **Одобрение:** не одобрен'), null);
+    strictEqual(approvedPlanDate('- **Одобрение:** через ExitPlanMode'), null);
+  });
+});
 
 describe('автозаполнение журнала chunk\'а', () => {
   it('механика заполняется, содержательное и решение человека — нет', () => {

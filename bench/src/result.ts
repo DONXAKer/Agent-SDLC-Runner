@@ -9,10 +9,10 @@
  * Инвариант файла: из одного `result.json` обязан пересобираться весь отчёт (`buildReport`).
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
+import type { ExecutionSummary, GuidedSummary, RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
 
 import type { DriverResult } from './driver.ts';
 import type { OperatorDecisionLog } from './operator.ts';
@@ -22,9 +22,13 @@ import type { HonestyCheck } from './honesty.ts';
 import type { BenchOptions, TurnLimits } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
 import type { SeedProbe } from './seeds.ts';
+import type { RunDiagnostics } from './diagnostics.ts';
 import { taskById } from './tasks.ts';
 
 export interface BenchResult {
+  execution?: ExecutionSummary;
+  guided?: GuidedSummary | null;
+  diagnostics?: RunDiagnostics;
   /** Идентификация прогона — не измерение, а его паспорт. */
   run: {
     slug: string;
@@ -33,6 +37,13 @@ export interface BenchResult {
     task: string;
     fixtureDir: string;
     mode: BenchOptions['mode'];
+    executionMode?: BenchOptions['executionMode'];
+    guidedEngineVersion?: BenchOptions['guidedEngineVersion'];
+    planSelection?: { candidates: 1 | 2 | 3; judgeModel: string | null };
+    chunkSelection?: { candidates: 2 | 3; judgeModel: string; candidateTimeoutMs: number };
+    guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
+    preparationVersion?: BenchOptions['preparationVersion'];
+    strictQuestions?: boolean;
     profileLabel: string;
     routes: BuiltProfile['routes'];
     /** Валюта каждого маршрута — стоимость этапа подписывается ею, а не хардкодом `$`. */
@@ -72,6 +83,8 @@ export interface BenchResult {
 }
 
 export function buildResult(args: {
+  execution?: ExecutionSummary;
+  guided?: GuidedSummary | null;
   opts: BenchOptions;
   built: BuiltProfile;
   startedAt: Date;
@@ -89,12 +102,23 @@ export function buildResult(args: {
   const { opts, built } = args;
   const limits = args.turnLimits;
   return {
+    ...(args.execution === undefined ? {} : { execution: args.execution }),
+    ...(args.guided === undefined ? {} : { guided: args.guided }),
     run: {
       slug: opts.slug,
       model: opts.model,
       task: opts.task,
       fixtureDir: taskById(opts.task).fixtureDir,
       mode: opts.mode,
+      executionMode: opts.executionMode ?? 'legacy',
+      ...(opts.executionMode === 'guided' ? { guidedEngineVersion: opts.guidedEngineVersion ?? 1 } : {}),
+      ...(built.profile.chunkSelection ? { chunkSelection: { candidates: built.profile.chunkSelection.candidates,
+        judgeModel: built.profile.chunkSelection.judge.modelId, candidateTimeoutMs: built.profile.chunkSelection.candidateTimeoutMs ?? 60000 } } : {}),
+      ...(built.profile.guidedImprovements ? { guidedImprovements: built.profile.guidedImprovements } : {}),
+      ...(built.profile.planSelection ? { planSelection: { candidates: built.profile.planSelection.candidates,
+        judgeModel: built.profile.planSelection.candidates === 1 ? null : built.profile.planSelection.judge.modelId } } : {}),
+      preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
+      strictQuestions: opts.strictQuestions === true || opts.executionMode === 'guided',
       profileLabel: built.profile.label,
       routes: built.routes,
       currencies: built.currencies,
@@ -123,5 +147,20 @@ export function buildResult(args: {
 /** Пишет `result.json` — каталог создаётся, если его ещё нет (первый прогон бенчмарка). */
 export function writeResult(path: string, result: BenchResult): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
+  // Через временный файл и переименование: читатель (дашборд) не видит половину записи, а
+  // переименование меняет время правки каталога `results/` — по нему дашборд замечает
+  // переписанный на месте результат, не перебирая сотни файлов на каждом опросе.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(result, null, 2)}\n`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(tmp, path);
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
+      // Windows readers can briefly hold the destination open; preserve atomic publication.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+    }
+  }
 }

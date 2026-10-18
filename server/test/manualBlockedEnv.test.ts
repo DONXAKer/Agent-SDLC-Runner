@@ -55,12 +55,26 @@ describe('пункт приёмки manual', () => {
 });
 
 describe('красный из-за окружения', () => {
-  const blocked = { name: 'Тесты', status: '⏭' as const, inapplicableSignedBy: null, envBlocked: true };
+  const blocked = {
+    name: 'Тесты',
+    status: '⏭' as const,
+    inapplicableSignedBy: null,
+    envBlocked: true,
+    missingTool: 'bash: java: command not found',
+  };
 
   it('гейт, не сумевший запуститься, даёт blocked_env, а не retry', () => {
     const v = computeVerdict(input({ gates: [blocked] }), []);
     strictEqual(v.passed, false);
     strictEqual(v.action, 'blocked_env');
+  });
+
+  it('без улики инструмента незапуск — обычный retry: blocked_env держится на цитате, не на слове', () => {
+    // `SDLC.md` → «Красный из-за окружения»: «Тесты упали» без строки, назвавшей
+    // отсутствующий инструмент, — код или тест сломан, а не окружение.
+    const v = computeVerdict(input({ gates: [{ ...blocked, missingTool: null }] }), []);
+    strictEqual(v.passed, false);
+    strictEqual(v.action, 'retry');
   });
 
   it('рядом с настоящим провалом это обычный красный: чинить есть что', () => {
@@ -95,7 +109,10 @@ describe('красный из-за окружения', () => {
  * Принятый риск без условия возврата (находка F6 ретро 2026-08-27: одна такая строка
  * переехала через четыре витка, и условие возврата к тому моменту уже наступило).
  */
-describe('долг: принятый риск обязан назвать, когда к нему вернуться', () => {
+// Правило изменилось (code-review-all 2026-09-23): `SDLC.md` закрывает строку долга подписью
+// и датой, а `example/gates.md` эталона сам принимает риски без срока — отсутствие условия
+// возврата теперь пометка (`revisitMissing`), а не открытый долг, роняющий вердикт.
+describe('долг: принятый риск без условия возврата — пометка, а не открытый долг', () => {
   const gates = (how: string): string =>
     [
       '# Набор',
@@ -114,10 +131,10 @@ describe('долг: принятый риск обязан назвать, ко�
       '',
     ].join('\n');
 
-  it('риск без условия возврата закрытым не считается', () => {
+  it('риск без условия возврата закрыт подписью, но помечен revisitMissing', () => {
     const g = parseGates(gates('риск принят: линтера нет'));
-    strictEqual(g.debt[0]?.closed, false);
-    ok(g.debt[0]!.why.includes('когда к нему вернуться'), g.debt[0]!.why);
+    strictEqual(g.debt[0]?.closed, true, g.debt[0]!.why);
+    strictEqual(g.debt[0]?.revisitMissing, true);
   });
 
   it('риск с условием возврата закрыт', () => {

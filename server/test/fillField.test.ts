@@ -94,6 +94,15 @@ describe('normalize: fill_field', () => {
 });
 
 describe('политика: FillField', () => {
+  it('объясняет неверный ключ артефакта отдельно от ошибки типов аргументов', () => {
+    const { root } = makeProject();
+    const unknown = normalize('FillField', { artifact: 'chunk-1-journal.md', field: 'Место правки', value: 'x', op: 'set' });
+    const verdict = evaluate(unknown, ctx(root));
+    ok(!verdict.ok);
+    ok(verdict.reason.includes('ключ из карточки бланка'));
+    ok(verdict.reason.includes('не имя файла'));
+  });
+
   it('ключ, которого этап не производит, — отказ stageTools с перечнем доступных', () => {
     const { root } = makeProject();
     const v = evaluate(call({ artifact: 'plan' }), ctx(root, { stageArtifacts: [] }));

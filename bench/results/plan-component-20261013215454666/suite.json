@@ -1,0 +1,145 @@
+{
+  "id": "plan-component-20261013215454666",
+  "generator": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+  "judge": "ollama:qwen3.8-27b-iq4-gpumax",
+  "status": "complete",
+  "limitation": "Component pilot on fixed explicit inputs. Runtime-valid plans are not proof of semantic correctness or successful implementation.",
+  "runs": [
+    {
+      "case": "normalize-label",
+      "mode": "single",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\normalize-label-single",
+      "ok": false,
+      "note": "План не подготовлен: решение в «Подход» ссылается на непереданные или изменившиеся исходники: lib/export.ts — используй источники из отчёта разведки и обнови обоснование",
+      "usage": {
+        "inputTokens": 8341,
+        "outputTokens": 2381,
+        "cacheReadTokens": 542,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 113874
+      },
+      "requests": 4,
+      "seconds": 114.04,
+      "plan": ""
+    },
+    {
+      "case": "normalize-label",
+      "mode": "self",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\normalize-label-self",
+      "ok": false,
+      "error": "Error: запрос к модели отменён",
+      "usage": {
+        "inputTokens": 10536,
+        "outputTokens": 4747,
+        "cacheReadTokens": 5554,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 179277
+      },
+      "seconds": 180.016
+    },
+    {
+      "case": "normalize-label",
+      "mode": "separate",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\normalize-label-separate",
+      "ok": false,
+      "error": "Error: запрос к модели отменён",
+      "usage": {
+        "inputTokens": 10123,
+        "outputTokens": 4273,
+        "cacheReadTokens": 4867,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 161734
+      },
+      "seconds": 180.018
+    },
+    {
+      "case": "normalize-label",
+      "mode": "stronger",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\normalize-label-stronger",
+      "ok": true,
+      "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+      "usage": {
+        "inputTokens": 3266,
+        "outputTokens": 767,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 73207
+      },
+      "requests": 2,
+      "seconds": 73.239,
+      "plan": "<!-- sdlc-template: plan v1 -->\n# План: case\n- **Задача:** intent.md\n- **Одобрение:** ‹имя и дата› / не одобрен — реализация не начинается\n\n## Подход\nВыбран подход использования нативного String.prototype.trim(). Решение основано на исследовании файловой структуры, где в lib/labels.ts обнаружена функция normalizeLabel(value: string): string, текущая реализация которой является pass-through (возвращает значение как есть). Для выполнения требований по удалению пробелов на границах и сохранению внутренних пробелов выбран метод trim, так как он точно соответствует спецификации.\n\n## Шаги\n### Шаг 1 — Replace the function body `return value;` with the result of trimming the input string. Preserve the function signature and file location.\n- файл: `lib/labels.ts` (существующий)\n- символ: normalizeLabel\n- действие: Replace the function body `return value;` with the result of trimming the input string. Preserve the function signature and file location.\n- закрывает: claim-1, claim-2\n- проверка: Execute the function with padded text, empty strings, and text containing internal spaces to verify the output matches the expected transformation. · ожидаемо: Leading and trailing whitespace is removed; internal whitespace is preserved; empty input returns an empty string.\n- контракт: The signature `function normalizeLabel(value: string): string` remains identical; the internal behavior changes from pass-through to trimming edge whitespace.\n- зависит от: нет\n- факты человека: н/п\n\n## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| lib/labels.ts | Replace the function body `return value;` with the result of trimming the input string. Preserve the function signature and file location. |\n\n## Добавлено сверх разведки\n\n## Из задачи исключено\n- No public API changes.\n\n## Проверки приёмки\n| ID | Наблюдаемое поведение | Процедура | Ожидаемый результат |\n|---|---|---|---|\n| claim-1 | Leading and trailing whitespace is removed | Call normalizeLabel with padded text | Text with no surrounding spaces |\n| claim-2 | Empty labels remain empty and internal whitespace is preserved | Call normalizeLabel with an empty string and text containing internal spaces | Empty string and unchanged internal spaces |\n\n## Последствия шагов\n| Ось | Затронута шагами | Что именно в шагах | Исход |\n|---|---|---|---|\n| Безопасность | нет | No new I/O or complex validation | н/п — simple string manipulation |\n| Ресурсы и скорость | нет | Native method is highly optimized | н/п — minimal overhead |\n| Отказы зависимостей | нет | Standard library functions | н/п — no dependencies |\n| Настройки | нет | No configuration required | н/п — logic is self-contained |\n| Совместимость и данные | нет | Public API remains exactly `function normalizeLabel(value: string): string` | инвариант API |\n| Наблюдаемость | нет | Pure function | н/п — no side effects |\n\n## Изменения требований\nNo requirement clarifications needed\n\n- **Требования (SHA-256):** cc9aca29147a71e6bc50ccf97615394026eee283c5216d9b6841eb4a2a367baa\n"
+    },
+    {
+      "case": "clamp-counter",
+      "mode": "single",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\clamp-counter-single",
+      "ok": true,
+      "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+      "usage": {
+        "inputTokens": 2037,
+        "outputTokens": 1008,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 53906
+      },
+      "requests": 1,
+      "seconds": 53.927,
+      "plan": "<!-- sdlc-template: plan v1 -->\n# План: case\n- **Задача:** intent.md\n- **Одобрение:** ‹имя и дата› / не одобрен — реализация не начинается\n\n## Подход\nПравка исходной функции `adjustCount` в `engine/count.ts`. Альтернатива — создание новой функции с сохранением исходной (отвергается из-за требования изменения только внутреннего представления). Контракты публичного API должны остаться неизменными. Подход выбрал минимальные правки при условиях: 1) обработка только отрицательных `value`, 2) нули и положительные значения без изменений, 3) отсутствие видимых изменений для вызовов.\n\n## Шаги\n### Шаг 1 — Добавить проверку на отрицательное значение в `adjustCount`. Если `value < 0`, вернуть `0`, иначе вернуть `value`.\n- файл: `engine/count.ts` (существующий)\n- символ: adjustCount\n- действие: Добавить проверку на отрицательное значение в `adjustCount`. Если `value < 0`, вернуть `0`, иначе вернуть `value`.\n- закрывает: claim-1, claim-2\n- проверка: Запускаем тестовые вызовы: `adjustCount(-5)` → `0`, `adjustCount(0)` → `0`, `adjustCount(10)` → `10`. · ожидаемо: Всем вызовам соответствует ожидаемый результат без ошибок.\n- контракт: Локальный контракт изменён: при `value < 0` возвращается всегда `0`. Подключающие коды обязаны ожидать лишь корректные ответы (отрицательные входы теперь обрабатываются в 0).\n- зависит от: нет\n- факты человека: н/п\n\n### Шаг 2 — Добавить тест-класс с метками `\n- файл: `test/engine/count.test.ts` (новый)\n- символ: новый: countTest\n- действие: Добавить тест-класс с метками `\n- закрывает: claim-1, claim-2\n- проверка: Проверка отрицательных входов (claim-1): `assert.equal(adjustCount(-10), 0)`, положительных (claim-2): `assert.equal(adjustCount(10), 10)`. · ожидаемо: Запуск тестов проходит успешно и возвращает `0` для отрицательных, входное значение для положительных, без исключений.\n- контракт: Контракт изменётся на уровень теста: утверждается спецификация поведения.\n- зависит от: 1\n- факты человека: н/п\n\n## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| engine/count.ts | Добавить проверку на отрицательное значение в `adjustCount`. Если `value < 0`, вернуть `0`, иначе вернуть `value`. |\n| test/engine/count.test.ts | Добавить тест-класс с метками ` |\n\n## Добавлено сверх разведки\n- `test/engine/count.test.ts` — Добавить тест-класс с метками `; Проверка отрицательных входов (claim-1): `assert.equal(adjustCount(-10), 0)`, положительных (claim-2): `assert.equal(adjustCount(10), 10)`. → Запуск тестов проходит успешно и возвращает `0` для отрицательных, входное значение для положительных, без исключений.\n\n## Из задачи исключено\n- public API изменения — использование новой символики или функции с другим именем\n\n## Проверки приёмки\n| ID | Наблюдаемое поведение | Процедура | Ожидаемый результат |\n|---|---|---|---|\n| claim-1 | Negative counts become zero | Call adjustCount with negative integers | Zero |\n| claim-2 | Zero and positive counts remain unchanged | Call adjustCount with zero and positive integers | The original value |\n\n## Последствия шагов\n| Ось | Затронута шагами | Что именно в шагах | Исход |\n|---|---|---|---|\n| Отказы зависимостей | нет | Входные значения корректны для типа `number` и обработаны в рамках ожидаемого поведения. | claim-1 / claim-2 — работают без сбоев. |\n| Настройки | нет | Нет конфигурируемых параметров или контекстных переменных. | н\"/ — нет изменений. |\n| Совместимость и данные | да | Негативные значения обрабатываются по-новому, без изменений для положительных. | claim-2 / инвариант. |\n| Наблюдаемость | нет | Нет логирования или ведения метрик, нет модификации структур данных. | н\"/ — результат зависит от логики вызова. |\n| Ресурсы и скорость | нет | Добавлена только линейная операция сравнения и возвращения значения. | н\"/ — нет влияния на общую производительность. |\n| Безопасность | нет | Добавление границ для негативных значений безопасно. | claim-2 / инвариант. |\n\n## Изменения требований\nДобавлен внутренний кламп для отрицательных в `adjustCount`. Публичный контракт остался нетронутым.\n\n- **Требования (SHA-256):** 264720b1261c7fbf53bad32ac378b2ab831c7cc7b04b86b352637d275c12aecf\n"
+    },
+    {
+      "case": "clamp-counter",
+      "mode": "self",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\clamp-counter-self",
+      "ok": false,
+      "error": "Error: запрос к модели отменён",
+      "usage": {
+        "inputTokens": 10067,
+        "outputTokens": 4759,
+        "cacheReadTokens": 6908,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 176232
+      },
+      "seconds": 180.02
+    },
+    {
+      "case": "clamp-counter",
+      "mode": "separate",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\clamp-counter-separate",
+      "ok": false,
+      "error": "Error: запрос к модели отменён",
+      "usage": {
+        "inputTokens": 10328,
+        "outputTokens": 3557,
+        "cacheReadTokens": 6003,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 134288
+      },
+      "seconds": 180.021
+    },
+    {
+      "case": "clamp-counter",
+      "mode": "stronger",
+      "workspace": "D:\\Проекты\\Agent-SDLC-Runner\\.tmp\\plan-component-20261013215454666\\clamp-counter-stronger",
+      "ok": true,
+      "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+      "usage": {
+        "inputTokens": 3493,
+        "outputTokens": 1061,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 65276
+      },
+      "requests": 2,
+      "seconds": 65.305,
+      "plan": "<!-- sdlc-template: plan v1 -->\n# План: case\n- **Задача:** intent.md\n- **Одобрение:** ‹имя и дата› / не одобрен — реализация не начинается\n\n## Подход\nВыбран подход минимального изменения внутренней реализации существующей функции. Основание для выбора: в исходном файле engine/count.ts обнаружена функция adjustCount(value: number): number, которая в текущем состоянии возвращает входное значение без обработки (return value). Согласно исследованию (exploration-report.md, раздел с engine/count.ts), именно этот символ является точкой применения требования о клампинге отрицательных значений. Замена внутренней логики на Math.max(0, value) обеспечивает выполнение требований claim-1 и claim-2 без изменения публичной сигнатуры или экспорта, что соответствует ограничению о неизменности API.\n\n## Шаги\n### Шаг 1 — Заменить возвращаемое значение в функции adjustCount на вычисление максимального значения между переданным аргументом и нулем. Убедиться, что синтаксис TypeScript корректен.\n- файл: `engine/count.ts` (существующий)\n- символ: adjustCount\n- действие: Заменить возвращаемое значение в функции adjustCount на вычисление максимального значения между переданным аргументом и нулем. Убедиться, что синтаксис TypeScript корректен.\n- закрывает: claim-1, claim-2\n- проверка: Запустить линтер TypeScript на файл engine/count.ts, затем выполнить унитарные тесты, вызывая функцию с отрицательными значениями (ожидаемый 0), нулем и положительными значениями (ожидаемы исходные значения). · ожидаемо: Компилятор TypeScript не находит ошибок, тесты проходят с ожидаемыми результатами для граничных и типовых значений.\n- контракт: Сохранение существующей сигнатуры adjustCount(value: number): number. Потребители получают клампнутые только отрицательные значения.\n- зависит от: нет\n- факты человека: н/п\n\n## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| engine/count.ts | Заменить возвращаемое значение в функции adjustCount на вычисление максимального значения между переданным аргументом и нулем. Убедиться, что синтаксис TypeScript корректен. |\n\n## Добавлено сверх разведки\n\n## Из задачи исключено\n- Любые модификации публичного API (сигнатура, экспорт, типизация).\n\n## Проверки приёмки\n| ID | Наблюдаемое поведение | Процедура | Ожидаемый результат |\n|---|---|---|---|\n| claim-1 | Negative counts become zero | Call adjustCount with negative integers | Zero |\n| claim-2 | Zero and positive counts remain unchanged | Call adjustCount with zero and positive integers | The original value |\n\n## Последствия шагов\n| Ось | Затронута шагами | Что именно в шагах | Исход |\n|---|---|---|---|\n| Безопасность | нет | Отсутствие обработки ввода с вредоносным контекстом или доступа к чувствительным данным. | н/п — чистая математическая функция без внешних副作用 |\n| Ресурсы и скорость | нет | Операция сравнения с нулём не создает измеримой нагрузки на память или CPU. | н/п — сложность O(1), нет аллокаций и IO |\n| Отказы зависимостей | нет | Локальная вычислительная логика не зависит от состояния внешних сервисов. | н/п — нет внешних вызовов или сетевых операций |\n| Настройки | нет | Поведение определяется исключительно входными аргументами, пороговые значения не настраиваются. | н/п — отсутствие конфигурационных параметров |\n| Совместимость и данные | нет | Совместимость типов данных (number) и контракта функций полностью сохранена. | claim-1, claim-2 — поведение расширяет поддержку отрицательных чисел |\n| Наблюдаемость | нет | Не требуется дополнительный логиров, так как функция является идемпотентной и предсказуемой. | н/п — детерминированный чистый расчет без состояния |\n\n## Изменения требований\nНет изменений в требованиях.\n\n- **Требования (SHA-256):** 264720b1261c7fbf53bad32ac378b2ab831c7cc7b04b86b352637d275c12aecf\n"
+    }
+  ]
+}

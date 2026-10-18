@@ -63,10 +63,15 @@ describe('разрушающая перезапись', () => {
     strictEqual(destructiveOverwrite(write('big.ts', lines(196)), r), null);
   });
 
-  it('короткий файл порога не достигает: правило не должно быть шумом', () => {
+  it('короткий файл считается той же долей: порог — 50 % строк базы для любого файла', () => {
+    // `SDLC.md` («Перезапись файла»): нижней планки по числу строк нет — гард записи и гейт
+    // этапа 6 считают одним числом, иначе гард пропускал бы то, что гейт красит красным.
     const r = root();
     writeFileSync(join(r, '.gitignore'), lines(6));
-    strictEqual(destructiveOverwrite(write('.gitignore', 'node_modules/\n'), r), null);
+    const d = destructiveOverwrite(write('.gitignore', 'node_modules/\n'), r);
+    ok(d !== null);
+    strictEqual(d.linesLost, 5);
+    strictEqual(destructiveOverwrite(write('.gitignore', lines(5)), r), null, 'потеря одной строки из шести — не перезапись');
   });
 
   it('рост файла разрушением не считается', () => {

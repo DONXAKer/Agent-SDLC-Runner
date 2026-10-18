@@ -18,6 +18,57 @@ export type { ArtifactKey } from '@sdlc-runner/shared';
 
 export const SDLC_DIR = '.sdlc';
 
+/**
+ * Базовое имя файла — канонический артефакт витка (`WitokPaths`, без служебных дот-файлов).
+ * Нужно там, где путь известен, а витка — нет (стенд классифицирует отказ по имени, а не
+ * по тому, чей это каталог): запись `clarification-report.md` мимо `.sdlc/<slug>/` —
+ * ошибка адресации своего артефакта, а не попытка выйти за границы.
+ */
+export function isWitokArtifactName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (['intent.md', 'readiness.md', 'exploration-report.md', 'clarification-report.md', 'plan.md', 'handoff.md'].includes(n)) {
+    return true;
+  }
+  return (
+    /^chunk-\d+-journal\.md$/.test(n) ||
+    /^plan-v\d+\.md$/.test(n) ||
+    /^self-review-\d+-attempt-\d+\.md$/.test(n) ||
+    /^verification-report-\d+-attempt-\d+\.md$/.test(n) ||
+    /^chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt|evidence\.json|review\.md)$/.test(n)
+  );
+}
+
+/** Подкаталог служебных файлов раннера внутри каталога витка (`.sdlc/<slug>/.runner/`). */
+export const RUNNER_DIR = '.runner';
+
+/**
+ * Служебный файл рантайма в каталоге витка (по базовому имени): дот-файлы (лента событий,
+ * снимки baseline) и числа витка. Одно определение на политику (запись
+ * моделью закрыта) и на коммит handoff (в репозиторий проекта не уходят).
+ */
+export function isRuntimeServiceName(name: string): boolean {
+  return name.startsWith('.') || /^metrics\.(json|md)$/i.test(name);
+}
+
+/**
+ * Служебный ли путь ВНУТРИ каталога витка (`rest` — относительно `.sdlc/<slug>/`): дот-файл
+ * в корне каталога либо что угодно под `.runner/`. Служебные файлы раннера (самопросмотры,
+ * отчёты о шагах, журнал итераций, числа витка, отчёты маршрутов ансамбля) живут в
+ * `.runner/`: методология считает содержимое `.sdlc/<slug>/` своими артефактами, и
+ * `flow-verdict.py` сканирует их на плейсхолдеры — файлы раннера под этот скан не попадают.
+ */
+export function isRuntimeServicePath(rest: string): boolean {
+  // Без учёта регистра: на NTFS `.Runner/metrics.json` — тот же файл, что `.runner/…`.
+  const norm = rest.replace(/\\/g, '/').toLowerCase();
+  if (norm === 'preparation.json') return true; // историю требований пишет только рантайм
+  if (norm.startsWith(`${RUNNER_DIR}/`) || norm === RUNNER_DIR) return true;
+  // Снимок секций задачи (`.intent-sections.json`) — артефакт методологии, а не этой машины:
+  // его пишет и `intent-sections.py`, и он обязан пережить клон (виток продолжается в
+  // терминале). Остальные дот-файлы — состояние рантайма.
+  if (norm === '.intent-sections.json') return false;
+  return !norm.includes('/') && isRuntimeServiceName(norm);
+}
+
 export function artifactPathOf(
   paths: WitokPaths,
   key: ArtifactKey,
@@ -95,6 +146,24 @@ export class WitokPaths {
     return this.file('plan.md');
   }
 
+  /**
+   * Архив прежней редакции плана (`SDLC.md` → «Раскладка артефактов»): действующий план —
+   * всегда `plan.md`, прежняя редакция перед перезаписью переименовывается в `plan-v‹K›.md`
+   * как есть — с подписью человека под той редакцией, которую он одобрял.
+   */
+  planArchive(k: number): string {
+    return this.file(`plan-v${k}.md`);
+  }
+
+  /** Каталог служебных файлов раннера внутри витка (`RUNNER_DIR`). */
+  get runnerDir(): string {
+    return join(this.dir, RUNNER_DIR);
+  }
+
+  private runnerFile(name: string): string {
+    return join(this.runnerDir, name);
+  }
+
   get handoff(): string {
     return this.file('handoff.md');
   }
@@ -110,6 +179,11 @@ export class WitokPaths {
    * съел виток» задаётся к витку целиком.
    */
   get iterations(): string {
+    return this.runnerFile('iterations.md');
+  }
+
+  /** Прежнее место журнала итераций (до `.runner/`): читается для витков, начатых раньше. */
+  get iterationsLegacy(): string {
     return join(this.dir, 'iterations.md');
   }
 
@@ -120,7 +194,18 @@ export class WitokPaths {
    * переписывания на этапе 6. Самопросмотр же черновой и к вердикту отношения не имеет.
    */
   selfReview(chunk: number, attempt: number): string {
+    // В корне витка, не в `.runner/`: самопросмотр пишет МОДЕЛЬ, а `.runner/` закрыт ей на
+    // запись политикой — иначе каждая попытка получала бы гарантированный отказ (ревью).
     return join(this.dir, `self-review-${chunk}-attempt-${attempt}.md`);
+  }
+
+  /**
+   * Сырой ответ рецензента как есть — артефакт попытки методологии (`sdlc-verify/SKILL.md`:
+   * «`chunk-N-attempt-K-review.md` (ответ рецензента как есть)»); `flow-verdict.py` его на
+   * плейсхолдеры не судит (рецензент вправе цитировать «‹причина›»).
+   */
+  chunkReviewText(chunk: number, attempt: number): string {
+    return this.file(`chunk-${chunk}-attempt-${attempt}-review.md`);
   }
 
   chunkDiff(chunk: number, attempt: number): string {
@@ -132,12 +217,31 @@ export class WitokPaths {
   }
 
   /**
+   * Запись о свидетельствах попытки (`SDLC.md` → этап 5): база, хэши патча и вывода тестов,
+   * команда, код возврата, улика отсутствующего инструмента, diffstat, модель исполнителя.
+   * Тот же контракт, что у `attempt-evidence.py` методологии: патч и вывод без этой записи
+   * — текст исполнителя, свидетельством не считаются.
+   */
+  /**
+   * Ответ рецензента по контракту `verify-review-v1` (`implementations/runner-contract`
+   * методологии) — служебный файл попытки: дот-файл, модели не пишется, в коммит не идёт;
+   * `state_contract.py validate-review` читает его как есть.
+   */
+  chunkReview(chunk: number, attempt: number): string {
+    return this.file(`.chunk-${chunk}-attempt-${attempt}-review.json`);
+  }
+
+  chunkEvidence(chunk: number, attempt: number): string {
+    return this.file(`chunk-${chunk}-attempt-${attempt}-evidence.json`);
+  }
+
+  /**
    * Отчёт о шагах попытки в режиме этапа 5 по шагам плана (`stepFill`): что каждый шаг
    * сделал и что сказала проверка после него. Без файла причина красного шага жила только в
    * консоли — разбор прогона восстанавливал её по дереву.
    */
   chunkSteps(chunk: number, attempt: number): string {
-    return this.file(`chunk-${chunk}-attempt-${attempt}-steps.md`);
+    return this.runnerFile(`chunk-${chunk}-attempt-${attempt}-steps.md`);
   }
 
   /**
@@ -149,8 +253,10 @@ export class WitokPaths {
    * прежним: его читают скиллы `/sdlc-*` и витки, начатые в терминале.
    */
   verificationReport(chunk: number, attempt: number, route = 0): string {
-    const suffix = route === 0 ? '' : `-r${route}`;
-    return this.file(`verification-report-${chunk}-attempt-${attempt}${suffix}.md`);
+    // Отчёты дополнительных маршрутов ансамбля — служебные файлы раннера: методология
+    // знает один отчёт попытки, и `flow-verdict.py` их не читает.
+    if (route !== 0) return this.runnerFile(`verification-report-${chunk}-attempt-${attempt}-r${route}.md`);
+    return this.file(`verification-report-${chunk}-attempt-${attempt}.md`);
   }
 
   /**
@@ -166,6 +272,15 @@ export class WitokPaths {
   }
 
   /**
+   * Снимок секций `intent.md` (`artifacts/intentSections.ts`): хэши секций, строки листа,
+   * счётчик одобрений. Служебный файл рантайма (дот-файл) — тем же именем, что у
+   * `intent-sections.py` методологии, чтобы виток продолжался в терминале.
+   */
+  get intentSections(): string {
+    return this.file('.intent-sections.json');
+  }
+
+  /**
    * Числа витка, полный снапшот (JSON) — служебный файл рантайма, не артефакт методологии.
    *
    * Единственный читатель — сам рантайм: `Run` восстанавливает накопители метрик из этого
@@ -173,7 +288,7 @@ export class WitokPaths {
    * журналов. Под формы (`ArtifactKey`) файл не подходит и не подпадает.
    */
   get metrics(): string {
-    return this.file('metrics.json');
+    return this.runnerFile('metrics.json');
   }
 
   /**
@@ -182,7 +297,7 @@ export class WitokPaths {
    * чисел нет. Служебный файл, не артефакт методологии.
    */
   get metricsReport(): string {
-    return this.file('metrics.md');
+    return this.runnerFile('metrics.md');
   }
 
   /**
@@ -194,5 +309,10 @@ export class WitokPaths {
    */
   get events(): string {
     return this.file('.events.ndjson');
+  }
+
+  /** Прежнее место чисел витка (до `.runner/`): читается для витков, начатых раньше. */
+  get metricsLegacy(): string {
+    return this.file('metrics.json');
   }
 }

@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "add-validator",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "506fb1afba32cece1cc6565942b38f613b08121fd28427acf0a91606e18e30de",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-UwlA0F",
+    "baseCommit": "7ea28be4bd0f88381211aa53c057ac604bc5a9e1",
+    "contract": {
+      "task": "# Валидация покупателя\n\nСчета выставляются на данные из формы заказа как есть: опечатка в email или телефоне\nузнаётся о себе неделю спустя, когда счёт так и не оплачен. Нужна валидация на выставлении.\n\n## Что должно получиться\n\n1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет.\n2. Правила email: ровно одна `@`; локальная часть непустая; домен содержит точку и не\n   начинается и не заканчивается на неё; пробелов нигде нет.\n3. Правила телефона: либо `+7` и ровно 10 цифр после, либо `8` и ровно 10 цифр после.\n   Никаких других символов (пробелов, скобок, дефисов) не допускаем — форма их не ставит.\n4. `validateCustomer` реэкспортируется из `src/index.ts`. На модуль есть тест рядом с\n   существующими (`test/`), набор прогнан по-настоящему командой проекта; в журнал этапа\n   идёт то, что напечатала команда.\n5. Существующие модули и тесты не трогаем: валидация — отдельная функция, сборка счёта её\n   пока не вызывает (это осознанно: встроить её в `buildInvoice` — отдельное решение, не\n   этого витка).\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/add-validator`. Виток полный — мелким контуром не закрывать.\n- Спецификация выше исчерпывающая: всё, что нужно для реализации, записано в этом документе\n  и в коде.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/invoice.ts",
+        "src/money.ts",
+        "src/lines.ts",
+        "src/config.ts",
+        "test/invoice.test.ts",
+        "test/money.test.ts",
+        "test/lines.test.ts",
+        "src/customer.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "control": "local",
+    "startedAt": "2026-10-14T12:46:15.111Z"
+  },
+  "finishedAt": "2026-10-14T12:53:03.095Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Both checks pass. The implementation is complete:\n\n**`src/validate.ts`** (new)\n- `validateCustomer(customer): Violation[]` — чистая функция, возвращает список кодов нарушений.\n- `'email'` (проверяется первым) vs `'phone'` — порядок фиксирован.\n- Email: ровно одна `@` (`indexOf(' @' !== lastIndexOf('@')`), непустая локальная часть, домен содержит точку и не начинается/заканчивается на неё, нигде нет пробелов.\n- Phone: regexes `^\\+7\\d{10}$` или `^8\\d{10}$` — именно `+7` и ровно 10 цифр, либо `8` и ровно 10 цифр; других символов нет.\n\n**`src/index.ts`** — добавлен `export { validateCustomer } from './validate.ts';` (плюс тип `Violation`).\n\n**`test/validate.test.ts`** (новый) — 18 кейсов: валидные email + оба телефона, каждое правило email и phone по одному кейсу, и кейс с обоими нарушениями (проверяет порядок `['email', 'phone']`).\n\nСтрогие ограничения соблюдены: существующие `src/invoice.ts`, `src/money.ts`, `src/lines.ts`, `src/config.ts`, `src/customer.ts` и их тесты не трогались — `buildInvoice` валидацию не вызывает (отдельное решение по спецификации).\n\nРезультат проверок (что напечатала команда):\n- `build: PASS` — modules 7 of 7, включая `validate.ts`.\n- `test: PASS` — 28 tests / 4 suites, pass 28, fail 0. Валидация покупки: 18 кейсов — все зелёные.",
+    "usage": {
+      "inputTokens": 37303,
+      "outputTokens": 2591,
+      "cacheReadTokens": 31361,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 405861
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "12b3a2752a608887374fee7a916f2299baa0fdd4de0b1f5becf39983e179c855",
+        "passed": true,
+        "output": "ok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "12b3a2752a608887374fee7a916f2299baa0fdd4de0b1f5becf39983e179c855",
+        "passed": true,
+        "output": "▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.7968ms)\n  ✔ форма счёта — ровно пять полей (1.0546ms)\n✔ сборка счёта (3.0513ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.6322ms)\n  ✔ подытог — сумма по позициям (0.3577ms)\n  ✔ пустой счёт — нулевой подытог (0.1194ms)\n✔ позиции счёта (1.9756ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.7087ms)\n  ✔ сумма и разность (0.135ms)\n  ✔ разность не уходит ниже нуля (0.1437ms)\n  ✔ процент округляется половиной вверх (0.1337ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.2255ms)\n✔ деньги (2.3693ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 207.233\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "74c2cb8fa031c553fb1d91f7b6cae822c56e070a43ff4eea71950ef668c1795e",
+        "passed": true,
+        "output": "ok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nok   validate.ts\nмодулей загружено: 7 из 7\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "74c2cb8fa031c553fb1d91f7b6cae822c56e070a43ff4eea71950ef668c1795e",
+        "passed": true,
+        "output": "▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (1.1729ms)\n  ✔ форма счёта — ровно пять полей (1.1147ms)\n✔ сборка счёта (3.5977ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.9655ms)\n  ✔ подытог — сумма по позициям (0.1504ms)\n  ✔ пустой счёт — нулевой подытог (0.1994ms)\n✔ позиции счёта (2.4896ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (1.0162ms)\n  ✔ сумма и разность (0.1967ms)\n  ✔ разность не уходит ниже нуля (0.1622ms)\n  ✔ процент округляется половиной вверх (0.9619ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.2689ms)\n✔ деньги (4.117ms)\n▶ валидация покупки\n  ✔ валидные данные — пустой список (1.6461ms)\n  ✔ email с цифрами в локальной части — валиден (0.6108ms)\n  ✔ email без @ — нарушение email (0.1842ms)\n  ✔ email с двумя @ — нарушение email (0.1036ms)\n  ✔ email с пустой локальной частью — нарушение email (0.1022ms)\n  ✔ email с доменом без точки — нарушение email (0.1283ms)\n  ✔ email с доменом, начинающимся на точку — нарушение email (0.1258ms)\n  ✔ email с доменом, заканчивающимся на точку — нарушение email (0.1268ms)\n  ✔ email с пробелом — нарушение email (0.132ms)\n  ✔ телефон 8 + 10 цифр — валиден (0.2117ms)\n  ✔ телефон со звёздочкой — нарушение phone (0.1682ms)\n  ✔ телефон с пробелами — нарушение phone (0.1631ms)\n  ✔ телефон с дефисами — нарушение phone (0.1205ms)\n  ✔ телефон со скобками — нарушение phone (0.1188ms)\n  ✔ телефон с 9 цифрами после +7 — нарушение phone (0.1251ms)\n  ✔ телефон с 11 цифрами после +7 — нарушение phone (0.122ms)\n  ✔ телефон без цифры после 8 — нарушение phone (0.0931ms)\n  ✔ оба нарушения — email первым, phone вторым (0.0934ms)\n✔ валидация покупки (5.719ms)\nℹ tests 28\nℹ suites 4\nℹ pass 28\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 261.3585\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 7,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 302351.8307,
+      "firstCheckMs": 332093.7635,
+      "humanWaitMs": 0,
+      "activeMs": 406901.23980000004,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "src/index.ts",
+    "src/validate.ts",
+    "test/validate.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 2,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 8,
+    "pass": 8,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Домен без точки — нарушение email."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-3): Короткий телефон — нарушение phone (+7 и ровно 10 цифр)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr5",
+        "category": "precision",
+        "label": "ok 7 - Pr5 [precision] (claim-3): Формат через восьмёрку — валиден (8 и ровно 10 цифр)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr6",
+        "category": "precision",
+        "label": "ok 8 - Pr6 [precision] (claim-2): Оба поля неверны — оба кода, в фиксированном порядке: email раньше phone."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "74c2cb8fa031c553fb1d91f7b6cae822c56e070a43ff4eea71950ef668c1795e",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

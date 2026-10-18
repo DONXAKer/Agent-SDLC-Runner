@@ -58,8 +58,42 @@ const DENIED_BASH: { re: RegExp; what: string }[] = [
     what: 'однострочник интерпретатора',
   },
   { re: /\beval\b/, what: 'eval' },
+  // Рекурсивное удаление cmd в любом порядке флагов (`rd /s /q x`, `rd x /s`): ни эти
+  // формы, ни `del /s` bash-лексер не видит.
+  { re: /(^|[\s;&|(])(rd|rmdir)\s+[^\n;&|]*\/s\b/, what: 'рекурсивное удаление (rd /s)' },
+  { re: /(^|[\s;&|(])(del|erase)\s+[^\n]*\/s\b/, what: 'рекурсивное удаление (del /s)' },
   { re: /\bbase64\b[^\n]*\s-{1,2}(d|decode)\b/, what: 'декодирование base64' },
   { re: /\bmkfs\b|\bdd\b[^\n]*\bof=\/dev\//, what: 'операция с устройством' },
+];
+
+/**
+ * Вызов интерпретаторов Windows — запрет для команд МОДЕЛИ. Лексер целей записи
+ * (`shellRedirects.ts`) внутрь `cmd` и `powershell` не заходит, а сам список рассчитан на
+ * bash — `del /f /q *.*`, `Set-Content .env` проходили оба уровня. `Bash` модели на Windows
+ * исполняется Git Bash'ем (`gates/shell.ts`), так что это правило — единственное, что
+ * отделяет её от cmd.exe и PowerShell.
+ *
+ * Совпадение — по СЛОВУ-КОМАНДЕ в любом месте строки, а не по «позиции вызова»: позиция
+ * пропускала обёртки (`xargs pwsh`, `env powershell`, `find -exec cmd`) и перевод строки,
+ * а слово где угодно — било по `go test ./cmd`, `npm run test:pwsh`, `docs/powershell.md`
+ * (code-review-all 2026-09-23). Словом-командой считается имя, перед которым нет символа
+ * пути или имени (`/`, `.`, `:`, `-`, буква), — кавычки не спасают (`"cmd" /c`). Явный путь
+ * к `cmd.exe`/`powershell.exe` ловится отдельно.
+ *
+ * Команды гейтов из `.sdlc/gates.md` эти правила не проходят: их пишут под платформу
+ * оператора (`powershell -File test.ps1`, `.\gradlew.bat test`), исполняет шелл платформы,
+ * а запись в `gates.md` — через одобрение человека с предпросмотром, как любая запись.
+ */
+const WORD = '(^|[^a-z0-9_.:/\\\\-])[\'"`]?';
+const DENIED_MODEL_ONLY: { re: RegExp; what: string }[] = [
+  { re: new RegExp(`${WORD}(powershell|pwsh)(\\.exe)?[\'"\`]?(\\s|$|[;&|)])`), what: 'вызов PowerShell' },
+  { re: /[/\\](powershell|pwsh)\.exe\b/, what: 'вызов PowerShell' },
+  // `cmd` с флагом (`/c`, `//c` MSYS, `/q /c`) или с вводом из файла/пайпа. Голое `cmd` в
+  // конце — не вызов: `ls cmd`, `go test ./cmd`; без аргументов cmd.exe из Bash молча
+  // выходит на пустом вводе.
+  { re: new RegExp(`${WORD}cmd(\\.exe)?[\'"\`]?(\\s+\\/{1,2}[a-z]|\\s*<)`), what: 'вызов cmd' },
+  { re: /\|\s*['"`]?(\S*[/\\])?cmd(\.exe)?['"`]?(\s|$)/, what: 'вызов cmd' },
+  { re: /[/\\]cmd\.exe\b/, what: 'вызов cmd' },
 ];
 
 /**
@@ -110,7 +144,7 @@ export function checkWritePath(rawPath: string): PolicyVerdict {
   return POLICY_OK;
 }
 
-export function checkBash(command: string): PolicyVerdict {
+export function checkBash(command: string, source: 'model' | 'gate' = 'model'): PolicyVerdict {
   const normalized = normalizeCommand(command);
 
   if (isRecursiveForceRemove(normalized)) {
@@ -120,7 +154,7 @@ export function checkBash(command: string): PolicyVerdict {
     );
   }
 
-  for (const { re, what } of DENIED_BASH) {
+  for (const { re, what } of source === 'model' ? [...DENIED_BASH, ...DENIED_MODEL_ONLY] : DENIED_BASH) {
     if (re.test(normalized)) {
       return policyDeny(
         'denyList',

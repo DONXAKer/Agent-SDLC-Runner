@@ -14,12 +14,15 @@ import { PANEL_TONE } from '../lib/tones.ts';
 export function PromptPane({
   prompt,
   blockers,
+  envNotes = [],
   busy,
   busyReason,
   onRun,
 }: {
   prompt: PreparedPrompt | null;
   blockers: string[];
+  /** Прошлый провал пробы среды — предупреждение; при запуске проба повторится. */
+  envNotes?: string[];
   busy: boolean;
   /**
    * Причина занятости, когда она НЕ в выбранном этапе, — например идёт другой этап.
@@ -60,6 +63,19 @@ export function PromptPane({
 
   const body = (
     <div className="space-y-3">
+      {envNotes.length > 0 ? (
+        <div className="rounded border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">
+          <div className="mb-1 font-medium">Прошлая проба среды не прошла (при запуске повторится):</div>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {envNotes.map((n) => (
+              <li key={n} className="whitespace-pre-wrap">
+                {n}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {blockers.length > 0 ? (
         <div className={`rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">Этап не начинается:</div>

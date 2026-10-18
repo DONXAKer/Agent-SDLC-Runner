@@ -1,0 +1,436 @@
+{
+  "run": {
+    "slug": "matrix-p02-v1",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "migration-compat",
+    "fixtureDir": "fixtures/catalog",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-09-30T18:04:40.067Z",
+    "finishedAt": "2026-09-30T18:07:52.070Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 13,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "карта не уточнена: неоднозначная строка: Все кандидаты уже приняты; ответь: нет исправлений.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 15
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 25367,
+          "outputTokens": 1147,
+          "cacheReadTokens": 19985,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 40829
+        },
+        "durationMs": 26888,
+        "requestDurationsMs": [
+          1499,
+          2049,
+          3528,
+          1337,
+          6506,
+          7523,
+          621,
+          2329,
+          6965,
+          3501,
+          3498,
+          914,
+          567
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 90598,
+          "outputTokens": 6413,
+          "cacheReadTokens": 72093,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 175181
+        },
+        "durationMs": 164407,
+        "requestDurationsMs": [
+          98482,
+          41986,
+          1284,
+          616,
+          1627,
+          2013,
+          579,
+          1340,
+          1286,
+          213,
+          1036,
+          1738,
+          5776,
+          8194,
+          8517,
+          506
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 2,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 40
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:13c88351-112e-4384-8e32-7fc93830e5f5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:eb25d90c-2a91-4f40-a7c7-11b6edec8894",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:f12102f1-b842-41f9-87e6-af055c82b2f0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:5304042b-6312-4ab5-b0a1-c5078d972e7b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:5e3730c2-1434-4854-a1f0-07b4295c8aab",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 12
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:13f90dbd-7ade-492c-8620-adb19254a908",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\matrix-p02-v1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какое значение по умолчанию использовать для ставки НДС в случае отсутствия явного указания в старых записях?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat-default"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10831,
+        "userChars": 4267,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9441,
+        "userChars": 14527,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-7d5aea13-a081-44d5-bb9a-b7be5be7adda-1",
+        "questionId": "intent-open-0",
+        "text": "Какое значение по умолчанию использовать для ставки НДС в случае отсутствия явного указания в старых записях?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "8f868a6345214bb59d398bc52892ffe33638075908b044a187240cce4ef99c3e",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "bec16998ffb46e7c2fc4f2ed08095b4e4e0872cf7af7c270cb5d8d4a1706cf18",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "63e9d61b93a80ecce3ef859251dc067fd035f708f404199c52f9b985c2c6d0e3",
+    "state": "finished",
+    "capturedAt": "2026-09-30T18:07:52.108Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-09-30T18:07:52.064Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "3806c9798ec640e9b8e445b1cc4e26a88a40bfc66cceca02f5c6dfd7c04e3c48",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "cb863c532997d491c8a5b9ea94138d3da85ea1a19227cfbbcb009eae109554a4",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "ea94bbc11472d42c6c4b362d07b3643293b0be0ddc6cf33827088b6fb857106c",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "9da2b2527c0c2fee47ceb29d56ef68d4f601791f2bd2b1026c03268f37cd90fb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "536b47442df439ab9773e979e524879d05d3f451c227170574f2e3e13cb6b159",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

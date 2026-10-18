@@ -109,6 +109,27 @@ describe('преполётная проба', () => {
     ok(formatProbe(report).includes('НЕ ИЗМЕРЕНА'), formatProbe(report));
   });
 
+  it('кейс не уложился в потолок — timedOut, а не env: движок жив, просто медленный (серия local6, 2026-09-24)', async () => {
+    const provider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        // Ничего не возвращаем ДО отмены собственного сигнала кейса — тот же паттерн, что
+        // у настоящего провайдера, отдающего управление только по AbortSignal.
+        await new Promise((_resolve, reject) => {
+          req.signal.addEventListener('abort', () => reject(new Error('запрос отменён')));
+        });
+        throw new Error('недостижимо');
+      },
+    } as unknown as ChatProvider;
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 10, cases: PREFLIGHT_CASES.slice(0, 1) });
+    strictEqual(report.cases[0]!.ok, false);
+    strictEqual(report.cases[0]!.env, false, 'таймаут кейса — наблюдение о модели, не о среде');
+    strictEqual(report.cases[0]!.timedOut, true);
+    ok(report.cases[0]!.detail.includes('10'), report.cases[0]!.detail);
+    // envBlocked не выставляется таймаутом — иначе преполёт красил бы это кодом 2.
+    strictEqual(report.envBlocked, false);
+  });
+
   it('модель, застрявшая на чтении, валит третий кейс', async () => {
     const provider = scripted((req) => {
       const names = req.tools.map((t) => t.name);

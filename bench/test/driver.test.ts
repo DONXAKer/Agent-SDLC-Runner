@@ -11,6 +11,11 @@
 
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+
+const legacyPaths = new WitokPaths(tmpdir(), `bench-driver-${randomUUID()}`);
 
 import { emptyUsage } from '@sdlc-runner/shared';
 import type { Verdict } from '@sdlc-runner/shared';
@@ -29,6 +34,21 @@ describe('attemptCeiling', () => {
     strictEqual(attemptCeiling({ attemptBudget: 2 }, 3), 2);
     strictEqual(attemptCeiling({ attemptBudget: 4 }, 4), 4);
   });
+});
+
+it('overall deadline cancels an active stage even when its stage budget is longer', async () => {
+  let release: ((value: StageResult) => void) | undefined;
+  let cancelled = false;
+  const fakeRun = {
+    chunk: 1, attempt: 1, lastVerdict: null,
+    blockerDetails: () => [],
+    runStage: () => new Promise<StageResult>(resolve => { release = resolve; }),
+    cancel: () => { cancelled = true; release?.({ ok: false, finalText: '', usage: emptyUsage(), note: 'cancelled' }); },
+  } as unknown as Run;
+  const result = await runBench({ run: fakeRun, stageTimeoutMs: 1000, runTimeoutMs: 30, attempts: 3 });
+  strictEqual(cancelled, true);
+  strictEqual(result.stopped, 'run-timeout');
+  strictEqual(result.stages.length, 1);
 });
 
 describe('decideAfterStageFailure', () => {
@@ -148,6 +168,7 @@ describe('runBench: пропуск этапа (skipIf) не зовёт recordDec
   it('обычный (не пропущенный) успешный explore по-прежнему зовёт recordDecision', async () => {
     let recordDecisionCalls = 0;
     const fakeRun = {
+      paths: legacyPaths,
       chunk: 1,
       attempt: 1,
       lastVerdict: null,
@@ -266,5 +287,220 @@ describe('decideAfterVerify', () => {
   it('blocked_env второй раз подряд — остановка, машину чинить вне витка', () => {
     const d = decideAfterVerify({ verdict: verdict('blocked_env'), attempt: 1, attemptCeiling: 3, blockedEnvStreak: 1 });
     deepStrictEqual(d, { kind: 'stop', reason: 'blocked-env-repeat' });
+  });
+});
+
+describe('runBench: stage-timeout не теряет прогресс, если следующий этап уже разблокирован', () => {
+  it('артефакт закрыт до разрыва по часам (FormFillExecutor успел дописать поля) — виток продолжает, не stage-timeout', async () => {
+    let cancelled = false;
+    const fakeRun = {
+      paths: legacyPaths,
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      // intent «разблокирован» с самого начала (требование методологии — requires: []);
+      // explore разблокирован ТОЛЬКО после cancel() — как будто FormFillExecutor успел
+      // дозаполнить артефакт до разрыва по часам.
+      blockerDetails: (stage: string) => (stage === 'explore' && cancelled ? [] : stage === 'explore' ? [{ text: 'не готов', blamed: 'intent' }] : []),
+      cancel: () => {
+        cancelled = true;
+      },
+      recordDecision: () => {},
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage !== 'intent') return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово', closedBy: 'runtime' } as StageResult;
+        // Дольше stageTimeoutMs — гонка в runStageWithTimeout разрешится таймаутом,
+        // cancel() позовётся, и ЭТОТ промис досидит и вернёт результат отменённого хода.
+        await new Promise((r) => setTimeout(r, 40));
+        return { ok: false, finalText: '', usage: emptyUsage(), note: 'этап отменён' };
+      },
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10, runTimeoutMs: 60_000, attempts: 3, stopAfterStage: 'explore' });
+
+    strictEqual(cancelled, true, 'run.cancel() обязан был позваться при разрыве');
+    strictEqual(result.stopped, 'snapshot-point', 'stopAfterStage останавливает штатно, не stage-timeout');
+    const [intent, explore] = result.stages;
+    strictEqual(intent?.timedOut, true);
+    strictEqual(intent?.ok, false);
+    strictEqual(explore?.stage, 'explore', 'виток дошёл до следующего этапа вместо немедленной остановки');
+  });
+
+  it('следующий этап всё ещё блокирован — остановка «stage-timeout», как и раньше', async () => {
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: (stage: string) => (stage === 'explore' ? [{ text: 'в intent.md осталось незаполненных мест: 5', blamed: 'intent' }] : []),
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> => {
+        await new Promise((r) => setTimeout(r, 40));
+        return { ok: false, finalText: '', usage: emptyUsage(), note: 'этап отменён' };
+      },
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10, runTimeoutMs: 60_000, attempts: 3 });
+
+    strictEqual(result.stopped, 'stage-timeout');
+    strictEqual(result.stages.length, 1, 'до explore дело не дошло — тот же виновник, что и раньше');
+  });
+});
+
+/**
+ * `--stage verify` без `--make-snapshot` (`stopAfterVerify`) — серия 2026-09-27/28 показала
+ * driver уходящим на chunk попытки 2 по вердикту `retry`, хотя измерение уже состоялось:
+ * дорого (платный контрольный chunk), нестабильно на восстановленном снимке, и топит
+ * измеренный вердикт шумом падения следующей попытки.
+ */
+describe('runBench: stopAfterVerify — verify-measured вместо ухода на chunk попытки 2', () => {
+  it('вердикт «retry» с stopAfterVerify останавливает виток сразу, chunk попытки 2 не зовётся', async () => {
+    let verifyCalls = 0;
+    let chunkCalls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      attemptBudget: 3,
+      lastVerdict: null as Verdict | null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      nextAttempt: () => {
+        throw new Error('nextAttempt не должен был вызваться — driver обязан остановиться на verify-measured');
+      },
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage === 'chunk') {
+          chunkCalls++;
+          return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+        }
+        if (stage === 'verify') {
+          verifyCalls++;
+          fakeRun.lastVerdict = verdict('retry');
+          return { ok: true, finalText: 'ревью прогнано', usage: emptyUsage(), note: 'готово' };
+        }
+        return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+      },
+    };
+
+    const result = await runBench({
+      run: fakeRun as unknown as Run,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'verify',
+      stopAfterVerify: true,
+    });
+
+    strictEqual(verifyCalls, 1);
+    strictEqual(chunkCalls, 0, 'chunk попытки 2 не должен был запуститься');
+    strictEqual(result.stopped, 'verify-measured');
+    strictEqual(result.finalVerdict?.action, 'retry');
+  });
+
+  it('без stopAfterVerify вердикт «retry» по-прежнему уходит на chunk (поведение не сломано)', async () => {
+    let chunkCalls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      attemptBudget: 3,
+      lastVerdict: null as Verdict | null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      nextAttempt: () => {
+        fakeRun.attempt = 2;
+        // Как настоящий Run.resetAttemptState — retry-переход обнуляет вердикт попытки.
+        fakeRun.lastVerdict = null;
+      },
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage === 'chunk') {
+          chunkCalls++;
+          return { ok: false, finalText: '', usage: emptyUsage(), note: 'chunk попытки 2 упал' };
+        }
+        if (stage === 'verify') {
+          fakeRun.lastVerdict = verdict('retry');
+          return { ok: true, finalText: 'ревью прогнано', usage: emptyUsage(), note: 'готово' };
+        }
+        return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+      },
+    };
+
+    const result = await runBench({
+      run: fakeRun as unknown as Run,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'verify',
+    });
+
+    strictEqual(chunkCalls, 1, 'chunk попытки 2 обязан был запуститься (поведение без stopAfterVerify не меняется)');
+    strictEqual(result.stopped, 'blocked', 'chunk попытки 2 упал без envFailure — блокировка, как и раньше');
+    // Вердикт измеренной попытки verify не должен пропадать за упавшим chunk'ом попытки 2 —
+    // `run.lastVerdict` к этому моменту уже null (nextAttempt его обнулил), а `finalVerdict`
+    // обязан вернуть вердикт, посчитанный ДО этого обнуления.
+    strictEqual(result.finalVerdict?.action, 'retry', JSON.stringify(result));
+  });
+});
+
+describe('runBench: stage-env-repeat не теряет прогресс, если следующий этап уже разблокирован', () => {
+  it('движок падал дважды подряд, но артефакт уже закрывает вход в explore — виток продолжает, не stage-env-repeat', async () => {
+    let calls = 0;
+    const fakeRun = {
+      paths: legacyPaths,
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: (stage: string) => (stage === 'explore' ? [] : []),
+      cancel: () => {},
+      recordDecision: () => {},
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage !== 'intent') return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово', closedBy: 'runtime' } as StageResult;
+        calls++;
+        return { ok: false, finalText: '', usage: emptyUsage(), note: 'движок недоступен', envFailure: 'HTTP 400 fetch failed' };
+      },
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10_000, runTimeoutMs: 60_000, attempts: 3, stopAfterStage: 'explore' });
+
+    strictEqual(calls, 2, 'ожидались попытка + один повтор до stage-env-repeat');
+    strictEqual(result.stopped, 'snapshot-point', 'виток дошёл до explore вместо остановки stage-env-repeat');
+    const [intent, explore] = result.stages;
+    strictEqual(intent?.envFailure, 'HTTP 400 fetch failed');
+    strictEqual(explore?.stage, 'explore');
+  });
+
+  it('следующий этап всё ещё блокирован — остановка «stage-env-repeat», как и раньше', async () => {
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: (stage: string) => (stage === 'explore' ? [{ text: 'в intent.md осталось незаполненных мест: 5', blamed: 'intent' }] : []),
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> => ({ ok: false, finalText: '', usage: emptyUsage(), note: 'движок недоступен', envFailure: 'HTTP 400 fetch failed' }),
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10_000, runTimeoutMs: 60_000, attempts: 3 });
+
+    strictEqual(result.stopped, 'stage-env-repeat');
+    strictEqual(result.stages.length, 1);
+  });
+
+  it('обычный провал (не envFailure) не продолжает даже при разблокированном следующем этапе — суждение о модели остаётся настоящим', async () => {
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> => ({ ok: false, finalText: '', usage: emptyUsage(), note: 'модель не заполнила бланк' }),
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10_000, runTimeoutMs: 60_000, attempts: 3 });
+
+    strictEqual(result.stopped, 'blocked');
+    strictEqual(result.stages.length, 1);
   });
 });

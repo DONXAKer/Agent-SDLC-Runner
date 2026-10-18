@@ -18,6 +18,37 @@ export class ProfileError extends Error {
   }
 }
 
+/** The experiment can change only the primary plan route; every route remains local. */
+export function guidedRouteMatches(profile: ResolvedProfile, route: ResolvedRoute, modelId: string): boolean {
+  const local = route.flow === 'loop' && ['localhost', '127.0.0.1', '[::1]']
+    .includes(new URL(route.providerDef.baseUrl ?? 'http://invalid').hostname);
+  return local && (`${route.provider}:${route.model}` === modelId ||
+    (profile.planSelection !== undefined && route === profile.routes.plan));
+}
+
+/**
+ * Форма добора осей плана из `ModelDef.planAxisFill`. `true` — комбинированный добор, как
+ * до появления пошагового: под этим значением записи `config/models.json` замерены
+ * (test29), и тихая смена смысла `true` сравнивала бы в матрице два механизма под одним
+ * id. Неизвестное значение — проблема профиля, а не молчаливое включение пошагового режима
+ * опечаткой (`'combned'`, `"false"`) (code-review-all 2026-09-23).
+ */
+function planAxisFillMode(
+  value: unknown,
+  stage: StageId,
+  modelId: string,
+  problems: string[],
+): false | 'combined' | 'stepwise' {
+  if (value === undefined || value === false) return false;
+  if (value === true || value === 'combined') return 'combined';
+  if (value === 'stepwise') return 'stepwise';
+  problems.push(
+    `этап «${stage}»: у модели «${modelId}» planAxisFill = ${JSON.stringify(value)} — ` +
+      'допустимо true/false, "combined" или "stepwise"',
+  );
+  return false;
+}
+
 function resolveRoute(
   stage: StageId,
   modelId: string,
@@ -50,8 +81,10 @@ function resolveRoute(
     claimFill: def.claimFill ?? false,
     reviewFill: def.reviewFill ?? false,
     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
-    planAxisFill: def.planAxisFill ?? false,
+    planAxisFill: planAxisFillMode(def.planAxisFill, stage, modelId, problems),
     stepFill: def.stepFill ?? false,
+    // Step context is part of the default stepFill workflow; opt out for controlled comparisons.
+    stepContext: def.stepContext ?? (def.stepFill ?? false),
     compactForms: def.compactForms ?? 'off',
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
@@ -103,6 +136,46 @@ export function resolveProfile(
     routes[stage] = resolved[0]!;
   }
 
+  let planSelection: ResolvedProfile['planSelection'];
+  if (profile.planSelection !== undefined) {
+    const selection = profile.planSelection;
+    if (!selection || ![1, 2, 3].includes(selection.candidates)) problems.push('planSelection.candidates: ожидается 1, 2 или 3');
+    else {
+      if (selection.candidates === 1 && selection.judgeModel !== undefined) problems.push('planSelection: judgeModel требует несколько кандидатов');
+      const judgeId = selection.judgeModel ?? routes.plan?.modelId;
+      const judge = judgeId ? resolveRoute('plan', judgeId, models, problems) : null;
+      if (judge && judge.flow !== 'loop') problems.push('planSelection: оценщик должен поддерживать flow loop');
+      if (judge && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(judge.providerDef.baseUrl ?? 'http://invalid').hostname))
+        problems.push('planSelection: эксперимент требует локального оценщика');
+      if (routes.plan && routes.plan.flow !== 'loop') problems.push('planSelection: генератор должен поддерживать flow loop');
+      if (judge && (routes.plan?.providerDef.currency ?? 'USD') !== (judge.providerDef.currency ?? 'USD'))
+        problems.push('planSelection: генератор и оценщик должны использовать одну валюту бюджета');
+      if (judge) planSelection = { candidates: selection.candidates, judge };
+    }
+  }
+  let chunkSelection: ResolvedProfile['chunkSelection'];
+  if (profile.chunkSelection !== undefined) {
+    const selection = profile.chunkSelection;
+    if (!selection || ![2, 3].includes(selection.candidates)) problems.push('chunkSelection.candidates: ожидается 2 или 3');
+    else {
+      const judgeId = selection.judgeModel ?? routes.chunk?.modelId;
+      const judge = judgeId ? resolveRoute('chunk', judgeId, models, problems) : null;
+      if (judge && (judge.flow !== 'loop' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(judge.providerDef.baseUrl ?? 'http://invalid').hostname)))
+        problems.push('chunkSelection: требуется локальный оценщик loop');
+      if (routes.chunk?.flow !== 'loop') problems.push('chunkSelection: генератор должен поддерживать flow loop');
+      if (judge && (routes.chunk?.providerDef.currency ?? 'USD') !== (judge.providerDef.currency ?? 'USD'))
+        problems.push('chunkSelection: генератор и оценщик должны использовать одну валюту бюджета');
+      if (selection.candidateTimeoutMs !== undefined && (!Number.isSafeInteger(selection.candidateTimeoutMs) || selection.candidateTimeoutMs < 1 || selection.candidateTimeoutMs > 2147483647))
+        problems.push('chunkSelection.candidateTimeoutMs: требуется положительный допустимый таймаут');
+      if (judge) chunkSelection = { candidates: selection.candidates, judge,
+        ...(selection.candidateTimeoutMs === undefined ? {} : { candidateTimeoutMs: selection.candidateTimeoutMs }) };
+    }
+  }
+  if (profile.guidedImprovements !== undefined) {
+    const options = profile.guidedImprovements;
+    if (!options || typeof options !== 'object' || Object.entries(options).some(([key, value]) =>
+      !['consumerContext', 'evidenceRepair'].includes(key) || typeof value !== 'boolean')) problems.push('guidedImprovements: ожидаются consumerContext/evidenceRepair boolean');
+  }
   if (problems.length > 0) throw new ProfileError(problems);
 
   return {
@@ -110,52 +183,18 @@ export function resolveProfile(
     label: profile.label,
     routes: routes as Record<StageId, ResolvedRoute>,
     ensemble: ensemble as Record<StageId, ResolvedRoute[]>,
+    ...(planSelection ? { planSelection } : {}),
+    ...(chunkSelection ? { chunkSelection } : {}),
+    ...(profile.guidedImprovements ? { guidedImprovements: { ...profile.guidedImprovements } } : {}),
   };
 }
 
-/**
- * Правило рецензента.
- *
- * Методология требует, чтобы рецензент этапа 6 был строго сильнее исполнителя этапа 5:
- * иначе ревью становится декорацией. «Ревью независимым агентом» входит в минимальную
- * пятёрку гейтов, у которой переключателя нет, поэтому тихо понизить рецензента нельзя —
- * виток просто не стартует.
- *
- * Санкционированный выход один: смешанный профиль, где `verify` пришпилен к более сильной
- * модели (например, к Claude при локальном остальном).
- */
-export function checkReviewerRule(profile: ResolvedProfile): string[] {
-  const chunkRoutes = profile.ensemble?.chunk ?? [profile.routes.chunk];
-  const verifyRoutes = profile.ensemble?.verify ?? [profile.routes.verify];
-  if (chunkRoutes.length === 0 || verifyRoutes.length === 0) return [];
-  if (chunkRoutes.some((r) => r === undefined) || verifyRoutes.some((r) => r === undefined)) {
-    return [];
-  }
-
-  // Сравниваются КРАЙНИЕ значения: минимальный rank среди рецензентов против максимального
-  // среди исполнителей. Иначе ансамбль становится способом протащить слабого рецензента
-  // рядом с сильным — правило выполнялось бы «в среднем», а слабый всё равно голосовал бы.
-  const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b));
-  const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b));
-
-  if (verify.rank > chunk.rank) return [];
-
-  return [
-    `профиль «${profile.name}»: рецензент этапа 6 не сильнее исполнителя этапа 5 ` +
-      `(слабейший verify=${verify.modelId} rank=${verify.rank}, сильнейший chunk=${chunk.modelId} rank=${chunk.rank}).\n` +
-      `Методология требует строгого превосходства — иначе ревью становится декорацией, ` +
-      `а «Ревью независимым агентом» входит в минимальную пятёрку гейтов и выключателя не имеет.\n` +
-      `Подними модель на verify или заведи смешанный профиль, где verify идёт на более сильном маршруте.`,
-  ];
+/** Compatibility shim: rank does not gate reviewer or profile selection. */
+export function checkReviewerRule(_profile: ResolvedProfile): string[] {
+  return [];
 }
 
-/**
- * Профиль, собранный оператором на один виток и НИКУДА не сохраняемый.
- *
- * Судьба правки названа явно: она применяется к создаваемому прогону и на диск не
- * попадает. Писать `config/projects/*.json` из интерфейса — отдельное решение с отдельными
- * рисками (файл правят и руками, и параллельно), и молча делать это здесь нельзя.
- */
+/** Resolve a temporary profile without persisting it. */
 export function resolveAdHocProfile(
   project: ProjectConfig,
   models: ModelsConfig,
@@ -168,6 +207,9 @@ export function resolveAdHocProfile(
     profiles: {
       ...project.profiles,
       __adhoc: {
+        ...(base?.planSelection ? { planSelection: base.planSelection } : {}),
+        ...(base?.chunkSelection ? { chunkSelection: base.chunkSelection } : {}),
+        ...(base?.guidedImprovements ? { guidedImprovements: base.guidedImprovements } : {}),
         label: `${base?.label ?? baseProfileName} (правка оператора, не сохранена)`,
         stages: { ...(base?.stages ?? {}), ...stages } as Record<StageId, string | string[]>,
       },
@@ -189,4 +231,20 @@ export function resolveStartableProfile(
   const problems = checkReviewerRule(profile);
   if (problems.length > 0) throw new ProfileError(problems);
   return profile;
+}
+
+/**
+ * Маршрут отдельного рецензента из `RunnerConfig.reviewModel`. Живёт вне профиля:
+ * настройка едина на раннер, а не на проект/этап. Этап маршрута — `verify`: флаги
+ * ручек (`reviewFill`, `claimFill`, …) берутся из записи модели в `config/models.json`,
+ * как у любого маршрута этапа 6.
+ *
+ * Неизвестный id — `ProfileError` со списком проблем, как у маршрутов профиля:
+ * рецензент «не той» модели хуже отказа на загрузке.
+ */
+export function resolveReviewRoute(models: ModelsConfig, modelId: string): ResolvedRoute {
+  const problems: string[] = [];
+  const route = resolveRoute('verify', modelId, models, problems);
+  if (route === null || problems.length > 0) throw new ProfileError(problems);
+  return route;
 }

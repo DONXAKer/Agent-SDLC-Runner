@@ -1,0 +1,317 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 230535,
+    "remainingMs": 1569465,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261004003356175-m4-t2",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "zero-change-verify",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-04T01:13:12.556Z",
+    "finishedAt": "2026-10-04T01:17:03.691Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; ответ на поле отклонён: поле основания и сценарии: basis должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/index.ts не подготовлено: Исправь формат предыдущего ответа: [\n  {\n    \"origin\": \"string\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"fact\"\n    ],\n    \"message\": \"Too small: expected string to have >=1 characters\"\n  },\n  {\n    \"origin\": \"string\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"impact\"\n    ],\n    \"message\": \"Too small: expected string to have >=1 characters\"\n  },\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"risks\",\n      0\n    ],\n    \"message\": \"Invalid input: expected string, received object\"\n  },\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"risks\",\n      1\n    ],\n    \"message\": \"Invalid input: expected string, received object\"\n  }\n]\n```json\n{\n  \"fact\": {\n    \"existing_exports\": {\n      \"stock.ts\": [\"STOCK_TABLE\", \"WAREHOUSES\", \"findEntry\", \"isWarehouse\", \"stockOf\", \"totalQty\"],\n      \"keys.ts\": [\"KEY_SEPARATOR\", \"keyFor\"],\n      \"reserve.ts\": [\"RESERVED\", \"reserve\", \"reservedFor\"],\n      \"report.ts\": [\"stockReport\"],\n      \"types\": [\"StockEntry\", \"Warehouse\", \"ReserveOptions\", \"ReserveResult\", \"ReportRow\"]\n    },\n    \"public_api_structure\": {\n      \"type\": \"immutable frozen object (`Object.freeze`)\",\n      \"methods\": [\"find\", \"stockOf\", \"totalQty\", \"reserve\", \"reservedFor\", \"report\", \"keyFor\"],\n      \"purpose\": \"Uniquified consumption point; prevents external overrides of internal logic.\"\n    }\n  },\n  \"impact\": {\n    \"change_needed\": {\n      \"reason\": \"File requires extension to **re-export new issue-limits module** (`DAILY_ISSUE_LIMIT` and `issue()` function). The existing frozen API structure supports new key additions but requires explicit contract updates (step 4).\",\n      \"contract_requirements\": [\n        \"`DAILY_ISSUE_LIMIT` must be exported globally for warehouse-specific daily issue logic.\",\n        \"`issue()` and `IssueResult` type must be re-exported for external use.\"\n      ]\n    },\n    \"risk_context\": {\n      \"frozen_api_integrity\": \"Unverified if `Object.freeze(api)` updates are allowed or if full restructure is required due to immutability constraints.\"\n    }\n  },\n  \"change\": {\n    \"required_additions\": {\n      \"export_statements\": [\n        \"export { DAILY_ISSUE_LIMIT } from './issue-limits.ts';\",\n        \"export { issue } from './issue-limits.ts';\",\n        \"export type { IssueResult } from './issue-limits.ts';\"\n      ],\n      \"frozen_api_update\": {\n        \"action\": \"Expand `Object.freeze(api)` by adding `issue` to its methods\",\n        \"safety\": \"Check if immutability enforces full recomposition or incremental updates.\"\n      }\n    }\n  },\n  \"reuse\": {\n    \"pattern_observed\": \"Existing re-exports follow the format `export {...} from './module.ts';` with no type distinction from runtime functions in the frozen API.\"\n  },\n  \"risks\": [\n    {\n      \"risk\": \"Frozen API immutability constraint\",\n      \"explanation\": \"`Object.freeze(api)` may break if updated incrementally. No confirmed workflow exists for adding keys post-freeze.\"\n    },\n    {\n      \"risk\": \"Missing `IssueResult` type exposure\",\n      \"explanation\": \"Current public contract lacks the `IssueResult` type; failure to expose may force consumers/repositories to redeclare the type.\"\n    }\n  ],\n  \"questions\": [\n    {\n      \"question\": \"Is there a **business rule** enforcing a fixed API method signature/payload for consumers relying on `Object.freeze({...})`? If yes, outline integration requirements with justification.\",\n      \"blocking\": true\n    },\n    {\n      \"question\": \"Does the release pipeline mandate explicit **versioned exports** for new features (e.g., `issue`), or may they be added without coordinated consumer updates?\",\n      \"blocking\": true\n    }\n  ]\n}\n```",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 18516,
+          "outputTokens": 4616,
+          "cacheReadTokens": 14630,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 290182
+        },
+        "durationMs": 165786,
+        "requestDurationsMs": [
+          7237,
+          8057,
+          22452,
+          48375,
+          61058,
+          85901,
+          29949,
+          27157
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 4347,
+          "outputTokens": 1777,
+          "cacheReadTokens": 1578,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 64702
+        },
+        "durationMs": 64777,
+        "requestDurationsMs": [
+          37632,
+          27070
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:5a876966-0b26-4703-a62b-b1bb159431e2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261004003356175-m4-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:1464e175-4c70-4d38-8a70-4ae39beca584",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261004003356175-m4-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4898,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 16621,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "a7495224a8fda9113a05c3a15dd3a3ffb43b460f3092031187e87302e3925be4",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "3eae04a101f5521dbf963f739820af55c1b349be9f1ad14e2f893910093dd15f",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "7236726aad5273e6d484c03407b119b93b1dccc5e466f4a73bd1ebf4b88ec735",
+    "state": "finished",
+    "capturedAt": "2026-10-04T01:17:03.711Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-04T01:17:03.688Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "cfc6b4599244bc27a7ed2938f19486e275873587f73ddf29a1d0de95d0382652",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "ac06da3111f5c0bf7d1d354a6194a1a853648f9a20527214a3e13ad33c9c9726",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "19fe121fa5bce9d61b268cd384f65add151112565ccef6d8137614a5c22c4c39",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "42e3d52f8f537eae7e72649af58a8583e303cc2c7f192c8a420043facfc96648",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

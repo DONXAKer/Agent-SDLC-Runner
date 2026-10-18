@@ -7,7 +7,14 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
-import { describeStep, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
+import { appendMissingPlanStepCards, describeStep, explicitStepProblems, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
+
+it('сохраняет продолжения действия, проверки и фактов человека', () => {
+  const [step] = extractExplicitSteps('### Шаг 1 — НДС\n- файл: src/vat.ts\n- действие: ставка 10% если все reduced, иначе\n  20%; поле vat не добавлять\n  при none\n- проверка: `node --test test/vat.test.ts` · ожидаемо:\n  зелёный\n- факты человека: расчёт от суммы\n  с округлением половина вверх\n');
+  strictEqual(step?.action, 'ставка 10% если все reduced, иначе 20%; поле vat не добавлять при none');
+  strictEqual(step?.expect, 'зелёный');
+  strictEqual(step?.facts, 'расчёт от суммы с округлением половина вверх');
+});
 
 const EXPLICIT = [
   '# План',
@@ -20,6 +27,8 @@ const EXPLICIT = [
   '- действие: экспортировать функцию надбавки по порогам плана',
   '- закрывает: claim-2, claim-4',
   '- проверка: `node --test test/oversize.test.ts` · ожидаемо: зелёный',
+  '- контракт: новый экспорт `surchargeFor(input) → amount`; см. вызывающие в таблице плана',
+  '- зависит от: нет',
   '- факты человека: ставка за сумму измерений — 90 %',
   '',
   '### Шаг 2: Использовать `surchargeFor` в `priceFor`',
@@ -27,6 +36,9 @@ const EXPLICIT = [
   '- **символ:** priceFor',
   '- **действие:** прибавить надбавку к базовой цене',
   '- **закрывает:** claim-1',
+  '- проверка: `node --test test/tariffs.test.ts` · ожидаемо: зелёный',
+  '- контракт: н/п — сигнатура `priceFor` не меняется',
+  '- зависит от: шаг 1',
   '',
   '### Шаг 3 — шаг без файла',
   '- действие: ничего исполнимого',
@@ -60,6 +72,10 @@ const OLD_FORM = [
 ].join('\n');
 
 describe('явная форма шага плана', () => {
+  it('отделяет имя символа от запятой и принимает явное отсутствие символа у документа', () => {
+    strictEqual(extractExplicitSteps(EXPLICIT.replace('- **символ:** priceFor', '- **символ:** priceFor, меняется тело'))[1]?.symbol, 'priceFor');
+    strictEqual(extractExplicitSteps(EXPLICIT.replace('- **символ:** priceFor', '- **символ:** н/п — документация'))[1]?.symbol, null);
+  });
   it('читает файл, символ, действие, пункты, проверку и факты; шаг без файла пропускает', () => {
     const steps = extractExplicitSteps(EXPLICIT);
     strictEqual(steps.length, 2);
@@ -71,6 +87,8 @@ describe('явная форма шага плана', () => {
     deepStrictEqual(s1.claims, ['claim-2', 'claim-4']);
     strictEqual(s1.check, 'node --test test/oversize.test.ts');
     strictEqual(s1.expect, 'зелёный');
+    strictEqual(s1.contractChange, 'новый экспорт `surchargeFor(input) → amount`; см. вызывающие в таблице плана');
+    deepStrictEqual(s1.dependsOn, []);
     ok(s1.facts?.includes('90 %'));
     strictEqual(s1.explicit, true);
 
@@ -80,7 +98,50 @@ describe('явная форма шага плана', () => {
     strictEqual(s2.symbol, 'priceFor');
     strictEqual(s2.action, 'прибавить надбавку к базовой цене');
     deepStrictEqual(s2.claims, ['claim-1']);
-    strictEqual(s2.check, null);
+    strictEqual(s2.check, 'node --test test/tariffs.test.ts');
+    strictEqual(s2.checkSpecified, true);
+    deepStrictEqual(s2.dependsOn, [1]);
+  });
+
+  it('проверяет полноту карточек и порядок зависимостей', () => {
+    const valid = EXPLICIT.replace('### Шаг 3 — шаг без файла\n- действие: ничего исполнимого\n', '');
+    deepStrictEqual(explicitStepProblems(valid), []);
+    const invalid = valid.replace('- зависит от: шаг 1', '- зависит от: шаг 3');
+    ok(explicitStepProblems(invalid).some((p) => p.includes('более ранний шаг')));
+    ok(explicitStepProblems(valid.replace('- контракт: н/п — сигнатура `priceFor` не меняется\n', ''))
+      .some((p) => p.includes('контракт')));
+  });
+
+  it('requires an implementation step for every files_to_touch entry', () => {
+    const malformed = EXPLICIT.replace('- **файл:** src/tariffs.ts', '- **файл:** src/oversize.ts');
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('src/tariffs.ts')));
+  });
+
+  it('rejects several target files packed into one step card', () => {
+    const malformed = EXPLICIT.replace(
+      '- файл: `src/oversize.ts` (новый)',
+      '- файл: `src/oversize.ts` (экспорт в `src/index.ts`, новый)',
+    );
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('ровно один файл на карточку')));
+  });
+
+  it('rejects duplicate step cards for the same file', () => {
+    const malformed = EXPLICIT.replace(
+      '## files_to_touch',
+      [
+        '### Шаг 3 — Проверить модуль',
+        '- файл: src/oversize.ts (новый)',
+        '- символ: тест',
+        '- действие: добавить поведенческий тест',
+        '- закрывает: claim-2',
+        '- проверка: `node --test test/oversize.test.ts` · ожидаемо: зелёный',
+        '- контракт: н/п — тест',
+        '- зависит от: шаг 1',
+        '',
+        '## files_to_touch',
+      ].join('\n'),
+    );
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('уже покрыт другой карточкой')));
   });
 
   it('planSteps предпочитает явную форму, когда она есть', () => {
@@ -137,5 +198,42 @@ describe('fallback по files_to_touch', () => {
     ok(line.includes('src/oversize.ts (новый)'));
     ok(line.includes('символ surchargeFor'));
     ok(line.includes('claim-2'));
+  });
+});
+
+describe('карточки на все разрешённые файлы', () => {
+  it('добавляет заготовку только для пути без явного шага и сохраняет уже заполненные шаги', () => {
+    const plan = [
+      '## Шаги',
+      '### Шаг 1 — Обновить модуль',
+      '- файл: src/a.ts (существующий)',
+      '- символ: run',
+      '- действие: обновить run',
+      '- закрывает: claim-1',
+      '- проверка: н/п — проверяется шагом тестов',
+      '- контракт: н/п — сигнатура без изменений',
+      '- зависит от: нет',
+      '- факты человека: н/п',
+      '',
+      '## files_to_touch',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| src/a.ts | обновить run |',
+      '| src/index.ts | экспортировать run |',
+      '| test/new.test.ts | новый файл тестов |',
+    ].join('\n');
+    const result = appendMissingPlanStepCards(plan);
+    deepStrictEqual(result.paths, ['src/index.ts', 'test/new.test.ts']);
+    ok(result.text.includes('### Шаг 2 — Изменить src/index.ts'));
+    ok(result.text.includes('- файл: src/index.ts (существующий)'));
+    ok(result.text.includes('### Шаг 3 — Создать test/new.test.ts'));
+    ok(result.text.includes('- файл: test/new.test.ts (новый)'));
+    strictEqual(result.text.includes('### Шаг 1 — Обновить модуль'), true);
+  });
+
+  it('ничего не добавляет без секции шагов или когда все файлы покрыты', () => {
+    const noSteps = appendMissingPlanStepCards('## files_to_touch\n| Путь |\n|---|\n| src/a.ts |');
+    strictEqual(noSteps.text.includes('Шаг 1'), false);
+    deepStrictEqual(noSteps.paths, []);
   });
 });

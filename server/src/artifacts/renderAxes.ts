@@ -13,6 +13,7 @@
  */
 
 import { escapeCell, headerKey, isSeparatorRow, splitRow } from '../md/table.ts';
+import { placeholderRanges } from './artifact.ts';
 import { AXES, readAffected, type AxisName } from './planAxes.ts';
 
 export interface AxisFillAnswer {
@@ -37,6 +38,30 @@ function axisKey(s: string): string {
 }
 
 const CANONICAL_BY_KEY = new Map<string, AxisName>(AXES.map((a) => [axisKey(a), a]));
+
+/** Ячейка — целиком незаполненное место формы (`‹…›`), без единого слова модели. */
+function isPlaceholderCell(cell: string): boolean {
+  const text = cell.trim();
+  if (text === '') return false;
+  let rest = text;
+  for (const r of placeholderRanges(text).reverse()) rest = rest.slice(0, r.start) + rest.slice(r.end);
+  // Между местами формы в образце бывают разделители («‹шаг N› / ‹почему›») — не слова модели.
+  return rest.replace(/[\s/,;—–-]/g, '') === '' && rest.length < text.length;
+}
+
+/**
+ * Строка-образец бланка: КАЖДАЯ ячейка — незаполненное место (`| ‹имя оси из канона› |
+ * ‹да/нет› | … |` в таблице осей, `| ‹ось› | … |` в таблице рисков). Узнаётся тем же
+ * разборщиком мест, что у стража, а не сравнением с текстом шаблона: шаблон читается из
+ * эталона в рантайме, и переформулировка образца молча выключала бы удаление. Строка, где
+ * модель заполнила хоть одну ячейку, образцом не считается и не удаляется: стирать её
+ * значило бы молча выбросить решение модели — пусть на неё честно укажет страж
+ * (code-review-all 2026-09-23).
+ */
+function isTemplateRow(line: string): boolean {
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every(isPlaceholderCell);
+}
 
 function axisRowLine(a: AxisFillAnswer): string {
   return `| ${a.axis} | ${escapeCell(a.affectedText)} | ${escapeCell(a.what)} | ${escapeCell(a.outcome)} |`;
@@ -78,6 +103,22 @@ export function applyAxisAnswers(planText: string, answers: readonly AxisFillAns
     break;
   }
   if (sectionStart === -1) return planText;
+
+  // Шаблон методологии кладёт в обе таблицы секции по строке-образцу с placeholder-именем
+  // (осей и принятых рисков). Когда топ-ап заполняет оси, образцы мешают стражу завершения:
+  // он видит незаполненную ось «‹имя оси из канона›» и строку риска «‹ось›» без оси-риска и
+  // честно роняет этап. Удаляются ВСЕ такие строки секции, где бы они ни стояли, — до
+  // разбора таблиц, чтобы новые строки вставлялись уже в чистые таблицы. Прежде удалялся
+  // только образец осей и только сразу под шапкой: строки модели над образцом и образец
+  // рисков оставляли стража красным при полном ответе (code-review-all 2026-09-23).
+  for (let i = sectionEnd - 1; i > sectionStart; i--) {
+    const line = lines[i]!.trim();
+    if (!line.startsWith('|') || isSeparatorRow(line)) continue;
+    if (isTemplateRow(line)) {
+      lines.splice(i, 1);
+      sectionEnd--;
+    }
+  }
 
   // Таблица осей — ПЕРВАЯ таблица секции под шапкой «Ось …» (шаблон методологии кладёт её
   // раньше таблицы принятых рисков). Вторая встреченная шапка «Ось …» — уже таблица рисков,

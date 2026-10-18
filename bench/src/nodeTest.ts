@@ -18,6 +18,7 @@ export interface NodeTestOutput {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  cancelled?: boolean;
 }
 
 /** `node <args>` с очищенным окружением тестового прогона. */
@@ -25,9 +26,14 @@ export function spawnNode(args: {
   args: readonly string[];
   cwd?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   env?: Record<string, string>;
 }): Promise<NodeTestOutput> {
   return new Promise((resolve) => {
+    if (args.signal?.aborted) {
+      resolve({ exitCode: null, stdout: '', stderr: 'cancelled before start', timedOut: false, cancelled: true });
+      return;
+    }
     const { NODE_TEST_CONTEXT: _ctx, NODE_TEST_WORKER_ID: _worker, ...cleanEnv } = process.env;
     const child = spawn(process.execPath, [...args.args], {
       env: { ...cleanEnv, ...(args.env ?? {}) },
@@ -37,6 +43,9 @@ export function spawnNode(args: {
     const out: string[] = [];
     const err: string[] = [];
     let timedOut = false;
+    let cancelled = false;
+    const abort = (): void => { cancelled = true; child.kill(); };
+    args.signal?.addEventListener('abort', abort, { once: true });
     child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
     child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
     const timer =
@@ -48,11 +57,13 @@ export function spawnNode(args: {
           }, args.timeoutMs);
     child.on('close', (code) => {
       if (timer !== null) clearTimeout(timer);
-      resolve({ exitCode: code, stdout: out.join(''), stderr: err.join(''), timedOut });
+      args.signal?.removeEventListener('abort', abort);
+      resolve({ exitCode: code, stdout: out.join(''), stderr: err.join(''), timedOut, ...(cancelled ? { cancelled: true } : {}) });
     });
     child.on('error', (e) => {
       if (timer !== null) clearTimeout(timer);
-      resolve({ exitCode: null, stdout: '', stderr: e.message, timedOut });
+      args.signal?.removeEventListener('abort', abort);
+      resolve({ exitCode: null, stdout: '', stderr: e.message, timedOut, ...(cancelled ? { cancelled: true } : {}) });
     });
   });
 }
@@ -62,12 +73,14 @@ export function spawnNodeTest(args: {
   testArgs: readonly string[];
   cwd?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   env?: Record<string, string>;
 }): Promise<NodeTestOutput> {
   return spawnNode({
     args: ['--test', '--test-reporter=tap', ...args.testArgs],
     ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
     ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+    ...(args.signal === undefined ? {} : { signal: args.signal }),
     ...(args.env === undefined ? {} : { env: args.env }),
   });
 }

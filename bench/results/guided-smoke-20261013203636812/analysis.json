@@ -1,0 +1,885 @@
+{
+  "id": "guided-smoke-20261013203636812",
+  "status": "complete",
+  "codeHash": "f02c4a226b0ddf00cfecfa7e9b54e215ecde12d7cb696601e3757d863e776f44",
+  "environment": {
+    "ollamaVersion": "0.40.2",
+    "baseUrl": "http://localhost:11434",
+    "models": [
+      {
+        "registry": {
+          "id": "ollama:qwen3.8-27b-iq4-gpumax",
+          "provider": "ollama",
+          "model": "qwen3.8-27b-iq4-ctx32k-gpumax",
+          "contextWindow": 32768,
+          "rank": 64,
+          "formFill": true,
+          "exploreFill": true,
+          "params": {
+            "reasoning_effort": "none",
+            "max_tokens": 4096
+          }
+        },
+        "tag": "qwen3.8-27b-iq4-ctx32k-gpumax:latest",
+        "digest": "90e3ad7e8c56a9e98c6f5b8998e96a3718d73bb4e69bb8587f956ff67ea6db06",
+        "size": 15183993101
+      },
+      {
+        "registry": {
+          "id": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+          "provider": "ollama",
+          "model": "ministral3-14b-ctx32k",
+          "contextWindow": 32768,
+          "rank": 40,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true,
+          "stepFill": true,
+          "planAxisFill": true
+        },
+        "tag": "ministral3-14b-ctx32k:latest",
+        "digest": "742b27152a4ab193d4acd4af95330050ca40bef4f10823b652edd83decbc56ac",
+        "size": 9082557485
+      },
+      {
+        "registry": {
+          "id": "ollama:gpt-oss-20b-compactfill",
+          "provider": "ollama",
+          "model": "gpt-oss-20b-ctx16k",
+          "contextWindow": 16384,
+          "rank": 52,
+          "stepFill": true,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true
+        },
+        "tag": "gpt-oss-20b-ctx16k:latest",
+        "digest": "a5f46ba4bb5bcce52d511571e4375be47422a10d62ff3ca70b12ccd96cc17199",
+        "size": 13793441564
+      },
+      {
+        "registry": {
+          "id": "ollama:mellum2-12b-instruct-q6-compactfill",
+          "provider": "ollama",
+          "model": "mellum2-12b-instruct-q6-ctx32k",
+          "contextWindow": 32768,
+          "rank": 50,
+          "formFill": true,
+          "compactForms": "fill",
+          "exploreFill": true
+        },
+        "tag": "mellum2-12b-instruct-q6-ctx32k:latest",
+        "digest": "061112094780d23d088232d7461373c91df7ffcf7b4e9883e633b1d0c340ad09",
+        "size": 10879834355
+      }
+    ]
+  },
+  "planned": 8,
+  "completed": 8,
+  "rows": [
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-1-1",
+      "status": "failed",
+      "stopped": "chunk",
+      "note": "guided: Диагноз проверки не завершён; применено 4",
+      "failure": {
+        "kind": "checks",
+        "origin": "chunk",
+        "retryStage": "chunk",
+        "reason": "Диагноз проверки не завершён"
+      },
+      "hidden": {
+        "total": 8,
+        "pass": 2,
+        "fail": 6,
+        "skipped": 0,
+        "cases": [
+          {
+            "ok": true,
+            "skipped": false,
+            "id": "R1",
+            "category": "regression",
+            "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+          },
+          {
+            "ok": true,
+            "skipped": false,
+            "id": "R2",
+            "category": "regression",
+            "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе: 2×333 + 1×334 = 1000."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr1",
+            "category": "precision",
+            "label": "not ok 3 - Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr2",
+            "category": "precision",
+            "label": "not ok 4 - Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @)."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr3",
+            "category": "precision",
+            "label": "not ok 5 - Pr3 [precision] (claim-2): Домен без точки — нарушение email."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr4",
+            "category": "precision",
+            "label": "not ok 6 - Pr4 [precision] (claim-3): Короткий телефон — нарушение phone (+7 и ровно 10 цифр)."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr5",
+            "category": "precision",
+            "label": "not ok 7 - Pr5 [precision] (claim-3): Формат через восьмёрку — валиден (8 и ровно 10 цифр)."
+          },
+          {
+            "ok": false,
+            "skipped": false,
+            "id": "Pr6",
+            "category": "precision",
+            "label": "not ok 8 - Pr6 [precision] (claim-2): Оба поля неверны — оба кода, в фиксированном порядке: email раньше phone."
+          }
+        ],
+        "errorText": null
+      },
+      "minutes": 10.055033333333334,
+      "tokens": 123244,
+      "firstMutation": {
+        "at": "2026-10-13T20:45:29.412Z",
+        "elapsedMs": 505577,
+        "requests": 17,
+        "inputTokens": 76838,
+        "outputTokens": 25516,
+        "unclassifiedUsageEvents": 8
+      },
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T20:37:03.835Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 29354,
+            "outputTokens": 13005,
+            "durationMs": 340413
+          },
+          "format-repair": {
+            "usageEvents": 1,
+            "requests": 1,
+            "inputTokens": 5733,
+            "outputTokens": 2360,
+            "durationMs": 46712
+          },
+          "semantic-repair": {
+            "usageEvents": 4,
+            "requests": 4,
+            "inputTokens": 18517,
+            "outputTokens": 3723,
+            "durationMs": 75692
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 5,
+            "requests": 5,
+            "inputTokens": 13938,
+            "outputTokens": 4631,
+            "durationMs": 92250
+          },
+          "unclassified": {
+            "usageEvents": 8,
+            "requests": 0,
+            "inputTokens": 26872,
+            "outputTokens": 5111,
+            "durationMs": 104018
+          }
+        },
+        "failures": {
+          "format": 1,
+          "checks": 2,
+          "implementation": 1
+        },
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 8,
+        "firstMutation": {
+          "at": "2026-10-13T20:45:29.412Z",
+          "elapsedMs": 505577,
+          "requests": 17,
+          "inputTokens": 76838,
+          "outputTokens": 25516,
+          "unclassifiedUsageEvents": 8
+        }
+      }
+    },
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-2-2",
+      "status": "failed",
+      "stopped": "plan",
+      "note": "План не подготовлен: Не все требования покрыты шагами: claim-4. Свяжи их с реализацией, экспортом или тестами по смыслу приёмочного листа.",
+      "failure": {
+        "kind": "plan",
+        "origin": "plan",
+        "retryStage": "plan",
+        "reason": "Не все требования покрыты шагами: claim-4. Свяжи их с реализацией, экспортом или тестами по смыслу приёмочного листа."
+      },
+      "hidden": null,
+      "minutes": 8.000216666666667,
+      "tokens": 79700,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T20:46:43.854Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 8,
+            "requests": 8,
+            "inputTokens": 16412,
+            "outputTokens": 7882,
+            "durationMs": 234864
+          },
+          "format-repair": {
+            "usageEvents": 1,
+            "requests": 1,
+            "inputTokens": 8065,
+            "outputTokens": 1857,
+            "durationMs": 35457
+          },
+          "semantic-repair": {
+            "usageEvents": 2,
+            "requests": 2,
+            "inputTokens": 14131,
+            "outputTokens": 5930,
+            "durationMs": 109801
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 2,
+            "requests": 2,
+            "inputTokens": 4707,
+            "outputTokens": 3148,
+            "durationMs": 59770
+          },
+          "unclassified": {
+            "usageEvents": 7,
+            "requests": 0,
+            "inputTokens": 11373,
+            "outputTokens": 6195,
+            "durationMs": 116323
+          }
+        },
+        "failures": {
+          "format": 1,
+          "plan": 3
+        },
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 7,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-3-3",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+        "pendingFields": 1,
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 4.62525,
+      "tokens": 33834,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T20:55:01.440Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 21285,
+            "outputTokens": 4655,
+            "durationMs": 285460
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 6198,
+            "outputTokens": 1696,
+            "durationMs": 68450
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-4-4",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+        "pendingFields": 1,
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 4.585233333333333,
+      "tokens": 34038,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T20:59:22.144Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 21270,
+            "outputTokens": 4393,
+            "durationMs": 211216
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 6113,
+            "outputTokens": 2262,
+            "durationMs": 90076
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-5-5",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+        "pendingFields": 1,
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 4.9321,
+      "tokens": 25502,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T21:04:22.360Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 16770,
+            "outputTokens": 2891,
+            "durationMs": 231581
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 4880,
+            "outputTokens": 961,
+            "durationMs": 71452
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-6-6",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Intent: приёмка и основания содержат разные ID требований",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Intent: приёмка и основания содержат разные ID требований",
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 4.970983333333334,
+      "tokens": 33991,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T21:08:54.633Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 14904,
+            "outputTokens": 2250,
+            "durationMs": 193215
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 9147,
+            "outputTokens": 832,
+            "durationMs": 61698
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 5664,
+            "outputTokens": 1194,
+            "durationMs": 76742
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "task": "add-validator",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-7-7",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+        "pendingFields": 1,
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 1.53455,
+      "tokens": 36100,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T21:14:15.851Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 11,
+            "requests": 11,
+            "inputTokens": 23688,
+            "outputTokens": 2769,
+            "durationMs": 56671
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 7347,
+            "outputTokens": 2296,
+            "durationMs": 27039
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "task": "config-default",
+      "repeat": 1,
+      "version": 4,
+      "slug": "guided-smoke-20261013203636812-8-8",
+      "status": "failed",
+      "stopped": "intent",
+      "note": "Контракт Intent противоречив после трёх ремонтов: Конфликт описания исходного запроса и предполагаемого реализации",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт описания исходного запроса и предполагаемого реализации",
+        "reviewStatus": "rejected"
+      },
+      "hidden": null,
+      "minutes": 1.315,
+      "tokens": 49216,
+      "firstMutation": null,
+      "workload": {
+        "version": 1,
+        "startedAt": "2026-10-13T21:15:25.156Z",
+        "byPurpose": {
+          "proposal": {
+            "usageEvents": 7,
+            "requests": 7,
+            "inputTokens": 13332,
+            "outputTokens": 1405,
+            "durationMs": 38514
+          },
+          "format-repair": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "semantic-repair": {
+            "usageEvents": 3,
+            "requests": 3,
+            "inputTokens": 12228,
+            "outputTokens": 2219,
+            "durationMs": 28476
+          },
+          "context": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          },
+          "review": {
+            "usageEvents": 6,
+            "requests": 6,
+            "inputTokens": 18191,
+            "outputTokens": 1841,
+            "durationMs": 26010
+          },
+          "unclassified": {
+            "usageEvents": 0,
+            "requests": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "durationMs": 0
+          }
+        },
+        "failures": {},
+        "contextCompactions": 0,
+        "contextOverflows": 0,
+        "unclassifiedUsageEvents": 0,
+        "firstMutation": null
+      }
+    }
+  ],
+  "models": [
+    {
+      "model": "ollama:gpt-oss-20b-compactfill",
+      "version": 4,
+      "cases": 2,
+      "completed": 2,
+      "successes": 0,
+      "failures": 2,
+      "environment": 0,
+      "incomplete": 0,
+      "stageStops": {
+        "chunk": 1,
+        "plan": 1
+      },
+      "failuresByKind": {
+        "format": 2,
+        "checks": 2,
+        "implementation": 1,
+        "plan": 3
+      },
+      "terminalFailuresByKind": {
+        "checks": 1,
+        "plan": 1
+      },
+      "workloadTokens": {
+        "proposal": 66653,
+        "format-repair": 18015,
+        "semantic-repair": 42301,
+        "context": 0,
+        "review": 26424,
+        "unclassified": 49551
+      },
+      "mutationRuns": 1,
+      "medianMinutes": 9.027625,
+      "medianTokens": 101472,
+      "medianTokensBeforeMutation": 102354
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "version": 4,
+      "cases": 2,
+      "completed": 2,
+      "successes": 0,
+      "failures": 2,
+      "environment": 0,
+      "incomplete": 0,
+      "stageStops": {
+        "intent": 2
+      },
+      "failuresByKind": {},
+      "terminalFailuresByKind": {
+        "contract": 2
+      },
+      "workloadTokens": {
+        "proposal": 51603,
+        "format-repair": 0,
+        "semantic-repair": 0,
+        "context": 0,
+        "review": 16269,
+        "unclassified": 0
+      },
+      "mutationRuns": 0,
+      "medianMinutes": 4.605241666666666,
+      "medianTokens": 33936,
+      "medianTokensBeforeMutation": null
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "version": 4,
+      "cases": 2,
+      "completed": 2,
+      "successes": 0,
+      "failures": 2,
+      "environment": 0,
+      "incomplete": 0,
+      "stageStops": {
+        "intent": 2
+      },
+      "failuresByKind": {},
+      "terminalFailuresByKind": {
+        "contract": 2
+      },
+      "workloadTokens": {
+        "proposal": 36815,
+        "format-repair": 0,
+        "semantic-repair": 9979,
+        "context": 0,
+        "review": 12699,
+        "unclassified": 0
+      },
+      "mutationRuns": 0,
+      "medianMinutes": 4.951541666666667,
+      "medianTokens": 29746.5,
+      "medianTokensBeforeMutation": null
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "version": 4,
+      "cases": 2,
+      "completed": 2,
+      "successes": 0,
+      "failures": 2,
+      "environment": 0,
+      "incomplete": 0,
+      "stageStops": {
+        "intent": 2
+      },
+      "failuresByKind": {},
+      "terminalFailuresByKind": {
+        "contract": 2
+      },
+      "workloadTokens": {
+        "proposal": 41194,
+        "format-repair": 0,
+        "semantic-repair": 14447,
+        "context": 0,
+        "review": 29675,
+        "unclassified": 0
+      },
+      "mutationRuns": 0,
+      "medianMinutes": 1.424775,
+      "medianTokens": 42658,
+      "medianTokensBeforeMutation": null
+    }
+  ]
+}

@@ -184,7 +184,8 @@ export type NormalizedCall =
       range: { from: number; to: number | null } | null;
     }
   | { kind: 'glob'; pattern: string; path: string | null }
-  | { kind: 'grep'; pattern: string; path: string | null }
+  /** `glob` — фильтр имён файлов (как `rg --glob`): по нему политика судит, задевает ли поиск закрытые файлы. */
+  | { kind: 'grep'; pattern: string; path: string | null; glob?: string }
   | { kind: 'write'; path: string; content: string }
   | { kind: 'edit'; path: string; edits: EditOp[] }
   | { kind: 'bash'; command: string }
@@ -281,7 +282,13 @@ export const CALL_KINDS = Object.keys({
 // Политика доступа
 // ---------------------------------------------------------------------------
 
-export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure' | 'humanDecision';
+/**
+ * `readScope` — чтение файла ВНУТРИ проекта, закрытого этапу по конструкции (отчёт другой
+ * попытки рецензенту, авторский лист задачи агенту claims). Это не выход за границы
+ * (`pathScope`): отказ — устройство шага, а не посягательство модели, и стенд не должен
+ * ставить за него метку «опасна».
+ */
+export type PolicyName = 'pathScope' | 'readScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure' | 'humanDecision';
 
 export type PolicyVerdict =
   | { ok: true }
@@ -373,6 +380,13 @@ export interface PolicyContext {
    * виток на первом же шаге.
    */
   readOnlyRoots: readonly string[];
+  /**
+   * Каталог ТЕКУЩЕЙ сессии Claude Code (флоу `sdk`, задаётся по вызову из метаданных
+   * исполнителя): длинный вывод инструмента харнесс сохраняет в `<этот каталог>/tool-results/…`
+   * и отдаёт модели путь. Открыт на чтение ТОЛЬКО подкаталог `tool-results`. Во флоу `loop`
+   * не задаётся: таких путей там не бывает.
+   */
+  harnessResultsRoot?: string;
   /** Инструменты, разрешённые на текущем этапе. */
   allowedTools: readonly ToolName[];
   /**
@@ -411,6 +425,15 @@ export interface PolicyContext {
    * ручка — конфиг витка. Не задано — прежнее поведение.
    */
   restoreErasedDecisions?: boolean;
+  /**
+   * Не перенаправлять запись своего артефакта этапа (`approval/artifactAddress.ts`). Та же
+   * природа, что у `restoreErasedDecisions`: ручка гейта, не вход политики. Ставится для
+   * флоу `sdk`: исполняет запись харнесс Claude Code, и его `Write`/`Edit` требуют чтения
+   * ИМЕННО того пути, куда пишут, — перенаправленный вызов в засеянный бланк, который модель
+   * не читала, падал бы «File has not been read yet», а в ленте значился бы починкой
+   * (code-review-all 2026-09-23). Не задано — перенаправление действует (флоу `loop`).
+   */
+  noArtifactReaddress?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +485,8 @@ export function addUsage(a: Usage, b: Usage): Usage {
 // ---------------------------------------------------------------------------
 
 export interface PreparedPrompt {
+  /** Runtime-owned structured input, independent of document presentation. */
+  guidedProtocol?: boolean;
   /**
    * Нередактируемый блок, который добавляет исполнитель помимо нашего текста.
    * У флоу `sdk` — системный пресет Claude Code; у `loop` — null, там видно всё.
@@ -549,6 +574,12 @@ export interface VerdictInput {
     inapplicableSignedBy: string | null;
     /** Гейт не смог запуститься из-за среды — см. `GateRunResult.envBlocked`. */
     envBlocked?: boolean;
+    /**
+     * Улика отсутствующего инструмента (`GateRunResult.missingTool`). `blocked_env` держится
+     * на доказательстве, а не на слове: без названного инструмента незапуск — обычный
+     * красный (`SDLC.md` → «Красный из-за окружения»).
+     */
+    missingTool?: string | null;
   }[];
   claims: { id: string; status: ClaimStatus }[];
   /** Условия вне статусов — каждое роняет вердикт само по себе. */
@@ -558,7 +589,23 @@ export interface VerdictInput {
   brokenInvariants: string[];
   regressions: string[];
   plannedPathsUntouched: string[];
+  /** Содержательные поля отчётов verify, оставшиеся пустыми после всех доборов. */
+  unfilledReportFields?: number;
   diffMatchesTree: boolean;
+  /**
+   * Свидетельства попытки не произведены инструментом либо не сошлись с файлами: текст
+   * причины. `null`/`undefined` — свидетельства на месте (или сверки не было — тогда
+   * условие не применяется, как у `diffMatchesTree` без факта). Условие вердикта по
+   * `SDLC.md`: «файлы без записи `evidence.json` — текст исполнителя, свидетельством не
+   * считаются».
+   */
+  evidenceProblem?: string | null;
+  /**
+   * Секции `intent.md`, переписанные внутри витка вне трёх законных правок этапа 1 —
+   * восьмое условие вердикта (`SDLC.md`): задача, изменённая мимо снимка секций, — это
+   * переписанная задача, а не правка. Пусто/отсутствует — законно или сверки не было.
+   */
+  intentTamper?: string[];
   attempt: number;
   attemptBudget: number;
   /** Два подряд одинаковых diff'а — прогресса нет. */
@@ -641,6 +688,25 @@ export interface GateRunResult {
    * `GateRunResult` без этого поля, и «Вывод команды» в `tests.txt` не появлялся никогда.
    */
   outputTail?: string;
+  /**
+   * Полный вывод команды (stdout + stderr) — для свидетельства попытки (`…-tests.txt`):
+   * методология требует ПОЛНЫЙ вывод, усечение только буфером захвата и с пометкой. В
+   * строку гейта и в шину не идёт — там `lastLine` и `outputTail`.
+   */
+  output?: string;
+  /**
+   * Улика отсутствующего инструмента — строка оболочки, назвавшая сам инструмент команды
+   * (`gates/missingTool.ts`); `null` — инструмент на месте. Пишется в `evidence.json`
+   * попытки и служит основанием `blocked_env`, а не догадкой по коду возврата.
+   */
+  missingTool?: string | null;
+  /**
+   * Откуда статус: `json` — гейт-скрипт отчитался по контракту (`gates/contract.ts`),
+   * `exit-code` — по коду возврата. У встроенных реализаций и внешних статусов — нет.
+   */
+  contract?: 'json' | 'exit-code';
+  /** Улики гейт-скрипта по контракту: пути, hunk'и, имена тестов — то, что цитирует отчёт. */
+  evidence?: string[];
 }
 
 /**
@@ -701,6 +767,7 @@ export type RunEvent =
    * рантаймом по длине.
    */
   | { type: 'model_exchange'; runId: string; stage: StageId; question: string; answer: string }
+  | { type: 'question_validation'; runId: string; stage: StageId; questionId: string; accepted: boolean; reason: string }
   | {
       type: 'tool_request';
       runId: string;
@@ -728,6 +795,12 @@ export type RunEvent =
        * и исполнитель получит исправленный вход. Не задано — вход не менялся.
        */
       repaired?: string;
+      /**
+       * Рантайм перенаправил запись собственного артефакта этапа на его канонический путь
+       * (`approval/artifactAddress.ts`); исполнитель получит исправленный вход. Не задано — путь
+       * не менялся.
+       */
+      readdressed?: string;
       /**
        * Метки полей решений человека, которые стирал ИСХОДНЫЙ вызов — до починки. Не задано —
        * не стирал. Отдельно от `destructive`: при включённой починке нота считается по

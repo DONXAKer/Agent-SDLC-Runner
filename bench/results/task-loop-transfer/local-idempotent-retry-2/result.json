@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "idempotent-retry",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-PdP7dH",
+    "baseCommit": "730fef88822a8730b46309db845031cc2a925770",
+    "contract": {
+      "task": "# Идемпотентная отправка\n\nВызывающая сторона ретраит по таймауту: не дождалась ответа — вызвала отправку ещё раз. У нас\nкаждый вызов честно уходит в транспорт, и человек получает одно и то же уведомление дважды, а\nто и трижды. Нужна идемпотентность отправки.\n\n## Что должно получиться\n\n1. `sendNotification(transport, msg, opts?)` (`src/sender.ts`, реэкспорт из `src/index.ts`)\n   принимает третьим параметром **необязательные** опции `{ idempotencyKey?: string }`.\n   Повторный вызов с тем же ключом **не отправляет** повторно и возвращает прежний `id` —\n   тот, что выдал транспорт при первой отправке.\n2. Вызовы **без ключа** работают как раньше: всегда отправляют, даже если сообщение\n   совпадает с уже отправленным. Существующие тесты остаются зелёными и **без правки** —\n   они вызывают `sendNotification` двумя аргументами, и это обязано остаться законным.\n3. Один ключ — одно тело. Повторный вызов с тем же ключом, но **другим** сообщением\n   (отличается любое из `to`, `text`, `phone`) — это ошибка вызывающего: бросается\n   исключение. Не тихая отправка и не тихий возврат чужого `id`.\n4. Хранилище ключей — в процессе: `Map` в модуле отправки или в новом модуле `src/`.\n   Внешних зависимостей нет и не появится.\n5. На новое поведение есть тест рядом с существующими (`test/`), и набор тестов прогнан\n   по-настоящему командой проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/idempotent-retry`. Виток полный — мелким контуром не закрывать.\n- Транспорт (`src/transport.ts`) не трогаем: идемпотентность — забота отправителя, транспорт\n  про ключи не знает. `memoryTransport` — стенд, а не место для логики.\n- Время жизни ключа — процесс. TTL и очистку хранилища в этом витке не делаем.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/transport.ts",
+        "test/sender.test.ts",
+        "test/outbox.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-transfer.json",
+    "acceptanceFile": "bench/checks/acceptance/retry.mjs",
+    "control": "local",
+    "startedAt": "2026-10-14T14:24:03.367Z"
+  },
+  "finishedAt": "2026-10-14T14:27:36.522Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "All checks pass. Summary:\n\n- `src/sender.ts`: added optional `SendOptions { idempotencyKey? }` as third arg. Module-level `Map<string, { id, msg }>` tracks keys (process lifetime, no TTL). Repeat with same key + same body → returns stored `id`, no transport send. Same key + different `to`/`text`/`phone` → `Error`. No key (or `opts` omitted) → unchanged, always sends.\n- `src/index.ts`: re-exports new `SendOptions` type.\n- `test/idempotency.test.ts` (new, next to existing tests): 6 cases covering repeat-succeeds-retry, cross-transport key retention, mismatched body raising for each differing field, distinct keys independent, unkeyed calls always sending, and the \"same id from prior transport on new transport\" behavior.\n- `src/transport.ts`, `test/sender.test.ts`, `test/outbox.test.ts` untouched.\n\nFinal command output (logged via `mcp__task__check`): build PASS (6/6 modules), test PASS — 11 tests, 3 suites, 0 fail, 0 cancelled.",
+    "usage": {
+      "inputTokens": 103562,
+      "outputTokens": 3534,
+      "cacheReadTokens": 98126,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 211038
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "4da94fbe0695d68dbccb9417e747adc9a46b48061e631e312457fec71a44a559",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "4da94fbe0695d68dbccb9417e747adc9a46b48061e631e312457fec71a44a559",
+        "passed": true,
+        "output": "▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.6103ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.6762ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1101ms)\n✔ очередь исходящих (2.2568ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (0.7801ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1285ms)\n✔ отправитель (1.7037ms)\nℹ tests 5\nℹ suites 2\nℹ pass 5\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 133.2635\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "12ca421fd4278eefc1ddc57f837866b8bfb81235fbb2e065241f24bfa9b34bbd",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "12ca421fd4278eefc1ddc57f837866b8bfb81235fbb2e065241f24bfa9b34bbd",
+        "passed": false,
+        "output": "▶ идемпотентная отправка\n  ✔ ретрай с тем же ключом не шлёт повторно и возвращает прежний id (0.9458ms)\n  ✖ ретрай передаёт ровно то же сообщение, что и первый вызов (0.1842ms)\n  ✔ повтор с тем же ключом и другим сообщением — исключение, в транспорт ничего (0.1934ms)\n  ✔ разные ключи — независимые отправки (0.1308ms)\n  ✔ вызов без ключа — всегда отправляет, даже если сообщение уже было отправлено (0.1127ms)\n  ✔ ключ живёт на процесс: повторный вызов с тем же ключом — в новом транзакционном контексте — не пересылает (0.1082ms)\n✖ идемпотентная отправка (3.2111ms)\n▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.6044ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.6919ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1122ms)\n✔ очередь исходящих (2.6486ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (0.7377ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1575ms)\n✔ отправитель (1.9797ms)\nℹ tests 11\nℹ suites 3\nℹ pass 10\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 142.549\n\n✖ failing tests:\n\ntest at test\\idempotency.test.ts:28:3\n✖ ретрай передаёт ровно то же сообщение, что и первый вызов (0.1842ms)\n  Error: идемпотентность: ключ k-phone уже использован с другим сообщением\n      at sendNotification (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-PdP7dH/src/sender.ts:47:15)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-PdP7dH/test/idempotency.test.ts:32:5)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Promise.all (index 0)\n      at async Suite.run (node:internal/test_runner/test:1794:7)\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "b2f3723911e8c79efae719f7008b4fc21a28c5ba806948e23955b144929f62d0",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "b2f3723911e8c79efae719f7008b4fc21a28c5ba806948e23955b144929f62d0",
+        "passed": true,
+        "output": "▶ идемпотентная отправка\n  ✔ ретрай с тем же ключом не шлёт повторно и возвращает прежний id (0.8993ms)\n  ✔ ретрай передаёт ровно то же сообщение, что и первый вызов (0.132ms)\n  ✔ повтор с тем же ключом и другим сообщением — исключение, в транспорт ничего (0.2083ms)\n  ✔ разные ключи — независимые отправки (0.1168ms)\n  ✔ вызов без ключа — всегда отправляет, даже если сообщение уже было отправлено (0.6711ms)\n  ✔ ключ живёт на процесс: повторный вызов с тем же ключом — в новом транзакционном контексте — не пересылает (0.1296ms)\n✔ идемпотентная отправка (3.0826ms)\n▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.6401ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.6667ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1137ms)\n✔ очередь исходящих (2.2254ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (1.0392ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1145ms)\n✔ отправитель (2.0904ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 147.635\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 15,
+      "writes": 8,
+      "denied": 0,
+      "repairs": 1,
+      "repeatedErrors": 0,
+      "firstEditMs": 63565.4356,
+      "firstCheckMs": 181156.379,
+      "humanWaitMs": 0,
+      "activeMs": 212172.2062,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "src/index.ts",
+    "src/sender.ts",
+    "test/idempotency.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: equal bodies reuse the real id; different keys and absent keys send"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: each differing message field rejects reuse without sending"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 5,
+    "pass": 5,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: Без ключа два одинаковых сообщения уходят дважды, id — те, что выдал транспорт. Это контракт «как было», он обязан остаться и после витка."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: Очередь существует до витка: enqueue двух, drain — две отправки в порядке постановки."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Два вызова с одним ключом и одним телом — одна отправка в транспорт, оба вызова вернули один и тот же id."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-1): Разные ключи — разные отправки: ключ k-pr2-a дважды и k-pr2-b один раз → две отправки и два различных id (без дедупликации было бы три)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-3): Один ключ, другое тело (изменён text) — второй вызов бросает исключение; в транспорт ушла только первая отправка. Ключи изолированы per-message, а не «любой ключ — любое тело»."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "b2f3723911e8c79efae719f7008b4fc21a28c5ba806948e23955b144929f62d0",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

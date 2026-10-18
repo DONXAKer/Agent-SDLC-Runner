@@ -1,0 +1,2 @@
+Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.
+Preserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.

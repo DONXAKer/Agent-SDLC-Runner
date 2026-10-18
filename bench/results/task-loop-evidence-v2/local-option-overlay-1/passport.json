@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "option-overlay",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-vVMZKI",
+  "baseCommit": "9fde4a26f9505a4514b4816c54891e92d9ec9374",
+  "contract": {
+    "task": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects.",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": false,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/option-overlay.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T17:46:34.240Z"
+}

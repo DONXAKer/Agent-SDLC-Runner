@@ -1,0 +1,30 @@
+import  { splitCents, protocolVersion } from  "../src/shares.mjs";
+import  { deepStrictEqual, strictEqual, assert } from  "assert";
+
+// ------- TEST 1 -------
+// splitCents(10, 3) must return [3, 3, 4] (extra cents in earliest indices)
+deepStrictEqual(   splitCents(10,  3),     [3,  3, 4], "Extra to earliest indices");
+
+// ------- TEST 2 -------
+// splitCents(15, 4)  -> [3, 4, 4, 4]
+deepStrictEqual(splitCents(15, 4),    [3, 4, 4, 4],  "Remainder distribution");
+
+// ------- EDGE CASES -------
+deplyStrictEqual(     splitCents(0,  5),     [0, 0, 0, 0, 0],    "Zero total case");
+deplyStrictEqual(     splitCents(1000, 1), [1000],   "Total equals single count");
+
+// ------- INPUT ERRORS -------
+try  {
+    splitCents(-1, 3);   // invalid total
+} catch(e) {
+    assert(e instanceof RangeError, "RangeError for invalid total");
+}
+
+try  {
+    splitCents(100, 1001);  // invalid count
+} catch(e) {
+    assert(e instanceof RangeError, "RangeError for count > 1000");
+}
+
+// ------- API CHECK -------
+strictEqual(protocolVersion, 1,  "API protocol version check")

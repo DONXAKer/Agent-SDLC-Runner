@@ -30,6 +30,7 @@ import {
   continuationOfDecision,
   isDecisionCell,
   isDecisionLine,
+  isHumanAnswerCell,
   placeholderRanges,
 } from './artifact.ts';
 import { CLAIMS_MINIMUM } from './claims.ts';
@@ -91,6 +92,8 @@ export interface FormField {
   shape: FieldShape;
   /** Ближайший заголовок над полем, нормализованный. */
   section: string;
+  /** Явная группа независимых полей для компактного заполнения. */
+  compactGroup?: string;
   label: string | null;
   /** Легенда секции и текст плейсхолдера — подсказка для карточки поля. */
   hint: string;
@@ -679,6 +682,32 @@ export function deriveSchema(text: string, templateName?: string): FormSchema {
         continue;
       }
 
+      // «Ответ человека» — владение ЯЧЕЙКОЙ, а не строкой (`isHumanAnswerCell`). Строка, где
+      // ответ ещё плейсхолдер, — не поле модели вовсе: вопрос с ответом в таблицу пишет
+      // рантайм (`askOpenQuestions`, `ask.ts::afterAskHuman`), и образец, отданный модели,
+      // учил бы её сочинять строку вопроса вместе с ответом. Строка с настоящим ответом идёт
+      // обычным путём фиксированной строки ниже — модели остаются её плейсхолдеры, то есть
+      // «Что изменилось в задаче»; ячейка ответа плейсхолдера уже не несёт.
+      const answerCol = header.findIndex(isHumanAnswerCell);
+      if (answerCol >= 0 && (cells[answerCol] ?? '').includes('‹')) {
+        if (phs.length > 0) {
+          push(b, {
+            id: uniqueId(b, `${sec()}/ответ человека`, sec()),
+            kind: 'decision',
+            shape: 'table',
+            section: sec(),
+            label: null,
+            hint: hintOf(),
+            owner: 'human',
+            range: { start: line.start, end: line.end },
+            valueRange: { start: line.start, end: line.end },
+            placeholders: phs,
+            header: headerLine?.raw.trim() ?? '',
+          });
+        }
+        continue;
+      }
+
       if (isSampleRow(cells)) {
         if (tableField === null) {
           tableIndex += 1;
@@ -960,6 +989,7 @@ interface Override {
   kind?: FieldKind;
   owner?: FieldOwner;
   stageOnly?: StageId;
+  compactGroup?: string;
 }
 
 /**
@@ -971,8 +1001,11 @@ interface Override {
 export const SCHEMA_OVERRIDES: Readonly<Record<string, Readonly<Record<string, Override>>>> = {
   'intent.template.md': {
     'что придётся тронуть': { stageOnly: 'explore' },
+    'зачем': { compactGroup: 'intent-purpose' },
+    коротко: { compactGroup: 'intent-purpose' },
   },
   'plan.template.md': {
+    'требования': { owner: 'runtime', kind: 'mechanical' },
     'название витка': { owner: 'runtime', kind: 'mechanical' },
     'вход/1': { owner: 'runtime', kind: 'mechanical' },
     'вход/2': { owner: 'runtime', kind: 'mechanical' },
@@ -1002,6 +1035,7 @@ export const SCHEMA_OVERRIDES: Readonly<Record<string, Readonly<Record<string, O
     'diff/1': { owner: 'runtime', kind: 'mechanical' },
     'diff/2': { owner: 'runtime', kind: 'mechanical' },
     'сверка с деревом': { owner: 'runtime', kind: 'mechanical' },
+    'свидетельства попытки': { owner: 'runtime', kind: 'mechanical' },
     'passed': { owner: 'runtime', kind: 'mechanical' },
     'action': { owner: 'runtime', kind: 'mechanical' },
     'попытка/1': { owner: 'runtime', kind: 'mechanical' },
@@ -1049,6 +1083,15 @@ function applyOverrides(fields: FormField[], templateName: string | undefined): 
     if (o.kind !== undefined) f.kind = o.kind;
     if (o.owner !== undefined) f.owner = o.owner;
     if (o.stageOnly !== undefined) f.stageOnly = o.stageOnly;
+    if (o.compactGroup !== undefined) f.compactGroup = o.compactGroup;
+  }
+  // Readiness is an executable report. The checks and verdict are computed from the
+  // artifacts by the runtime, so never ask the model to self-certify them.
+  if (templateName === 'readiness.template.md') {
+    for (const field of fields) {
+      field.owner = 'runtime';
+      field.kind = 'mechanical';
+    }
   }
   return unresolved;
 }

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { git } from '../../server/src/gates/git.ts';
+import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+import { markCommitted, readRunVerdict, writeRunVerdict } from '../../server/src/run/verdictStore.ts';
 import {
   SnapshotError,
   firstMeasuredFrom,
@@ -12,6 +14,7 @@ import {
   readSnapshotMeta,
   restoreSnapshot,
   startStageAfter,
+  startStageForMeasurement,
   verifyRestoredBranch,
 } from '../src/snapshot.ts';
 
@@ -22,6 +25,12 @@ describe('точка снимка и первый измеряемый этап'
     strictEqual(startStageAfter('handoff'), null);
     strictEqual(startStageAfter('нет-такого'), null);
     strictEqual(startStageAfter(undefined), null);
+  });
+
+  it('--stage со снимка пропускает промежуточные контрольные этапы', () => {
+    strictEqual(startStageForMeasurement('ask', 'verify'), 'verify');
+    strictEqual(startStageForMeasurement('ask'), 'ask');
+    strictEqual(startStageForMeasurement('verify', 'plan'), 'verify');
   });
 
   it('первый измеряемый — не раньше старта: --all со снимка после plan мерит chunk, а не intent', () => {
@@ -58,6 +67,44 @@ async function makeWorkspace(): Promise<string> {
 }
 
 describe('makeSnapshot / restoreSnapshot', () => {
+  it('после verify сохраняет реальный вердикт отдельно от отчёта и исходного витка', async () => {
+    const prior = process.env.SDLC_STATE_DIR;
+    process.env.SDLC_STATE_DIR = tmp('sdlc-snapshot-state-');
+    try {
+      const workspaceRoot = await makeWorkspace();
+      const paths = new WitokPaths(workspaceRoot, 'demo');
+      mkdirSync(join(paths.chunkDiff(1, 1), '..'), { recursive: true });
+      writeFileSync(paths.chunkDiff(1, 1), 'verified patch\n');
+      writeRunVerdict(paths, 1, 1, { passed: true, action: 'continue', reasons: [] });
+      const snapshotsDir = tmp('sdlc-bench-verdict-snaps-');
+      makeSnapshot({ workspaceRoot, snapshotsDir, name: 'verified', slug: 'demo', branch: 'sdlc/demo', stoppedAfterStage: 'verify', task: 'oversize' });
+      markCommitted(paths, 1, 1, 'later-live-commit');
+      const restored = restoreSnapshot({ snapshotsDir, name: 'verified', targetSlug: 'new-run', expectedTask: 'oversize' });
+      try {
+        strictEqual(readRunVerdict(new WitokPaths(restored.root, 'new-run'), 1, 1)?.passed, true);
+        strictEqual(readRunVerdict(new WitokPaths(restored.root, 'new-run'), 1, 1)?.committedSha, null);
+      } finally { restored.dispose(); }
+      writeFileSync(new WitokPaths(join(snapshotsDir, 'verified'), 'demo').chunkDiff(1, 1), 'changed patch\n');
+      const stale = restoreSnapshot({ snapshotsDir, name: 'verified', targetSlug: 'stale-run', expectedTask: 'oversize' });
+      try { strictEqual(readRunVerdict(new WitokPaths(stale.root, 'stale-run'), 1, 1), null); }
+      finally { stale.dispose(); }
+    } finally {
+      if (prior === undefined) delete process.env.SDLC_STATE_DIR;
+      else process.env.SDLC_STATE_DIR = prior;
+    }
+  });
+
+  it('строка passed в отчёте без вердикта рантайма не переносится как одобрение', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const paths = new WitokPaths(workspaceRoot, 'demo');
+    mkdirSync(join(paths.verificationReport(1, 1), '..'), { recursive: true });
+    writeFileSync(paths.verificationReport(1, 1), 'passed: true\n');
+    const snapshotsDir = tmp('sdlc-bench-fake-verdict-snaps-');
+    makeSnapshot({ workspaceRoot, snapshotsDir, name: 'fake', slug: 'demo', branch: 'sdlc/demo', stoppedAfterStage: 'verify', task: 'oversize' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'fake', targetSlug: 'new-run', expectedTask: 'oversize' });
+    try { strictEqual(readRunVerdict(new WitokPaths(restored.root, 'new-run'), 1, 1), null); }
+    finally { restored.dispose(); }
+  });
   it('снимок восстанавливается с тем же деревом и веткой', async () => {
     const workspaceRoot = await makeWorkspace();
     const snapshotsDir = tmp('sdlc-bench-snaps-');
@@ -194,6 +241,13 @@ describe('makeSnapshot / restoreSnapshot', () => {
       'utf8',
     );
     writeFileSync(join(workspaceRoot, '.sdlc', 'demo', 'metrics.md'), '## Метрики витка\n', 'utf8');
+    // Текущее место чисел — `.runner/`; прежнее (корень витка) `Run` читает как запасное.
+    mkdirSync(join(workspaceRoot, '.sdlc', 'demo', '.runner'), { recursive: true });
+    writeFileSync(
+      join(workspaceRoot, '.sdlc', 'demo', '.runner', 'metrics.json'),
+      '{"stages":[{"stage":"chunk","runs":9,"durationMs":999}]}\n',
+      'utf8',
+    );
     const snapshotsDir = tmp('sdlc-bench-snap-dir-');
     makeSnapshot({
       workspaceRoot,
@@ -206,6 +260,7 @@ describe('makeSnapshot / restoreSnapshot', () => {
     });
 
     strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', 'metrics.json')), false);
+    strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', '.runner', 'metrics.json')), false);
 
     const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'кандидат', expectedTask: 'oversize' });
     roots.push(restored.root);

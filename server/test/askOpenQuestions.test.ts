@@ -59,11 +59,13 @@ function repo(): { root: string; paths: WitokPaths } {
 function host(
   paths: WitokPaths,
   askHuman: (stage: StageId, questions: readonly Question[]) => Promise<Record<string, string[]>>,
+  signal: AbortSignal = new AbortController().signal,
 ): StageHost {
   const writes: { path: string; text: string }[] = [];
   const h = {
     paths,
     askHuman,
+    signal: () => signal,
     writeAutofilled: (path: string, text: string) => {
       writes.push({ path, text });
       writeFileSync(path, text);
@@ -105,6 +107,22 @@ describe('askOpenQuestions (через askModule.begin(host).beforeExecutor)', (
     ok(intent.includes('- [x] **[блокирующий]** Ставка для суммы >300см?'), intent);
     // Пропущенный (неблокирующий) вопрос остаётся открытым — уходит следующему витку.
     ok(intent.includes('- [ ] **[неблокирующий]** Нужен ли отдельный кеш?'), intent);
+  });
+
+  it('отмена во время вопросов — ничего не пишется, вопросы остаются незаданными', async () => {
+    const { paths } = repo();
+    const ac = new AbortController();
+    const before = readFileSync(paths.clarificationReport, 'utf8');
+    const h = host(
+      paths,
+      async () => {
+        ac.abort();
+        return {};
+      },
+      ac.signal,
+    );
+    await askModule.begin?.(h, {} as never)?.beforeExecutor?.();
+    strictEqual(readFileSync(paths.clarificationReport, 'utf8'), before, '«(пропущено)» за отмену не пишется');
   });
 
   it('идемпотентно: повторный вход не переспрашивает уже отвеченные вопросы', async () => {
@@ -187,5 +205,23 @@ describe('askOpenQuestions (через askModule.begin(host).beforeExecutor)', (
 
     const report = readFileSync(paths.clarificationReport, 'utf8');
     ok(report.includes('Вопрос 1?') && report.includes('Вопрос 2?'), 'оба блокирующих обязаны войти в первую партию');
+  });
+});
+
+describe('askModule.begin(host).formFinish — дозаполнение отчёта после хода (2026-09-23)', () => {
+  it('называет путь clarification-report.md, не форсирует и не требует правки кода', () => {
+    const { paths } = repo();
+    const h = host(paths, async () => ({}));
+    const finish = askModule.begin?.(h, {} as never)?.formFinish?.({
+      ok: false,
+      finalText: '',
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 },
+      note: 'исчерпан лимит ходов',
+    });
+    ok(finish !== undefined && finish !== null);
+    strictEqual(finish?.path, paths.clarificationReport);
+    strictEqual(finish?.forced, false);
+    strictEqual(finish?.extraBlock, null);
+    strictEqual(finish?.requireCodeChange, false);
   });
 });

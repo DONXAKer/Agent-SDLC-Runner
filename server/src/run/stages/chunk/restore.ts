@@ -25,6 +25,15 @@ export function restoreChunkFromDir(dir: string): number | null {
   } catch {
     return null;
   }
+  return chunkFromNames(entries);
+}
+
+/**
+ * Номер chunk'а по уже прочитанному списку имён каталога витка — тот же признак для
+ * `restoreChunkFromDir` и дашборда (у того список уже есть, второй `readdir` на каждый опрос
+ * незачем). Одна функция: правка признака «chunk начался» не должна развести их.
+ */
+export function chunkFromNames(entries: readonly string[]): number | null {
   let max = 0;
   for (const name of entries) {
     const m = /^chunk-(\d+)-journal\.md$/.exec(name);

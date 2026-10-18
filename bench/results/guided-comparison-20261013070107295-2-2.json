@@ -1,0 +1,758 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 3,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 669223,
+    "remainingMs": 2930777,
+    "inputRevision": "e6a1b6e9dca4432354c36a7ad2d33e75ef637232e34616b65e3add7289ad0865",
+    "currentItem": "work-1",
+    "stopReason": null,
+    "items": [
+      {
+        "id": "work-1",
+        "title": "Создать src/validate.ts, экспортирующий функцию validateCustomer(customer): string[] – проверяет email и phone согласно правилам и возвращает массив ошибок в порядке ['email','phone'].: Создать src/validate.ts, экспортирующий функцию validateCustomer(customer): string[] – проверяет email и phone согласно правилам и возвращает массив ошибок в порядке ['email','phone'].\nДобавить строчку export { validateCustomer } из './validate.ts'; в существующий src/index.ts, чтобы пакет экспортировал функцию.: Добавить строчку export { validateCustomer } из './validate.ts'; в существующий src/index.ts, чтобы пакет экспортировал функцию.\nСоздать Jest‑тесты, покрывающие все сценарии email и phone, а также проверку re‑экспорта из пакета.: Создать Jest‑тесты, покрывающие все сценарии email и phone, а также проверку re‑экспорта из пакета.",
+        "files": [
+          "src/validate.ts",
+          "src/index.ts",
+          "test/validateCustomer.test.ts"
+        ],
+        "claims": [
+          "claim-1",
+          "claim-2",
+          "claim-3",
+          "claim-4",
+          "claim-5"
+        ],
+        "dependsOn": [],
+        "prediction": "Для валидного объекта возвращается [], для неверного email первым элементом является 'email', для неверного phone последним – 'phone', в случае ошибок обоих – ['email','phone'].\nФункция импортируется без ошибок и сохраняет прежнее поведение.\nВсе новые тесты проходят, а остальные тесты проекта не падают.",
+        "checks": [
+          "registered project gates"
+        ],
+        "status": "running",
+        "attempts": 1,
+        "repartitioned": false
+      }
+    ],
+    "observations": [
+      {
+        "itemId": "work-1",
+        "at": "2026-10-13T07:30:54.338Z",
+        "inputRevision": "e6a1b6e9dca4432354c36a7ad2d33e75ef637232e34616b65e3add7289ad0865",
+        "codeRevision": "45e375a5ef637f2629476a2e3ba24e462605162b5440ecdf41bb7600e5e4b4e3",
+        "prediction": "Для валидного объекта возвращается [], для неверного email первым элементом является 'email', для неверного phone последним – 'phone', в случае ошибок обоих – ['email','phone'].\nФункция импортируется без ошибок и сохраняет прежнее поведение.\nВсе новые тесты проходят, а остальные тесты проекта не падают.",
+        "result": "Сборка: модулей загружено: 7 из 7\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nok   validate.ts\nмодулей загружено: 7 из 7\n\nТесты: }\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.5895ms)\n  ✔ форма счёта — ровно пять полей (0.5327ms)\n✔ сборка счёта (1.8336ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.5233ms)\n  ✔ подытог — сумма по позициям (0.132ms)\n  ✔ пустой счёт — нулевой подытог (0.0907ms)\n✔ позиции счёта (1.4874ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.5502ms)\n  ✔ сумма и разность (0.1233ms)\n  ✔ разность не уходит ниже нуля (0.0894ms)\n  ✔ процент округляется половиной вверх (0.117ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.1664ms)\n✔ деньги (2.4394ms)\n▶ Customer validation\n  ✔ valid customer returns empty array (1.4164ms)\n  ✔ invalid email adds \"email\" code (1.6483ms)\n  ✖ invalid phone adds \"phone\" code (1.1467ms)\n  ✖ both email and phone invalid returns [\"email\",\"phone\"] (0.3407ms)\n  ✔ errors order: email first if both invalid (0.1608ms)\n✖ Customer validation (5.7458ms)\nℹ tests 15\nℹ suites 4\nℹ pass 13\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 166.772\n\n✖ failing tests:\n\ntest at test\\validateCustomer.test.ts:25:3\n✖ invalid phone adds \"phone\" code (1.1467ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n  + []\n  - [\n  -   'phone'\n  - ]\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-SzA4d2/test/validateCustomer.test.ts:34:7)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Suite.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [],\n    expected: [ 'phone' ],\n    operator: 'deepStrictEqual'\n  }\n\ntest at test\\validateCustomer.test.ts:38:3\n✖ both email and phone invalid returns [\"email\",\"phone\"] (0.3407ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n  -   'email',\n      'phone'\n    ]\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-SzA4d2/test/validateCustomer.test.ts:41:5)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Suite.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ 'phone' ],\n    expected: [ 'email', 'phone' ],\n    operator: 'deepStrictEqual'\n  }\n",
+        "kind": "check",
+        "passed": false
+      }
+    ],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-13T07:21:07.603Z",
+        "inputRevision": "712e873f520a63cfd6b83709cca228725a08a6f23e0b5467796d4f1b4ce80dfe",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-13T07:25:01.059Z",
+        "inputRevision": "aa9a75f441208d2163ee0116dc487b20ab41c1d34852928c594d321d4f623b30",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      },
+      {
+        "stage": "ask",
+        "at": "2026-10-13T07:26:21.314Z",
+        "inputRevision": "1172120d5f6fc9c5a7138d6b8fa7b89ce1cd99d02e9c5e17ba211317365dea16",
+        "decision": "Пропустить условный этап по проверенным предусловиям",
+        "evidence": [
+          {
+            "source": "runtime-preconditions",
+            "quote": "открытых вопросов нет — этап условный, артефакт не создаётся"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      },
+      {
+        "stage": "plan",
+        "at": "2026-10-13T07:26:21.745Z",
+        "inputRevision": "bf63cd98fa70bec5ab5891924287e2c7858fdfeca1d13682f615a2cf1811737b",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      },
+      {
+        "stage": "chunk",
+        "at": "2026-10-13T07:29:45.655Z",
+        "inputRevision": "84ab45919622aed7c8fe57b1f9c7c7866ecfd1a8736195c746b9e2d00065f5cf",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      }
+    ],
+    "progress": {
+      "proposed": 19,
+      "observed": 1,
+      "stale": 0,
+      "reused": 0,
+      "units": [
+        {
+          "id": "intent:field:compact::задача: ‹название›||scalar|heading|‹название›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::коротко||multiline|paragraph|‹аудитория и ожидаемый результат›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::зачем||multiline|paragraph|‹какую проблему решаем›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::что делаем||multiline|paragraph|‹наблюдаемое изменение поведения›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::чего не делаем||multiline|paragraph|‹явно заданные границы; неизвестное помечай предположением›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:proposal:intent:contract:0",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:src/index.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:test/invoice.test.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:test/lines.test.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:src/customer.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:scripts/build-check.mjs",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:src/config.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "explore:src/lines.ts",
+          "stage": "explore",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "plan:candidate",
+          "stage": "plan",
+          "status": "proposed",
+          "revision": 6
+        },
+        {
+          "id": "plan:step:1",
+          "stage": "plan",
+          "status": "proposed",
+          "revision": 6
+        },
+        {
+          "id": "plan:step:2",
+          "stage": "plan",
+          "status": "proposed",
+          "revision": 6
+        },
+        {
+          "id": "plan:step:3",
+          "stage": "plan",
+          "status": "proposed",
+          "revision": 6
+        },
+        {
+          "id": "chunk:work-1:check",
+          "stage": "chunk",
+          "status": "observed",
+          "revision": 1
+        }
+      ],
+      "recoveries": {}
+    }
+  },
+  "run": {
+    "slug": "guided-comparison-20261013070107295-2-2",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 3,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-13T07:21:06.810Z",
+    "finishedAt": "2026-10-13T07:32:17.759Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; Приёмка противоречит запросу или не проверена: claim-3: Expected valid phone number contradicts specification; основание: Phone validation rules: number must start with '+7' followed by exactly 10 digits or start with '8' followed by exactly 10 digits – no other characters are allowed.; контрпример: The test case in the claim treats the phone number '891234567890' as valid, but according to the specification it should be rejected because it contains 11 digits after the leading '8' (not exactly 10).; ответ на поле отклонён: поле основания и сценарии: basis должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "Исследование собрано из ответов по файлам; пути закреплены рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "running"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 21575,
+          "outputTokens": 13373,
+          "cacheReadTokens": 2774,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 305315
+        },
+        "durationMs": 233644,
+        "requestDurationsMs": [
+          6095,
+          30604,
+          36452,
+          10496,
+          25014,
+          44395,
+          32142,
+          38635,
+          15174,
+          24106,
+          26991,
+          15225
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 10481,
+          "outputTokens": 4638,
+          "cacheReadTokens": 6730,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 80033
+        },
+        "durationMs": 80282,
+        "requestDurationsMs": [
+          10127,
+          10030,
+          11814,
+          10081,
+          19654,
+          10567,
+          7760
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 33232,
+          "outputTokens": 10937,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 202191
+        },
+        "durationMs": 203218,
+        "requestDurationsMs": [
+          72947,
+          65369,
+          19098,
+          34290,
+          10488
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 30959,
+          "outputTokens": 7856,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 148764
+        },
+        "durationMs": 0,
+        "requestDurationsMs": [
+          19165,
+          10112,
+          38780,
+          80710
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 1,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 4
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 5
+      },
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:7b936973-f3b8-4c29-82c5-61e7068a2850",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261013070107295-2-2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:64bd1c7e-e222-495e-b9c5-ba6ad434a759",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261013070107295-2-2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "guided-explore:dcd370b2-291c-406a-8070-36229be7c798",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261013070107295-2-2\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:fde9fcd6-faf0-4bdf-8fd2-ab9fe06b0dc1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-SzA4d2\\.sdlc\\guided-comparison-20261013070107295-2-2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:3229f977-b0c7-4b31-b4d5-b500d7619686",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-SzA4d2\\src\\validate.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:5f7becb6-5feb-4e18-905c-2a096e572ad0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-SzA4d2\\src\\index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:0a5581d1-81d7-446c-a6aa-ddb5451145c5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-SzA4d2\\test\\validateCustomer.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4874,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 14470,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 170,
+        "userChars": 28165,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 170,
+        "userChars": 16889,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "8ecc743c9f5eb8a1e0c1db5a50b2cb6b9e53f480fb9723b91aac94423358c493",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "dbd1bc0b8e4569dbd19056a8f8a42cd0ee43f7bdeb1ef8f02c20548d81d8a9c0",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "c02561894b609cb01f96ef1405a01635d5ae81bd63581cdd9a87a2573434c352",
+    "state": "running",
+    "capturedAt": "2026-10-13T07:32:17.774Z",
+    "lastEvent": {
+      "type": "question_validation",
+      "stage": "chunk",
+      "at": "2026-10-13T07:32:15.078Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "4178bd73b53cfc83afb963f3f3ced3cc0f22e02a5d4a18dad474a7370a5b163f",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "ab2e47c3e98ae7796f26470a0e7bf97d10944d74d67fc748ea13188fa95be2fc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "7f3bf80cb291c6916445036c035ffd263b0f98a59ef296965565df577a261725",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "6bc0e5e400cb487f041dcf0d13ebdbf2ee2af08447c32fb94ecddc6347c0ca2a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "7bc8c700633ddf41add1bab6f3e9c1ca923d4c6e586aeace9d379f33a1b2e0ff",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "2a6824408acad3642595bc01dee4957ac9fe9a06caf09349944c4fdab9091f5f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "bd5359e83ddd344c6fdc39059f37d4fcfbade537c893092f30888f23aaec83be",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

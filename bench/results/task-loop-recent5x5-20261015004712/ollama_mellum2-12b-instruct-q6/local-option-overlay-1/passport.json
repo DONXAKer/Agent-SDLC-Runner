@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "option-overlay",
+  "model": "ollama:mellum2-12b-instruct-q6",
+  "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-YF16wZ",
+  "baseCommit": "20c69fe5d70122d7ceb88c3e088bd19d02f0756c",
+  "contract": {
+    "task": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects. Special key names such as \"__proto__\" must still become own enumerable properties of the result (ordinary assignment is not enough; use Object.defineProperty for own keys when needed).\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects. Special key names such as \"__proto__\" must still become own enumerable properties of the result (ordinary assignment is not enough; use Object.defineProperty for own keys when needed).",
+        "source": "Human task",
+        "checks": []
+      }
+    ],
+    "requireAdditionalTestsUnder": [
+      "test/"
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": false,
+  "visibleChecks": [
+    {
+      "name": "public-api",
+      "file": "bench/checks/evidence/option-overlay.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": null,
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T22:30:55.510Z"
+}
