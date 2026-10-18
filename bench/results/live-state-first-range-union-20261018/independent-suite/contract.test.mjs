@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {pathToFileURL} from 'node:url';
+const root=process.env.SDLC_CANDIDATE_ROOT;
+const load=()=>import(pathToFileURL(root+'/src/ranges.mjs').href);
+test('sorted merged ranges',async()=>{const {mergeRanges:f}=await load();assert.equal(typeof f,'function');for(const [input,want] of [[[],[]],[[[5,8],[1,3],[3,5]],[[1,8]]],[[[-4,-2],[-1,0],[-3,-1]], [[-4,0]]],[[[2,2],[1,9],[1,3]],[[1,9]]],[[[8,9],[1,2],[4,6]],[[1,2],[4,6],[8,9]]],[[[0.25,0.75],[0.75,1.5]],[[0.25,1.5]]]])assert.deepEqual(f(input),want);});
+test('input and output independence',async()=>{const {mergeRanges:f}=await load();assert.equal(typeof f,'function');const input=Object.freeze([Object.freeze([3,4]),Object.freeze([1,2])]);const out=f(input);assert.deepEqual(input,[[3,4],[1,2]]);assert.deepEqual(out,[[1,2],[3,4]]);assert.notEqual(out,input);for(const pair of out)for(const original of input)assert.notEqual(pair,original);out[0][0]=99;assert.deepEqual(input,[[3,4],[1,2]]);});
+test('invalid values throw TypeError',async()=>{const {mergeRanges:f}=await load();assert.equal(typeof f,'function');for(const value of [null,{},'bad',[null],[[1]],[[1,2,3]],[[3,2]],[[NaN,2]],[[1,Infinity]],[[1,-Infinity]],[['1',2]],[[true,2]],[[undefined,2]]])assert.throws(()=>f(value),TypeError);});
+test('preserve API and add tests',async()=>{const m=await load();assert.equal(m.protocolVersion,1);assert.equal(fs.readFileSync(root+'/test/existing.test.mjs','utf8'),"import {test} from 'node:test'; import assert from 'node:assert/strict'; import {protocolVersion} from '../src/ranges.mjs'; test('existing public API',()=>assert.equal(protocolVersion,1));\n");assert.ok(fs.existsSync(root+'/test/merge-ranges.test.mjs'),'new planned test exists');assert.match(fs.readFileSync(root+'/test/merge-ranges.test.mjs','utf8'),/node:test/);});
