@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { emptyUsage } from '@sdlc-runner/shared';
+import { WitokPaths } from '../src/artifacts/paths.ts';
+import { writeArtifact } from '../src/artifacts/artifact.ts';
+import { initGuided, saveGuided, digest, guidedInputRevision } from '../src/run/guidedState.ts';
+import { reviewNoChanges } from '../src/run/noChangeReview.ts';
+import { builtinFor } from '../src/gates/builtin/index.ts';
+import { execFileSync } from 'node:child_process';
+
+test('no-change exemption requires reviewed exact evidence and expires on source changes', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'unchanged-review-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const paths = new WitokPaths(root, 'case');
+  const source = 'export const status = "ready";';
+  writeFileSync(join(root, 'status.ts'), source);
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['add', 'status.ts'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'baseline'], { cwd: root });
+  writeArtifact(paths.intent, 'Preserve the existing ready status.');
+  writeArtifact(paths.plan, 'Inspect status.ts and preserve its behavior.');
+  const state = initGuided(paths, 'script', 4);
+  state.noChanges = [{ path: 'status.ts', hash: digest(source), reason: 'Already ready', inputRevision: guidedInputRevision(paths) }];
+  saveGuided(paths, state);
+  let decision = { accepted: true, reason: 'Current declaration preserves the requested value', sourceQuote: source, requirementQuote: 'Preserve the existing ready status.' };
+  const input = { paths, planned: ['status.ts'], changed: [], model: 'script', params: null, contextWindow: 16000, signal: new AbortController().signal, onUsage() {},
+    provider: { name: 'script', async chat() { return { text: JSON.stringify(decision), finishReason: 'end_turn' as const, toolCalls: [], usage: emptyUsage() }; } } };
+  const gate = builtinFor('Scope: пути плана без правок')!;
+  const ctx = { projectRoot: root, planFiles: ['status.ts'], baseline: null, timeoutMs: 10000 };
+  assert.equal((await gate(ctx)).status, '❌');
+  const approvals = await reviewNoChanges(input);
+  assert.equal(approvals.length, 1);
+  assert.equal((await gate({ ...ctx, approvedUntouched: approvals })).status, '✅');
+  decision = { ...decision, sourceQuote: 'invented declaration' };
+  assert.deepEqual(await reviewNoChanges(input), []);
+  writeFileSync(join(root, 'status.ts'), 'export const status = "broken";');
+  execFileSync('git', ['add', 'status.ts'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-qm', 'changed source'], { cwd: root });
+  assert.equal((await gate({ ...ctx, approvedUntouched: approvals })).status, '❌');
+  assert.deepEqual(await reviewNoChanges(input), []);
+});

@@ -33,6 +33,26 @@ test('red gates and claims are preserved', () => {
   assert.equal(facts.gateStatuses.get('тесты'), '❌');
   assert.equal(facts.claims[0]?.status, '⚠');
 });
+
+test('a reported requirement conflict remains blocking until it is explicitly resolved', () => {
+  const text = renderGuidedVerification({ ...input,
+    claims: [{ ...input.claims[0]!, status: '⚠', evidence: 'claim-1 requires writing lib/api.ts while claim-2 forbids any existing module change', whatToFix: 'Obtain an explicit exception or reconcile the contract' }] });
+  assert.equal(readReport(text).claims[0]?.status, '⚠');
+  assert.equal(verdictOf(text).passed, false);
+  assert.ok(text.includes('explicit exception'));
+});
+
+test('independent acceptance placeholders are replaced only by supplied executor facts', () => {
+  const header = input.header + '\n\n## Независимые приёмочные проверки\n\n- **Применимость:** ‹основание›\n';
+  assert.equal(countPlaceholdersExceptDecisions(renderGuidedVerification({ ...input, header })), 1);
+  const facts = '## Независимые приёмочные проверки\n\n- **Применимость:** обязательна по решению оператора\n- **Прогон кандидата:** FAIL; защищённый лог receipt.txt\n';
+  const rendered = renderGuidedVerification({ ...input, header, independentAcceptance: facts,
+    gates: [{ ...input.gates[0]!, status: '❌', exitCode: 1 }] });
+  assert.equal(countPlaceholdersExceptDecisions(rendered), 0);
+  assert.ok(rendered.includes('FAIL; защищённый лог receipt.txt'));
+  assert.equal(readReport(rendered).gateStatuses.get('тесты'), '❌');
+  assert.equal(rendered.match(/## Независимые приёмочные проверки/g)?.length, 1);
+});
 for (const section of ['review', 'scope', 'invariant', 'regression'] as const) {
   test(`anchored ${section} finding remains visible and blocking`, () => {
     const facts = readReport(renderGuidedVerification({ ...input,

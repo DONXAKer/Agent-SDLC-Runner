@@ -1,3 +1,4 @@
+import { atomicJson } from '../fs/atomicJson.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -43,17 +44,7 @@ export class GuidedProgress {
       : { version: 1, units: {}, recoveries: {}, reused: 0 };
   }
   private save(state: ProgressState): void {
-    mkdirSync(dirname(this.path), { recursive: true });
-    const temporary = `${this.path}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, JSON.stringify(state, null, 2) + '\n', 'utf8');
-    for (let attempt = 0; ; attempt++) {
-      try { renameSync(temporary, this.path); break; }
-      catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '') || attempt >= 9) throw error;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-      }
-    }
+    atomicJson(this.path, state);
     this.onChange?.(this.summary());
   }
   private invalidate(state: ProgressState, id: string): void {

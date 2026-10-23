@@ -1,0 +1,166 @@
+{
+  "// файл": "Имя с суффиксом .local.json — этот шаблон в .gitignore: конфиг содержит путь к дереву на конкретной машине и в публичный репозиторий не попадает.",
+
+  "name": "WarCard",
+  "projectRoot": "D:/WarCard",
+
+  "// activeProfile": "mixed, а не local: строка «Ревью независимым агентом» в .sdlc/gates.md проекта прямо называет модель рецензента — opus. Профиль local этой строке не удовлетворяет по построению, и честный исход витка на нём — ⏭ на обязательном гейте, то есть красный вердикт. Локальный chunk с Claude на verify — тот самый смешанный профиль, который методология разрешает явно.",
+  "// activeProfile 2026-09-08": "mixed-2gpu: раскладка под пару карт — все этапы кроме ревью на gpt-oss-20b (см. docs/model-runs.md, свипы 2026-09-08), рецензент — opus, как требует строка набора этого проекта. Профили mixed/local/local-lmstudio — прежний стенд 8 ГБ, оставлены для сравнимости и помечены устаревшими.",
+  "activeProfile": "mixed-2gpu",
+  "maxBudgetUsd": 5.0,
+
+  "// modules": "Моно-репо: server (Spring Boot, Java 17, обёртка gradlew) и client (UE5 C++). Автодетект от первого файла плана вверх нашёл бы один каталог — для витка, трогающего оба слоя, это ложный зелёный на гейте «Сборка».",
+  "// modules.client": "Клиент модулем НЕ объявлен намеренно. Его сборка — Build.bat ClientEditor через UBT, и она требует закрытого редактора: гейт, запущенный рантаймом, убил бы живую сессию редактора оператора, а при открытом редакторе всё равно упал бы на залоченной DLL. Клиентский слой закрывается на этапе 6 строкой неприменимости с подписью либо прогоном оператора вручную — ровно как записано в .sdlc/gates.md.",
+  "modules": [
+    {
+      "dir": "server",
+      "ecosystem": "gradle-wrapper",
+      "build": "sh ./gradlew build -x test --console=plain -q",
+      "test": "sh ./gradlew test --console=plain -q"
+    }
+  ],
+
+  "// mcp": "База — D:/WarCard/.mcp.json: там уже описаны unreal-mcp (stdio через uv) и unreal-ue58 (http, официальный сервер Epic на 8137). Здесь только включение и набор на этап. Машинные пути остаются в файле проекта — раннер их не копирует.",
+  "// mcp.выбор транспорта": "Включён stdio-сервер: он не требует запущенного редактора для старта раннера и даёт весь generic-набор. unreal-ue58 (http) — дублёр того же редактора; включать вместо stdio, если раннер работает в контейнере, где python и uv недоступны.",
+  "mcp": {
+    "enabled": true,
+    "unlistedServers": "off",
+    "maxInlineTools": 12,
+    "maxResultBytes": 20000,
+
+    "servers": {
+      "unreal-mcp": {
+        "enabled": true,
+        "// callTimeoutMs": "pie_start и прогон тестов в редакторе идут минутами.",
+        "callTimeoutMs": 180000,
+        "connectTimeoutMs": 30000,
+        "pollingTools": ["pie_status", "wait_for_*"]
+      },
+      "unreal-ue58": { "enabled": false }
+    },
+
+    "// stages": "Наборы подобраны под класс задач «нужен редактор»: разведка только смотрит, chunk правит, verify снимает доказательства. Не хватило инструмента — это видно в панели MCP, и правится здесь, а не подбором похожего.",
+    "stages": {
+      "explore": {
+        "unreal-mcp": [
+          { "tool": "asset_exists", "mode": "read" },
+          { "tool": "get_umg_hierarchy", "mode": "read" },
+          { "tool": "analyze_blueprint_graph", "mode": "read" },
+          { "tool": "list_actors_in_level", "mode": "read" },
+          { "tool": "niagara_get_info", "mode": "read" },
+          { "tool": "pie_status", "mode": "read" }
+        ]
+      },
+      "chunk": {
+        "unreal-mcp": [
+          { "tool": "asset_exists", "mode": "read" },
+          { "tool": "niagara_get_info", "mode": "read" },
+          { "tool": "pie_status", "mode": "read" },
+          "niagara_set_module_input",
+          "niagara_set_emitter_properties",
+          "set_niagara_parameters",
+          "compile_blueprint",
+          "pie_start",
+          "pie_stop"
+        ]
+      },
+      "verify": {
+        "unreal-mcp": [
+          { "tool": "asset_exists", "mode": "read" },
+          { "tool": "niagara_get_info", "mode": "read" },
+          { "tool": "analyze_blueprint_graph", "mode": "read" },
+          { "tool": "pie_status", "mode": "read" },
+          "pie_start",
+          "pie_stop",
+          "pie_screenshot"
+        ]
+      }
+    }
+  },
+
+  "// profiles": "Профиль переводит весь виток целиком. Внутри профиля модель настраивается на каждом этапе. Флоу выводится из провайдера. Правило рецензента: rank(verify) строго больше rank(chunk).",
+  "profiles": {
+    "claude": {
+      "label": "Claude (Max-подписка)",
+      "stages": {
+        "intent":  "claude-sdk:haiku",
+        "explore": "claude-sdk:sonnet",
+        "ask":     "claude-sdk:haiku",
+        "plan":    "claude-sdk:sonnet",
+        "chunk":   "claude-sdk:sonnet",
+        "verify":  "claude-sdk:opus",
+        "handoff": "claude-sdk:haiku"
+      }
+    },
+
+    "mixed-2gpu": {
+      "// label": "Пара карт 12+8 ГБ. intent/plan — карточный режим с коротким ответом на поле; explore/ask/handoff — та же модель с длинным ответом; chunk — stepFill. verify — opus: строка «Ревью независимым агентом» в .sdlc/gates.md проекта называет его по имени. rank: chunk 52 < verify 90.",
+      "label": "Пара карт: gpt-oss-20b + opus на ревью",
+      "stages": {
+        "intent":  "ollama:gpt-oss-20b-ff",
+        "explore": "ollama:gpt-oss-20b-agent",
+        "ask":     "ollama:gpt-oss-20b-agent",
+        "plan":    "ollama:gpt-oss-20b-ff",
+        "chunk":   "ollama:gpt-oss-20b",
+        "verify":  "claude-sdk:opus",
+        "handoff": "ollama:gpt-oss-20b-agent"
+      }
+    },
+
+    "local-2gpu": {
+      "// label": "Полностью локально; рецензент Apriel-1.6-15B НЕ ИЗМЕРЕН и строке набора про opus не удовлетворяет — годится для задач класса «документация/GDD» и для обкатки. rank: chunk 52 < verify 56.",
+      "label": "Пара карт: всё локально (рецензент не измерен)",
+      "stages": {
+        "intent":  "ollama:gpt-oss-20b-ff",
+        "explore": "ollama:gpt-oss-20b-agent",
+        "ask":     "ollama:gpt-oss-20b-agent",
+        "plan":    "ollama:gpt-oss-20b-ff",
+        "chunk":   "ollama:gpt-oss-20b",
+        "verify":  "ollama:apriel-1.6-15b",
+        "handoff": "ollama:gpt-oss-20b-agent"
+      }
+    },
+
+    "mixed": {
+      "// label": "(устарел: стенд 8 ГБ) Рабочий профиль: дешёвые этапы и правка — локально, рецензент — на подписке. rank: chunk 30 < verify 70.",
+      "label": "(устарел: 8 ГБ) Смешанный (локальный chunk + Claude verify)",
+      "stages": {
+        "intent":  "ollama:qwen3.5:4b-ctx16k",
+        "explore": "ollama:qwen3:8b-ctx16k",
+        "ask":     "ollama:qwen3.5:4b-ctx16k",
+        "plan":    "ollama:qwen2.5:14b-ctx16k",
+        "chunk":   "ollama:qwen2.5-coder:7b-ctx16k",
+        "verify":  "claude-sdk:sonnet",
+        "handoff": "ollama:qwen3.5:4b-ctx16k"
+      }
+    },
+
+    "local": {
+      "// label": "Всё локально. Годится для задач класса «только документация/GDD» и для обкатки самого раннера; на коде даёт рецензента слабее того, что требует .sdlc/gates.md. rank: chunk 30 < verify 60.",
+      "label": "(устарел: 8 ГБ) Локально (бесплатно)",
+      "stages": {
+        "intent":  "ollama:qwen3.5:4b-ctx16k",
+        "explore": "ollama:qwen3:8b-ctx16k",
+        "ask":     "ollama:qwen3.5:4b-ctx16k",
+        "plan":    "ollama:qwen2.5:14b-ctx16k",
+        "chunk":   "ollama:qwen2.5-coder:7b-ctx16k",
+        "verify":  "ollama:qwen3.6:35b-a3b",
+        "handoff": "ollama:qwen3.5:4b-ctx16k"
+      }
+    },
+
+    "local-lmstudio": {
+      "// label": "Тот же локальный контур, но рецензент — дистиллят opus-рассуждений из LM Studio (rank 65). Требует поднятого сервера: `lms server start` (сейчас порт 1434; проверить `lms server status`), иначе этап 6 упадёт сетевой ошибкой.",
+      "label": "(устарел: 8 ГБ) Локально + LM Studio на verify",
+      "stages": {
+        "intent":  "ollama:qwen3.5:4b-ctx16k",
+        "explore": "ollama:qwen3:8b-ctx16k",
+        "ask":     "ollama:qwen3.5:4b-ctx16k",
+        "plan":    "ollama:qwen2.5:14b-ctx16k",
+        "chunk":   "ollama:qwen2.5-coder:7b-ctx16k",
+        "verify":  "lmstudio:qwen3.6-35b-a3b-opus-distill",
+        "handoff": "ollama:qwen3.5:4b-ctx16k"
+      }
+    }
+  }
+}

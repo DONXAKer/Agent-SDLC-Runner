@@ -748,7 +748,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     preparationVersion?: 1 | 2 | 3;
     executionMode?: 'legacy' | 'guided';
     stateFirst?: boolean;
-    guidedEngineVersion?: 1 | 2 | 3 | 4;
+    guidedEngineVersion?: 1 | 2 | 3 | 4 | 5;
     extra?: string;
     abortHandoff?: boolean;
   };
@@ -756,8 +756,8 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   let editedPrompt: { system: string; user: string } | null = null;
   if (body.stateFirst !== undefined && typeof body.stateFirst !== 'boolean') return reply.code(400).send({ error: 'stateFirst должен быть boolean' });
   if (body.stateFirst && !stageById(stage).startsTask) return reply.code(400).send({ error: 'stateFirst выбирается при создании задачи; для старого витка используй /state/enable' });
-  if (body.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(body.guidedEngineVersion)) {
-    return reply.code(400).send({ error: 'guidedEngineVersion должна быть 1, 2, 3 или 4' });
+  if (body.guidedEngineVersion !== undefined && ![1, 2, 3, 4, 5].includes(body.guidedEngineVersion)) {
+    return reply.code(400).send({ error: 'guidedEngineVersion должна быть 1, 2, 3, 4 или 5' });
   }
   if (body.executionMode !== undefined && body.executionMode !== 'legacy' && body.executionMode !== 'guided') {
     return reply.code(400).send({ error: 'executionMode должен быть legacy или guided' });

@@ -1,0 +1,229 @@
+{
+  "id": "guided-validation-pilot-20261019081740772",
+  "phase": "pilot",
+  "sourceHash": "bae40a1f9c82e5d97f1a809ff8fb4bf89a7694040bd06d1b04dac3f2edb1f238",
+  "revision": "06e6e0d897c344ae5c8de159bc01ebe3994cf631",
+  "createdAt": "2026-10-19T08:17:40.833Z",
+  "status": "source-changed",
+  "protocol": {
+    "executionMode": "guided",
+    "guidedEngineVersion": 4,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "attempts": 3,
+    "stageMinutes": 20,
+    "runMinutes": 45
+  },
+  "models": [
+    {
+      "id": "ollama:mellum2-12b-instruct-q6",
+      "tag": "mellum2-12b-instruct-q6-ctx32k",
+      "contextWindow": 32768
+    },
+    {
+      "id": "ollama:gpt-oss-20b-ctx32k",
+      "tag": "gpt-oss-20b-ctx32k",
+      "contextWindow": 32768
+    },
+    {
+      "id": "ollama:qwen3.8-27b-iq4-gpumax",
+      "tag": "qwen3.8-27b-iq4-ctx32k-gpumax",
+      "contextWindow": 32768,
+      "params": {
+        "reasoning_effort": "none",
+        "max_tokens": 4096
+      }
+    },
+    {
+      "id": "ollama:ministral3-14b-instruct-ctx32k",
+      "tag": "ministral3-14b-ctx32k",
+      "contextWindow": 32768
+    }
+  ],
+  "limitations": [
+    "Pilot/matrix use known tasks; transfer cases are new but are not a statistical reliability estimate",
+    "Approval automation is not a live human signature",
+    "Failure attribution requires explicit analysis; it is never inferred from a message pattern"
+  ],
+  "cells": [
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "config-default",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-1-r1",
+      "status": "failed",
+      "startedAt": "2026-10-19T08:21:15.144Z",
+      "finishedAt": "2026-10-19T08:30:58.544Z",
+      "success": false,
+      "exitCode": 1,
+      "stopped": "blocked",
+      "failedStage": "intent",
+      "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт в определении срока оплаты: в разделе «Чего не делаем» указано, что срок оплаты по умолчанию НЕ должен быть установлен через BillingConfig, а в разделе «Что делаем» — он ДОЛЖЕН быть установлен.",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт в определении срока оплаты: в разделе «Чего не делаем» указано, что срок оплаты по умолчанию НЕ должен быть установлен через BillingConfig, а в разделе «Что делаем» — он ДОЛЖЕН быть установлен.",
+        "reviewStatus": "rejected"
+      },
+      "diagnosis": "model-contract",
+      "reached": [
+        {
+          "stage": "intent",
+          "ok": false,
+          "skipped": false
+        }
+      ],
+      "hidden": null,
+      "finalVerdict": null,
+      "modelRequests": 18,
+      "firstMutation": null,
+      "activeMs": 546396,
+      "log": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-fixes-pilot-20261019\\guided-validation-pilot-20261019081740772-1-r1.log",
+      "resultPath": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-validation-pilot-20261019081740772-1-r1.json"
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "config-default",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-1-r2",
+      "status": "failed",
+      "startedAt": "2026-10-19T08:30:58.675Z",
+      "finishedAt": "2026-10-19T08:35:04.078Z",
+      "success": false,
+      "exitCode": 1,
+      "stopped": "blocked",
+      "failedStage": "intent",
+      "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт в поведении Invoice: требуется поле `dueDays` всегда, но в текущем сценарии (request-1:L13-L14) значение `opts.dueDays?` не обязателен, что может привести to отсутствием поля при вызове без `opts`; Противоречие в приоритете значений `dueDays`: согласно request-1:L11-L12 приоритет — `opts.dueDays` → `resolveConfig(config)?.defaultDueDays` → `14`, но в текущем тестировании (request-1:L20-L21) уже используется `opts.dueDays` без проверки на `undefined`, что нарушает логику приоритета; Несоответствие между требованием обязательного поля `dueDays` в Invoice (request-1:L8-L9) и возможностью его отсутствия при вызове без `opts.dueDays` (request-1:L13-L14), что нарушает согласованность Intents",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт в поведении Invoice: требуется поле `dueDays` всегда, но в текущем сценарии (request-1:L13-L14) значение `opts.dueDays?` не обязателен, что может привести to отсутствием поля при вызове без `opts`; Противоречие в приоритете значений `dueDays`: согласно request-1:L11-L12 приоритет — `opts.dueDays` → `resolveConfig(config)?.defaultDueDays` → `14`, но в текущем тестировании (request-1:L20-L21) уже используется `opts.dueDays` без проверки на `undefined`, что нарушает логику приоритета; Несоответствие между требованием обязательного поля `dueDays` в Invoice (request-1:L8-L9) и возможностью его отсутствия при вызове без `opts.dueDays` (request-1:L13-L14), что нарушает согласованность Intents",
+        "reviewStatus": "rejected"
+      },
+      "diagnosis": "model-contract",
+      "reached": [
+        {
+          "stage": "intent",
+          "ok": false,
+          "skipped": false
+        }
+      ],
+      "hidden": null,
+      "finalVerdict": null,
+      "modelRequests": 19,
+      "firstMutation": null,
+      "activeMs": 241878,
+      "log": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-fixes-pilot-20261019\\guided-validation-pilot-20261019081740772-1-r2.log",
+      "resultPath": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-validation-pilot-20261019081740772-1-r2.json"
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "rename-field",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-2-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "rename-field",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-2-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:gpt-oss-20b-ctx32k",
+      "task": "add-validator",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-3-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:gpt-oss-20b-ctx32k",
+      "task": "add-validator",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-3-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "vat-rounding",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-4-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "vat-rounding",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-4-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "rename-field",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-5-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "rename-field",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-5-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k",
+      "task": "config-default",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019081740772-6-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k",
+      "task": "config-default",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019081740772-6-r2",
+      "status": "pending"
+    }
+  ],
+  "automatedChecks": {
+    "server": {
+      "passed": 2886,
+      "failed": 0,
+      "skipped": 9,
+      "log": ".tmp/guided-fixes-server-tests.log"
+    },
+    "bench": {
+      "passed": 386,
+      "failed": 0,
+      "skipped": 2,
+      "log": ".tmp/guided-fixes-bench-tests.log"
+    },
+    "typecheck": {
+      "command": "npm.cmd run typecheck",
+      "passed": true
+    },
+    "simulation": {
+      "passed": true,
+      "cases": 29,
+      "sourceHash": "b94ce2454cc4dde8e74c6a604292d7feadf8c88477a2dc73278815fac89e52a6",
+      "report": "bench/results/guided-fixes-simulation-20261019/report.md"
+    }
+  },
+  "environment": {
+    "node": "v24.18.0",
+    "ollama": "ollama version is 0.40.6",
+    "lmStudioServer": "",
+    "recordedAt": "2026-10-19T08:21:14.537Z"
+  },
+  "finishedAt": "2026-10-19T08:35:04.349Z",
+  "qualityPassed": false,
+  "analysis": {
+    "runnerRegressionsCleared": false,
+    "conclusion": "This revision was stopped after a new negative test exposed an unresolved-policy classification gap. Source changed before the remaining pilot cases; these observations are not transferred to the new revision.",
+    "completed": 2
+  }
+}

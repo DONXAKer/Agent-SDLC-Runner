@@ -1,0 +1,294 @@
+{
+  "profile": {
+    "// granite4.2-8b-ctx32k": "Заведена 2026-09-05 после первого живого прогона тега -ctx16k (bench/already-done): intent встал по потолку 40 мин с НУЛЁМ вызовов инструментов, сжёг 42 174 токена — то есть промпт с историей хода в окно 16 384 не помещался и резался. Отдельный тег, а не правка старого: сравнение «то же самое с другим окном» требует, чтобы старое осталось на месте (правило журнала «менять между прогонами только одно»). Цена окна: KV на 16K добавлял к 5.3 ГБ весов ~2.9 ГБ (ollama ps: 8.2 ГБ, 24%/76% CPU/GPU), на 32K добавит вдвое больше — офлоад заведомо вырастет, и это условие замера.",
+    "id": "ollama:granite4.2-8b-ctx32k",
+    "provider": "ollama",
+    "model": "granite4.2-8b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 33,
+    "formFill": true,
+    "placement": "gpu-only",
+    "params": {
+      "temperature": 0,
+      "max_tokens": 4096
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "granite4.2-8b-ctx32k:latest",
+        "model": "granite4.2-8b-ctx32k:latest",
+        "size": 9203435435,
+        "digest": "42ae5653edeab25d21359145417d27598bb3c51475c472933981ac2e51607a67",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "granite",
+          "families": [
+            "granite"
+          ],
+          "parameter_size": "8.8B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-10-21T21:02:10.7960988+03:00",
+        "size_vram": 9203435435,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 35215,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-867",
+          "object": "chat.completion",
+          "created": 1792605433,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Okay, let's see. The user is asking which has the highest priority among explicit, workspace, and default settings. The source says: \"explicit option overrides workspace setting; workspace setting overrides built-in default.\"\n\nSo explicit overrides workspace, and workspace overrides default. That means explicit has the highest priority because it overrides workspace, which in turn overrides default. So the highest priority is explicit.\n\nThe response needs to be {\"choice\":\"explicit\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 105,
+            "prompt_tokens_details": {
+              "cached_tokens": 3
+            },
+            "completion_tokens": 102,
+            "total_tokens": 207
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-339",
+          "object": "chat.completion",
+          "created": 1792605439,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}",
+                "reasoning": "Okay, let's see. The user wants me to return a JSON object with \"name\" and \"kind\" for the bound declaration based on the given source and target.\n\nThe source text is: \"interface Parcel { tag: string }; function parcel() { return 1; }.\" The target is \"Parcel\". The runtime target declarations include a JSON object with \"name\":\"Parcel\", \"qualified\":\"Parcel\", \"kind\":\"interface\", etc.\n\nThe instruction says to return {\"name\":string,\"kind\":string} for the bound declaration, preserving case and declaration kind.\n\nThe target is \"Parcel\", which is the interface name. The runtime target declarations list has \"name\":\"Parcel\" and \"kind\":\"interface\". So the bound declaration should be the interface Parcel.\n\nWait, the choices in the schema say the kind should be \"interface\" or \"function\", but the target is Parcel, which is an interface. So the kind should be \"interface\".\n\nThe name should be \"Parcel\" as per the runtime target declaration's name.\n\nSo the JSON should be {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n\nNeed to check if \"Parcel\" is the correct name. The source has \"interface Parcel\", so yes. The target is Parcel, so the bound declaration is the interface Parcel.\n\nYes, so the answer is {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 206,
+            "prompt_tokens_details": {
+              "cached_tokens": 51
+            },
+            "completion_tokens": 306,
+            "total_tokens": 512
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-787",
+          "object": "chat.completion",
+          "created": 1792605446,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"Source code already satisfies the request; no changes needed.\"}",
+                "reasoning": "Okay, let's see. The user wants me to preserve existing behavior and add no new calls. The source code given is \"export function ping() { return \"pong\"; }\". They say this source already satisfies the request.\n\nThe task is to return a JSON object with \"action\" as either \"no_change\" or \"patch\", and \"reason\" as a string. Since the source already meets the request, I should choose \"no_change\".\n\nWait, the instructions say \"Return only the requested JSON object.\" The response schema requires \"action\" and \"reason\". So the JSON should have \"action\": \"no_change\" and a reason string explaining why.\n\nThe reason should be something like \"Source code already satisfies the request; no changes needed.\" But need to keep it concise.\n\nWait, the user says \"Return {\"action\":string,\"reason\":string}, choosing no_change or patch.\" So the JSON must have those two fields.\n\nSo the correct response is {\"action\":\"no_change\",\"reason\":\"Source code already satisfies the request; no changes needed.\"}\n\nBut need to check if \"reason\" needs a specific format. The schema just says \"reason\":string, so any string is fine.\n\nYes, so the answer should be that JSON.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 125,
+            "prompt_tokens_details": {
+              "cached_tokens": 51
+            },
+            "completion_tokens": 297,
+            "total_tokens": 422
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-111",
+          "object": "chat.completion",
+          "created": 1792605449,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}",
+                "reasoning": "Okay, the user wants me to return only one repair card JSON object with specific fields: id 2, file \"lib/beta.ts\", and dependsOn [1]. No other cards or keys.\n\nI need to make sure the response is exactly that JSON. No extra text, no explanations. Just the JSON object. Let me check the format: {\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}. Yes, that's correct.\n\nI should output only that, nothing else. So the response should be exactly that string.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 62,
+            "prompt_tokens_details": {
+              "cached_tokens": 18
+            },
+            "completion_tokens": 143,
+            "total_tokens": 205
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-359",
+          "object": "chat.completion",
+          "created": 1792605451,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Okay, let's see. The user is asking which has the highest priority among explicit, workspace, and default settings. The source says: \"explicit option overrides workspace setting; workspace setting overrides built-in default.\"\n\nSo explicit overrides workspace, and workspace overrides default. That means explicit has the highest priority because it overrides workspace, which in turn overrides default. So the highest priority is explicit.\n\nThe response needs to be {\"choice\":\"explicit\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 105,
+            "prompt_tokens_details": {
+              "cached_tokens": 104
+            },
+            "completion_tokens": 102,
+            "total_tokens": 207
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-77",
+          "object": "chat.completion",
+          "created": 1792605458,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}",
+                "reasoning": "Okay, let's see. The user wants me to return a JSON object with \"name\" and \"kind\" for the bound declaration based on the given source and target.\n\nThe source text is: \"interface Parcel { tag: string }; function parcel() { return 1; }.\" The target is \"Parcel\". The runtime target declarations include a JSON object with \"name\":\"Parcel\", \"qualified\":\"Parcel\", \"kind\":\"interface\", etc.\n\nThe instruction says to return {\"name\":string,\"kind\":string} for the bound declaration, preserving case and declaration kind.\n\nThe target is \"Parcel\", which is the interface name. The runtime target declarations list has \"name\":\"Parcel\" and \"kind\":\"interface\". So the bound declaration should be the interface Parcel.\n\nWait, the choices in the schema say the kind should be \"interface\" or \"function\", but the target is Parcel, which is an interface. So the kind should be \"interface\".\n\nThe name should be \"Parcel\" as per the runtime target declaration's name.\n\nSo the JSON should be {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n\nNeed to check if \"Parcel\" is the correct name. The source has \"interface Parcel\", so yes. The target is Parcel, so the bound declaration is the interface Parcel.\n\nYes, so the answer is {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 206,
+            "prompt_tokens_details": {
+              "cached_tokens": 205
+            },
+            "completion_tokens": 306,
+            "total_tokens": 512
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-560",
+          "object": "chat.completion",
+          "created": 1792605462,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"Source code already satisfies the request; no modifications needed.\"\n}",
+                "reasoning": "Okay, let's see. The user wants me to preserve existing behavior and add no new calls. The source code given is \"export function ping() { return \"pong\"; }\". They say this source already satisfies the request.\n\nThe task is to return a JSON object with \"action\" as either \"no_change\" or \"patch\", and \"reason\" as a string. Since the source already meets the request, I should choose \"no_change\".\n\nWait, the response schema says \"choices\" with \"path\": \"$.action\" and values [\"no_change\", \"patch\"], but the actual response should be {\"action\":string, \"reason\":string}. So I need to output that JSON.\n\nReason should explain why no_change. Like \"Source code already satisfies the request; no modifications needed.\"\n\nMake sure it's exactly the JSON. No extra text. Just the JSON object.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 125,
+            "prompt_tokens_details": {
+              "cached_tokens": 124
+            },
+            "completion_tokens": 224,
+            "total_tokens": 349
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-983",
+          "object": "chat.completion",
+          "created": 1792605466,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}",
+                "reasoning": "Okay, the user wants me to return only one repair card JSON object with specific fields: id 2, file \"lib/beta.ts\", and dependsOn [1]. No other cards or keys.\n\nI need to make sure the response is exactly that JSON. No extra text, no explanations. Just the JSON object. Let me check the format: {\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}. Yes, that's correct.\n\nI should output only that, nothing else. So the response should be exactly that string.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 62,
+            "prompt_tokens_details": {
+              "cached_tokens": 61
+            },
+            "completion_tokens": 143,
+            "total_tokens": 205
+          }
+        }
+      }
+    ]
+  }
+}

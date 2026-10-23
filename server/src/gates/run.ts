@@ -265,6 +265,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
   // контекста на каждый гейт обнуляло бы кэш, а модульный кэш по корню проекта пережил бы
   // прогон и отдал бы второй попытке находки первой.
   const ctx: GateContext = {
+    ...(i.approvedUntouched === undefined ? {} : { approvedUntouched: i.approvedUntouched }),
     projectRoot: i.projectRoot,
     planFiles: i.planFiles,
     baseline: i.baseline,

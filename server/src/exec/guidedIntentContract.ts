@@ -4,7 +4,7 @@ import { parseGuidedJson } from './guidedJson.ts';
 import { plainQuestion } from './guidedProtocol.ts';
 
 export function sourceLineFacts(text: string) {
-  return text.split('\n').map((value, index) => ({ number: index + 1, value }));
+  return text.split(/\r\n|\r|\n/u).map((value, index) => ({ number: index + 1, value }));
 }
 
 /** Keep original line numbers for runtime citations, replace display rows with data. */
@@ -61,7 +61,7 @@ export function renderGuidedContractRepair(section: string, answer: string, requ
     for (const value of rows) {
       const text = requests[Number(value.basis.file.slice('request-'.length)) - 1];
       const [from, to] = value.basis.lines;
-      if (text === undefined || to < from || to > text.split('\n').length) throw new Error('Основание ремонта вне источника');
+      if (text === undefined || to < from || to > sourceLineFacts(text).length) throw new Error('Основание ремонта вне источника');
     }
     if (currentSection?.includes('sdlc-json:basis:start')) {
       return currentSection.trim().replace(/(<!--\s*sdlc-json:basis:start\s*-->)[\s\S]*?(<!--\s*sdlc-json:basis:end\s*-->)/u,
@@ -70,8 +70,8 @@ export function renderGuidedContractRepair(section: string, answer: string, requ
     return ['| Основание | Сценарий | Контрпример | ID |', '|---|---|---|---|', ...rows.map(value => {
       const source = Number(value.basis.file.slice('request-'.length)) - 1;
       const text = requests[source]; const [from, to] = value.basis.lines;
-      if (text === undefined || to < from || to > text.split('\n').length) throw new Error('Основание ремонта вне источника');
-      const quote = text.split('\n').slice(from - 1, to).join('\n');
+      if (text === undefined || to < from || to > sourceLineFacts(text).length) throw new Error('Основание ремонта вне источника');
+      const quote = sourceLineFacts(text).slice(from - 1, to).map(line => line.value).join('\n');
       return row([`${value.basis.file}:L${from}-L${to} «${quote}»`, value.scenario, value.counterexample, value.id]);
     })].join('\n');
   }

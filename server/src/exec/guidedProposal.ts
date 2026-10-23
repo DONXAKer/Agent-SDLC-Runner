@@ -2,7 +2,7 @@ import type { StageId } from '@sdlc-runner/shared';
 import type { ChatTurn } from '../provider/ChatProvider.ts';
 import { GuidedProgress, progressHash } from '../run/guidedProgress.ts';
 import { parseGuidedDecisionJson } from './guidedJson.ts';
-import { narrowGuidedRepair } from './guidedRecovery.ts';
+import { narrowGuidedRepair, rebuildGuidedObject } from './guidedRecovery.ts';
 import { z } from 'zod';
 
 /** One durable proposal boundary, including secondary review/repair calls.
@@ -42,8 +42,15 @@ export async function guidedProposal(o: {
       if (action === 'narrow') {
         narrow = narrowGuidedRepair(raw, error, o.format);
         if (!narrow) {
-          o.store.stop(ticket, 'proposal', `Нет безопасного адресованного ремонта: ${feedback}`);
-          throw new Error(`Нет адресованного ремонта ${o.id}: ${feedback}`);
+          try {
+            const rebuilt = await rebuildGuidedObject(o.format, (format, fields) => o.ask(`${feedback}\nВосстанови только поле ${fields.join(', ')} по исходным данным.`, format, fields));
+            o.validate(JSON.stringify(rebuilt));
+            o.store.accept(ticket, rebuilt, o.dependencies());
+            return JSON.stringify(rebuilt);
+          } catch (repairError) {
+            o.store.stop(ticket, 'proposal', `Ремонт по полям не завершён: ${String(repairError)}`);
+            throw repairError;
+          }
         }
         o.store.rememberRepair(ticket, raw, narrow.fields);
       }

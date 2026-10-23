@@ -107,6 +107,10 @@ export const TASK_DEFS = [
   // Успех ячейки model×task на них — воспроизводимость ≥2/3 повторов, не одиночный pass.
   familyTask('holdout-winter-surcharge', 'fleet'),
   familyTask('holdout-trailer-rule', 'fleet'),
+  // New transfer inputs for guided validation, never inspected by runtime policies.
+  familyTask('guided-transfer-window', 'transfer-window'),
+  familyTask('guided-transfer-segments', 'transfer-segments'),
+  familyTask('guided-transfer-message', 'transfer-message'),
 ] as const satisfies readonly TaskDef[];
 
 /** Литеральный union id задач — выводится из реестра, а не переписывается рядом с ним. */

@@ -1,0 +1,418 @@
+{
+  "profile": {
+    "// gpt-oss-20b под роль рецензента, 2026-09-07": "Заведено после трёх прогонов посева, где gpt-oss-20b на этапе 6 упёрся в «лимит длины ответа» при ЧИСТОЙ раскладке (13 ГБ, 100 % GPU) — то есть наблюдение о модели, а не о железе. Отчёт приёмки этапа 6 — длинный структурированный документ, и умолчание max_tokens 8192 в OpenAiCompatProvider его не вмещает. Связка ровно та, что в этот же день впервые провела gemma4-12b через intent: окно 32K + max_tokens 16384. Порядок ручек значим и проверен сегодня дважды: max_tokens выше окна бессмысленен (при num_ctx 16384 потолок ответа = «16384 минус промпт»), поэтому окно первым. Контроль «только окно» отдельным прогоном НЕ снимается намеренно: сегодня он снят на granite4.2-8b и gemma4-12b — у обеих удвоение окна исход не изменило, класс отказа остался тот же. Ранг 52 прежний: ранг про силу модели, а не про окно. Цена окна по памяти: при 16K было 13 ГБ (из них ~3 ГБ KV), при 32K ожидается ~16 ГБ — впритык к измеренному полезному потолку ~17 ГБ, поэтому раскладка фиксируется ДО прогона, иначе «ручка не помогла» спутается с «модель выехала на CPU».",
+    "id": "ollama:gpt-oss-20b-ctx32k",
+    "provider": "ollama",
+    "model": "gpt-oss-20b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 52,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "gpu-only",
+    "params": {
+      "reasoning_effort": "low"
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "gpt-oss-20b-ctx32k:latest",
+        "model": "gpt-oss-20b-ctx32k:latest",
+        "size": 13198436595,
+        "digest": "ea2065cab2163f0384926babe7aaf0f9d856c3113f09b66bf3929c220c5391ab",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gpt-oss",
+          "families": [
+            "gpt-oss"
+          ],
+          "parameter_size": "20.9B",
+          "quantization_level": "unknown"
+        },
+        "expires_at": "2026-10-22T15:20:36.6179894+03:00",
+        "size_vram": 13198436595,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 10887,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-334",
+          "object": "chat.completion",
+          "created": 1792671337,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Need to answer: explicit option overrides workspace setting; workspace setting overrides built-in default. Which has highest priority? That is explicit option has highest priority. Return JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 51,
+            "total_tokens": 229
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-525",
+          "object": "chat.completion",
+          "created": 1792671338,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need bound declaration: Parcel interface. Return {\"name\":\"Parcel\",\"kind\":\"interface\"}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 41,
+            "total_tokens": 320
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-532",
+          "object": "chat.completion",
+          "created": 1792671339,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The existing source already satisfies the request of preserving existing behavior without adding new calls.\"}",
+                "reasoning": "We decide no_change."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 40,
+            "total_tokens": 236
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-5",
+          "object": "chat.completion",
+          "created": 1792671340,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "Provide JSON object."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 31,
+            "total_tokens": 152
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-845",
+          "object": "chat.completion",
+          "created": 1792671341,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\":false}",
+                "reasoning": "We need to determine if adding export to lib/public.ts violates preservation of all existing files except that one. Since we modify lib/public.ts only, it's allowed. So does it violate? No. Return {\"violates\":false}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 138,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 62,
+            "total_tokens": 200
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-709",
+          "object": "chat.completion",
+          "created": 1792671342,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\":false}",
+                "reasoning": "Need to output JSON {\"established\":false} since no evidence."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 139,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 30,
+            "total_tokens": 169
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-484",
+          "object": "chat.completion",
+          "created": 1792671342,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Answer highest priority explicit."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 173
+            },
+            "completion_tokens": 23,
+            "total_tokens": 201
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-409",
+          "object": "chat.completion",
+          "created": 1792671343,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need bound declaration matching target Parcel. There's one runtime target: interface Parcel. So output {\"name\":\"Parcel\",\"kind\":\"interface\"}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 47,
+            "total_tokens": 326
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-327",
+          "object": "chat.completion",
+          "created": 1792671344,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The existing ping function already returns \\\"pong\\\" as required; no modifications are needed.\"}",
+                "reasoning": "We need to return JSON with action: \"no_change\" because source satisfies. Provide reason."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 191
+            },
+            "completion_tokens": 55,
+            "total_tokens": 251
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-450",
+          "object": "chat.completion",
+          "created": 1792671345,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We must output that JSON exactly."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 116
+            },
+            "completion_tokens": 34,
+            "total_tokens": 155
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-40",
+          "object": "chat.completion",
+          "created": 1792671346,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\":false}",
+                "reasoning": "We need to check if preserving all existing files except lib/public.ts where export added. The contract says preserve all existing files except lib/public.ts where adding requested export. Observed diff: only requested export added. Does this violate preservation constraint? No, because only allowed change. So violate? false."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 138,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 76,
+            "total_tokens": 214
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-629",
+          "object": "chat.completion",
+          "created": 1792671347,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\": false}",
+                "reasoning": "We need JSON: {\"established\": boolean}. The claim with no evidence does not establish defect. So false."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 139,
+            "prompt_tokens_details": {
+              "cached_tokens": 134
+            },
+            "completion_tokens": 39,
+            "total_tokens": 178
+          }
+        }
+      }
+    ]
+  }
+}

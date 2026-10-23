@@ -1,0 +1,431 @@
+{
+  "profile": {
+    "// gpt-oss-20b под роль рецензента, 2026-09-07": "Заведено после трёх прогонов посева, где gpt-oss-20b на этапе 6 упёрся в «лимит длины ответа» при ЧИСТОЙ раскладке (13 ГБ, 100 % GPU) — то есть наблюдение о модели, а не о железе. Отчёт приёмки этапа 6 — длинный структурированный документ, и умолчание max_tokens 8192 в OpenAiCompatProvider его не вмещает. Связка ровно та, что в этот же день впервые провела gemma4-12b через intent: окно 32K + max_tokens 16384. Порядок ручек значим и проверен сегодня дважды: max_tokens выше окна бессмысленен (при num_ctx 16384 потолок ответа = «16384 минус промпт»), поэтому окно первым. Контроль «только окно» отдельным прогоном НЕ снимается намеренно: сегодня он снят на granite4.2-8b и gemma4-12b — у обеих удвоение окна исход не изменило, класс отказа остался тот же. Ранг 52 прежний: ранг про силу модели, а не про окно. Цена окна по памяти: при 16K было 13 ГБ (из них ~3 ГБ KV), при 32K ожидается ~16 ГБ — впритык к измеренному полезному потолку ~17 ГБ, поэтому раскладка фиксируется ДО прогона, иначе «ручка не помогла» спутается с «модель выехала на CPU».",
+    "id": "ollama:gpt-oss-20b-ctx32k",
+    "provider": "ollama",
+    "model": "gpt-oss-20b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 52,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "gpu-only",
+    "params": {
+      "reasoning_effort": "low"
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "gpt-oss-20b-ctx32k:latest",
+        "model": "gpt-oss-20b-ctx32k:latest",
+        "size": 13198436595,
+        "digest": "ea2065cab2163f0384926babe7aaf0f9d856c3113f09b66bf3929c220c5391ab",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gpt-oss",
+          "families": [
+            "gpt-oss"
+          ],
+          "parameter_size": "20.9B",
+          "quantization_level": "unknown"
+        },
+        "expires_at": "2026-10-23T08:56:42.7096128+03:00",
+        "size_vram": 13198436595,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "compatible": true,
+    "elapsedMs": 13191,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-140",
+          "object": "chat.completion",
+          "created": 1792734703,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Need highest priority: explicit."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 24,
+            "total_tokens": 202
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-38",
+          "object": "chat.completion",
+          "created": 1792734704,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need return JSON with name and kind. The target is Parcel, matching interface. So name=\"Parcel\", kind=\"interface\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 321,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 48,
+            "total_tokens": 369
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-53",
+          "object": "chat.completion",
+          "created": 1792734705,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The existing function `ping()` already returns the expected string and conforms to the requested behavior, so no modifications are necessary.\"}",
+                "reasoning": "We need to output JSON with action: \"no_change\" or \"patch\". Since source already satisfies, choose no_change. Provide reason."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 71,
+            "total_tokens": 267
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-534",
+          "object": "chat.completion",
+          "created": 1792734706,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "Need to output exactly that JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 34,
+            "total_tokens": 155
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-600",
+          "object": "chat.completion",
+          "created": 1792734707,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\":false}",
+                "reasoning": "We check: only export added, no deletion. Preserves existing files. So no violation."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 138,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 35,
+            "total_tokens": 173
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-522",
+          "object": "chat.completion",
+          "created": 1792734708,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\":false}",
+                "reasoning": "We need to return JSON {\"established\": boolean}. The statement: The reviewer claims defect but provides only filename, no observed behavior, source code, test result or explanation. Does this establish a defect? Likely no; insufficient evidence. So established false."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 139,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 68,
+            "total_tokens": 207
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-99",
+          "object": "chat.completion",
+          "created": 1792734709,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "User asks which has highest priority. Highest is explicit option. So return {\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 173
+            },
+            "completion_tokens": 34,
+            "total_tokens": 212
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-334",
+          "object": "chat.completion",
+          "created": 1792734710,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "Need output JSON with name and kind. Target is Parcel, declaration: kind interface. Name is \"Parcel\". Return {\"name\":\"Parcel\",\"kind\":\"interface\"}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 321,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 52,
+            "total_tokens": 373
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-930",
+          "object": "chat.completion",
+          "created": 1792734711,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The existing `ping` function already returns \\\"pong\\\" as required; no modifications are necessary.\"}",
+                "reasoning": "Need to respond with JSON object. Since source already satisfies, use no_change. Provide reason."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 191
+            },
+            "completion_tokens": 57,
+            "total_tokens": 253
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-699",
+          "object": "chat.completion",
+          "created": 1792734712,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We need to output exactly that JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 116
+            },
+            "completion_tokens": 35,
+            "total_tokens": 156
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-648",
+          "object": "chat.completion",
+          "created": 1792734714,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\":false}",
+                "reasoning": "We need to determine if modifying lib/public.ts violates preservation constraint. The constraint: preserve all existing files except lib/public.ts, where adding the requested export is required. So it's allowed to modify lib/public.ts. The question: Observed diff: only the requested export was added to lib/public.ts. Does this violate the preservation constraint? No, because only lib/public.ts changed. So violates: false. Return JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 138,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 100,
+            "total_tokens": 238
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-598",
+          "object": "chat.completion",
+          "created": 1792734715,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\":false}",
+                "reasoning": "We need to determine if this establishes a defect. The claim is only a filename, no evidence. According to the instruction: \"Lack of proof is not proof of correctness.\" But the question: does that establish a defect? In general, a claim without evidence does not establish a defect. So result {\"established\":false}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 139,
+            "prompt_tokens_details": {
+              "cached_tokens": 134
+            },
+            "completion_tokens": 83,
+            "total_tokens": 222
+          }
+        }
+      }
+    ]
+  }
+}

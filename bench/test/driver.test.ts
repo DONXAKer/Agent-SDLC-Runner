@@ -51,6 +51,30 @@ it('overall deadline cancels an active stage even when its stage budget is longe
   strictEqual(result.stages.length, 1);
 });
 
+it('awaits asynchronous acceptance registration before entering implementation', async () => {
+  let frozen=false;
+  const fake={paths:legacyPaths,chunk:1,attempt:1,lastVerdict:null,
+    blockerDetails:(stage:string)=>stage==='chunk'&&!frozen?[{text:'suite not frozen',blamed:'plan'}]:[],
+    runStage:async()=>({ok:true,finalText:'',usage:emptyUsage()}),cancel(){}
+  } as unknown as Run;
+  const result=await runBench({run:fake,stageTimeoutMs:1000,runTimeoutMs:5000,attempts:1,stopAfterStage:'chunk',
+    onStageCompleted:async record=>{if(record.stage==='plan'){await new Promise(done=>setTimeout(done,20));frozen=true;}}});
+  strictEqual(frozen,true);strictEqual(result.stopped,'snapshot-point');strictEqual(result.stages.at(-1)?.stage,'chunk');
+});
+
+it('guided v4 never proceeds beyond a timed-out Intent with merely unblocked artifacts', async () => {
+  let release: ((value: StageResult) => void) | undefined;
+  let origin: string | undefined;
+  const fake = { paths: legacyPaths, chunk: 1, attempt: 1, lastVerdict: null, blockerDetails: () => [],
+    runStage: () => new Promise<StageResult>(resolve => { release = resolve; }),
+    cancel: (_reason: string, cause: string) => { origin = cause; release?.({ ok: false, finalText: '', usage: emptyUsage(), note: 'deadline' }); }
+  } as unknown as Run;
+  const result = await runBench({ run: fake, guidedEngineVersion: 4, executionMode: 'guided', stageTimeoutMs: 30, runTimeoutMs: 1000, attempts: 1 });
+  strictEqual(result.stopped, 'stage-timeout');
+  strictEqual(result.stages.length, 1);
+  strictEqual(origin, 'stage-deadline');
+});
+
 describe('decideAfterStageFailure', () => {
   it('обычный провал (без envFailure) — сразу blocked, повтора нет', () => {
     deepStrictEqual(

@@ -1,0 +1,39 @@
+{
+  "modelConfig": "bench/results/model-comparison-20261019/config/models.json",
+  "models": [
+    "ollama:comparison-qwen-off-q8"
+  ],
+  "tasks": [
+    "add-validator",
+    "idempotent-retry"
+  ],
+  "acceptanceImage": "node:24-alpine",
+  "profileOverrides": {
+    "ollama:comparison-qwen-off-q8": {
+      "placement": "gpu-only",
+      "params": {
+        "reasoning_effort": "none"
+      }
+    }
+  },
+  "limits": {
+    "stageMinutes": 15,
+    "runMinutes": 30,
+    "attempts": 1,
+    "gpuWaitMinutes": 15,
+    "suiteHours": 3
+  },
+  "engine": {
+    "host": "http://127.0.0.1:11435",
+    "gpuFreeMiB": [
+      10500,
+      6500
+    ],
+    "gpuUtilMax": [
+      100,
+      100
+    ]
+  },
+  "guidedEngineVersion": 5,
+  "repetitions": 1
+}

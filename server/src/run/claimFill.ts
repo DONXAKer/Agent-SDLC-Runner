@@ -28,6 +28,8 @@ import { guidedFillClaims } from './guidedVerificationProtocol.ts';
 
 export interface ClaimAsk {
   id: string;
+  /** Only an explicit task contract may classify a claim as requiring human verification. */
+  manualAllowed?: boolean;
   /** Текст пункта из приёмочного листа задачи — дословно. */
   text: string;
 }
@@ -43,6 +45,11 @@ export interface ClaimFillInput {
   /** Системный промпт этапа — тот же, что видел основной ход. */
   system: string;
   claims: readonly ClaimAsk[];
+  /** Full acceptance contract, including already answered claims and their exceptions. */
+  contractClaims?: readonly ClaimAsk[];
+  /** Current protected executor receipt; null means no fresh evidence. */
+  independentEvidence?: string | null;
+  contextWindow?: number;
   /** Патч попытки, перегенерированный рантаймом. */
   diff: string;
   /** Вывод тестов попытки, если он есть. */

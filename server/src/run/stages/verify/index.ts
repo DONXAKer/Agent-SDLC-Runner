@@ -23,7 +23,8 @@ import { routeKey } from '../../reviewRoute.ts';
 import { acceptReviewText, reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
 import { writeReviewJson, reviewFromRecords } from './reviewJson.ts';
 import { readCanonicalState, saveCanonicalVerification } from '../../canonicalState.ts';
-import { runIndependentAcceptance } from '../../independentAcceptance.ts';
+import { runIndependentAcceptance, hasIndependentAcceptance } from '../../independentAcceptance.ts';
+import { guidedAcceptanceProblem } from '../../guidedAcceptance.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -162,7 +163,10 @@ export const verifyModule: StageModule = {
       // ничего, добираются по одному вопросу со срезом патча. ДО внесения записей —
       // добранное идёт в отчёт тем же путём, что записанное вручную.
       if (route.flow === 'loop' && (route.claimFill || route.reviewFill) && !signal.aborted) {
-        await topUpClaims(host, route, stagePrompt.system);
+        // Canonical acceptance requires the independent reviewer to assess every
+        // claim. Filling its omissions with the writer's answers is self-review.
+        const claimRoute = readCanonicalState(host.paths) || readGuided(host.paths)?.engineVersion === 5 ? host.reviewScan().route : route;
+        await topUpClaims(host, claimRoute, stagePrompt.system);
       }
 
       // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
@@ -334,6 +338,10 @@ export const verifyModule: StageModule = {
     // (`skipIf` для него всегда `null`), но если он появится — pre-flight не
     // должен блокировать попытку, которая всё равно была бы пропущена без него.
     entryBlocker: async () => {
+      if (readGuided(host.paths)) {
+        const problem = guidedAcceptanceProblem(host.paths, host.runner().methodologyDir, host.chunk(), host.attempt());
+        if (problem) return problem;
+      }
       const sandboxBlockers = await preflightBlockers(host.projectRoot, host.projectName);
       // Исполнимость команд набора — тем же preflight'ом, что на входе chunk'а: среда могла
       // измениться между этапами, а неисполнимый гейт на этапе 6 — `blocked_env` ДО попытки.
@@ -356,7 +364,7 @@ export const verifyModule: StageModule = {
       host.verifyState.reviewFillComplete = false;
 
       const results = await runVerifyGates(host, signal);
-      if (readCanonicalState(host.paths)) {
+      if (readCanonicalState(host.paths) || hasIndependentAcceptance(host.paths)) {
         const acceptance = await runIndependentAcceptance(host.paths, host.chunk(), host.attempt(), signal);
         host.verifyState.lastGateResults.push(acceptance);
         if (results !== host.verifyState.lastGateResults) results.push(acceptance);

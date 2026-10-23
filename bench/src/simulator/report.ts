@@ -1,6 +1,6 @@
 import type { SimulationCaseResult } from './taskLoop.ts';
 
-export type Suite = 'task-loop' | 'guided' | 'full-flow' | 'state-first';
+export type Suite = 'task-loop' | 'guided' | 'full-flow' | 'guided-v4-full-flow' | 'guided-v5-full-flow' | 'state-first';
 export interface SimulationReport {
   version: 1;
   kind: 'deterministic-runtime-simulation';
@@ -26,7 +26,7 @@ export function renderReport(report: SimulationReport): string {
     '# Испытание процесса без модели', '',
     `Результат: **${report.passed ? 'PASS' : 'FAIL'}**; сценариев: ${report.cases.length}.`, '',
     'PASS означает соответствие ожидаемому поведению. ready_for_review не означает человеческую приёмку.',
-    'TaskLoop — отдельный исполнитель; guided — компонентные проверки; full-flow — настоящий Run с протокольной фикстурой.',
+    'TaskLoop — отдельный исполнитель; guided — компоненты; full-flow — legacy v1; guided-v4-full-flow — полный Guided v4 с preparation v3 и независимой Docker-приёмкой.',
     'Симулятор не измеряет качество, скорость или VRAM реальной модели и не доказывает поддержку всех языков.', '',
     `Runner: \`${report.revision}\`${report.dirty ? ' + незакоммиченные изменения' : ''}; Node: ${report.node}.`,
     `SHA-256 исходников и сценариев: \`${report.sourceHash}\`.`,

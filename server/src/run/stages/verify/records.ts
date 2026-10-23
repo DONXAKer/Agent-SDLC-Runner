@@ -22,6 +22,7 @@ import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } fro
 import type { SeededArtifact, StageHost } from '../types.ts';
 import { REVIEW_GATE, earlyGateRows, earlyGatesForModel, reportedBy, gateResultsForVerdict } from './gates.ts';
 import { readCanonicalState } from '../../canonicalState.ts';
+import { independentAcceptanceReport } from '../../independentAcceptance.ts';
 
 export function finishGuidedVerification(host: StageHost): void {
   const canonical = readCanonicalState(host.paths)?.state;
@@ -33,7 +34,8 @@ export function finishGuidedVerification(host: StageHost): void {
   const header = base.split(/^## Гейты\s*$/mu)[0]!
     .replace(/^(- \*\*Набор гейтов:\*\*).*$/mu, `$1 от ${date ?? 'дата не указана в наборе'}`)
     .replace(/^(- \*\*Долг набора:\*\*).*$/mu, `$1 ${openDebt(gates).length ? 'есть незакрытые строки — проверяет вердикт' : 'незакрытых строк нет'}`);
-  const text = renderGuidedVerification({ header, gates: gateResultsForVerdict(host),
+  const acceptance = independentAcceptanceReport(host.paths, host.chunk(), host.attempt());
+  const text = renderGuidedVerification({ header, ...(acceptance === null ? {} : { independentAcceptance: acceptance }), gates: gateResultsForVerdict(host),
     requiredGates: gatesExpectedInReport(gates).map(g => ({ name: g.name, runtime: reportedBy(g) === 'runtime' })),
     claims: [...host.verifyState.claimRecords.values()], findings: host.verifyState.findingRecords,
     titles: canonical ? new Map(canonical.claims.map(c => [c.id, c.text])) : new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)])),
@@ -145,8 +147,11 @@ export function acceptRecord(host: StageHost, call: NormalizedCall, opts?: { adv
  */
 export async function topUpClaims(host: StageHost, route: ResolvedRoute, system: string): Promise<void> {
   const asks: ClaimAsk[] = [];
+  const manualIds = new Set(readCanonicalState(host.paths)?.state.claims.filter(claim => claim.tags?.includes('manual')).map(claim => claim.id) ?? []);
   for (const [id, text] of host.intentClaimLines()) {
-    if (!host.verifyState.claimRecords.has(id)) asks.push({ id, text });
+    const record = host.verifyState.claimRecords.get(id);
+    if (!record || (readGuided(host.paths) && record.status === 'manual' && !manualIds.has(id)))
+      asks.push({ id, text, manualAllowed: manualIds.has(id) });
   }
   if (asks.length === 0) return;
 
@@ -159,6 +164,9 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
     params: route.params,
     system,
     claims: asks,
+    contractClaims: [...host.intentClaimLines()].map(([id, text]) => ({ id, text, manualAllowed: manualIds.has(id) })),
+    independentEvidence: independentAcceptanceReport(host.paths, host.chunk(), host.attempt()),
+    ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
     repairIncomplete: readGuided(host.paths) !== null,
     diff: readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text,
     ...(readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text.trim() === '' ? { sourceHunks: guidedSourceHunks(host.paths) } : {}),

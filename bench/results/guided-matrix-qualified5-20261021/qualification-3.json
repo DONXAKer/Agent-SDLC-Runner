@@ -1,0 +1,295 @@
+{
+  "profile": {
+    "// gpt-oss-20b под роль рецензента, 2026-09-07": "Заведено после трёх прогонов посева, где gpt-oss-20b на этапе 6 упёрся в «лимит длины ответа» при ЧИСТОЙ раскладке (13 ГБ, 100 % GPU) — то есть наблюдение о модели, а не о железе. Отчёт приёмки этапа 6 — длинный структурированный документ, и умолчание max_tokens 8192 в OpenAiCompatProvider его не вмещает. Связка ровно та, что в этот же день впервые провела gemma4-12b через intent: окно 32K + max_tokens 16384. Порядок ручек значим и проверен сегодня дважды: max_tokens выше окна бессмысленен (при num_ctx 16384 потолок ответа = «16384 минус промпт»), поэтому окно первым. Контроль «только окно» отдельным прогоном НЕ снимается намеренно: сегодня он снят на granite4.2-8b и gemma4-12b — у обеих удвоение окна исход не изменило, класс отказа остался тот же. Ранг 52 прежний: ранг про силу модели, а не про окно. Цена окна по памяти: при 16K было 13 ГБ (из них ~3 ГБ KV), при 32K ожидается ~16 ГБ — впритык к измеренному полезному потолку ~17 ГБ, поэтому раскладка фиксируется ДО прогона, иначе «ручка не помогла» спутается с «модель выехала на CPU».",
+    "id": "ollama:gpt-oss-20b-ctx32k",
+    "provider": "ollama",
+    "model": "gpt-oss-20b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 52,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "gpu-only",
+    "params": {
+      "reasoning_effort": "low"
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "gpt-oss-20b-ctx32k:latest",
+        "model": "gpt-oss-20b-ctx32k:latest",
+        "size": 13198436595,
+        "digest": "ea2065cab2163f0384926babe7aaf0f9d856c3113f09b66bf3929c220c5391ab",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gpt-oss",
+          "families": [
+            "gpt-oss"
+          ],
+          "parameter_size": "20.9B",
+          "quantization_level": "unknown"
+        },
+        "expires_at": "2026-10-21T21:30:29.6848364+03:00",
+        "size_vram": 13198436595,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": false,
+    "elapsedMs": 8869,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-610",
+          "object": "chat.completion",
+          "created": 1792607130,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Need JSON with choice: \"explicit\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 164,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 23,
+            "total_tokens": 187
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-921",
+          "object": "chat.completion",
+          "created": 1792607131,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need to return JSON with name and kind from the bound declaration. It will match the runtime target declarations. The target is Parcel interface. So name=\"Parcel\", kind=\"interface\". And output format: {\"name\":string,\"kind\":string}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 266,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 69,
+            "total_tokens": 335
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": false,
+        "response": {
+          "id": "chatcmpl-426",
+          "object": "chat.completion",
+          "created": 1792607134,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"choices\": [\n    {\n      \"path\": \"$.action\",\n      \"values\": [\"no_change\", \"patch\"]\n    }\n  ],\n  \"partial\": false\n}",
+                "reasoning": "We need to respond with JSON object following schema: {\"choices\":[{\"path\":\"$.action\",\"values\":[\"no_change\",\"patch\"]}],\"partial\":false}. But user asked to return {\"action\":string,\"reason\":string}. However schema demands path $.action only. So we must output JSON with \"action\". No reason? schema doesn't allow reason. I'll output no_change."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 183,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 127,
+            "total_tokens": 310
+          }
+        },
+        "error": "Error: protocol or semantics mismatch"
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-686",
+          "object": "chat.completion",
+          "created": 1792607135,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We need to return exactly that JSON object. No other keys. Let's output as JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 45,
+            "total_tokens": 166
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-579",
+          "object": "chat.completion",
+          "created": 1792607135,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Choose \"explicit\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 164,
+            "prompt_tokens_details": {
+              "cached_tokens": 159
+            },
+            "completion_tokens": 22,
+            "total_tokens": 186
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-284",
+          "object": "chat.completion",
+          "created": 1792607136,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need return JSON with name and kind for bound declaration. Likely matches the target: name \"Parcel\", kind \"interface\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 266,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 45,
+            "total_tokens": 311
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-113",
+          "object": "chat.completion",
+          "created": 1792607137,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The current implementation already matches the requested behavior. No changes needed.\"}",
+                "reasoning": "We must return JSON with action and reason. Since already satisfies, no_change."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 183,
+            "prompt_tokens_details": {
+              "cached_tokens": 178
+            },
+            "completion_tokens": 48,
+            "total_tokens": 231
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-602",
+          "object": "chat.completion",
+          "created": 1792607138,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "Need to output only that JSON object, no other keys."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 116
+            },
+            "completion_tokens": 39,
+            "total_tokens": 160
+          }
+        }
+      }
+    ]
+  }
+}

@@ -117,6 +117,7 @@ export class ProviderEnvError extends Error {
     this.name = 'ProviderEnvError';
   }
 }
+export class ProviderRequestTimeoutError extends ProviderEnvError {}
 
 /**
  * Не-средовой HTTP-отказ провайдера (400 схемы, 404 id модели): ответ пришёл, и провайдер

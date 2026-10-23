@@ -73,7 +73,9 @@ export function parseTables(text: string): MdTable[] {
 
 /** Экранирование `|` в значении ячейки — обратная сторона `splitRow`, один на всех. */
 export function escapeCell(value: string): string {
-  return value.replace(/\|/g, '\\|');
+  // A source quotation is data, including any headings and table-like lines.
+  // Never let a physical newline escape its cell into Markdown structure.
+  return value.replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, '<br>');
 }
 
 /**

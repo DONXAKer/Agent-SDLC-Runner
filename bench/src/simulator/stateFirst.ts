@@ -8,7 +8,7 @@ import { scriptedModel } from './fullFlow.ts';
 import type { SimulationCaseResult } from './taskLoop.ts';
 import { readCanonicalState } from '../../../server/src/run/canonicalState.ts';
 import { readRunVerdict } from '../../../server/src/run/verdictStore.ts';
-import { ACCEPTANCE_GATE, acceptanceFresh } from '../../../server/src/run/independentAcceptance.ts';
+import { ACCEPTANCE_GATE, acceptanceFresh, independentAcceptanceReport } from '../../../server/src/run/independentAcceptance.ts';
 
 export async function runStateFirstScenarios(image: string): Promise<SimulationCaseResult[]> {
   const results: SimulationCaseResult[] = [];
@@ -58,10 +58,12 @@ export async function runStateFirstScenarios(image: string): Promise<SimulationC
         const expected = mode !== 'wrong-code' && mode !== 'protected-suite' && mode !== 'early-exit';
         check(accepted?.passed === expected, expected ? 'Положительный контроль принят по каноническому состоянию' : 'Красная независимая приёмка не перекрашивается модельным PASS');
         check(run.gateResults.some(g => g.name === ACCEPTANCE_GATE && g.status === (expected ? '✅' : '❌')), 'Исход отдельного исполнителя включён в гейты');
+        check(independentAcceptanceReport(run.paths, 1, 1)?.includes(expected ? 'PASS' : 'FAIL'), 'Форма независимой приёмки отражает подтверждённый исход исполнителя');
         trace.push({ canonical: run.canonicalState(), acceptanceFresh: acceptanceFresh(run.paths, 1, 1) });
         if (mode === 'stale-code') {
           writeFileSync(join(root, 'src/app.js'), 'export const version=9;\n');
           check(readRunVerdict(run.paths, 1, 1)?.passed === false, 'Правка кода инвалидирует проверку без доверия к старому отчёту');
+          check(independentAcceptanceReport(run.paths, 1, 1) === null, 'Устаревшие свидетельства не заполняют новую форму приёмки');
           check(run.blockers('handoff').length > 0, 'Handoff блокирует устаревший результат');
         } else if (expected) {
           writeFileSync(run.paths.verificationReport(1, 1), '# Устаревшая проекция\n- **passed:** false\n');

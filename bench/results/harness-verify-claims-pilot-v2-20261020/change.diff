@@ -1,0 +1,17 @@
+diff --git "a/D:\\\320\237\321\200\320\276\320\265\320\272\321\202\321\213\\Agent-SDLC-Runner\\bench\\results\\harness-verify-claims-pilot-v2-20261020\\snapshots\\A\\server\\src\\run\\guidedVerificationProtocol.ts" "b/D:\\\320\237\321\200\320\276\320\265\320\272\321\202\321\213\\Agent-SDLC-Runner\\bench\\results\\harness-verify-claims-pilot-v2-20261020\\snapshots\\B\\server\\src\\run\\guidedVerificationProtocol.ts"
+index 036cd7c..3c5b661 100644
+--- "a/D:\\\320\237\321\200\320\276\320\265\320\272\321\202\321\213\\Agent-SDLC-Runner\\bench\\results\\harness-verify-claims-pilot-v2-20261020\\snapshots\\A\\server\\src\\run\\guidedVerificationProtocol.ts"
++++ "b/D:\\\320\237\321\200\320\276\320\265\320\272\321\202\321\213\\Agent-SDLC-Runner\\bench\\results\\harness-verify-claims-pilot-v2-20261020\\snapshots\\B\\server\\src\\run\\guidedVerificationProtocol.ts"
+@@ -59,8 +59,10 @@ export async function guidedFillClaims(i: ClaimFillInput): Promise<ClaimFillResu
+   const hunks = i.sourceHunks ?? splitHunks(i.diff);
+   const calls: NormalizedCall[] = [];
+   for (const claim of i.claims) {
+-    const answer = await ask(i, `claim:${claim.id}`, 'Подтверждён ли этот пункт приёмки текущим результатом? Укажи место доказательства и необходимые исправления.',
+-      { claim, sourceKind: i.sourceHunks ? 'current-code' : 'diff', content: packForClaim(claim.text, hunks, i.evidenceBudgetBytes), tests: i.tests }, guidedClaimFormat, Claim);
++    const validator = Claim.refine(answer => answer.status !== 'manual' || claim.manualAllowed === true,
++      { message: 'manual разрешён только для пункта, явно помеченного человеком как ручной. Для автоматического пункта выбери ✅ при наличии доказательства, ❌ при противоречии или ⚠ при недостатке фактов; укажи точный якорь доказательства.' });
++    const answer = await ask(i, `claim:${claim.id}`, 'Подтверждён ли этот пункт приёмки текущим результатом? ✅ — подтверждён фактами, ❌ — опровергнут, ⚠ — фактов недостаточно. manual допустим только при manualAllowed=true в контракте. Укажи файл:символ или точное имя проверки и необходимые исправления.',
++      { claim, sourceKind: i.sourceHunks ? 'current-code' : 'diff', content: packForClaim(claim.text, hunks, i.evidenceBudgetBytes), tests: i.tests }, guidedClaimFormat, validator);
+     if (answer) {
+       const call = normalize('record_claim', { id: claim.id, ...answer });
+       if (call.kind === 'record_claim') calls.push(call);

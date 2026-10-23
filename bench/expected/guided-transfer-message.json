@@ -1,0 +1,118 @@
+{
+  "task": "guided-transfer-message",
+  "family": "transfer-message",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "encodeMessage: R1",
+      "call": {
+        "fn": "encodeMessage",
+        "args": [
+          {
+            "caption": "old"
+          }
+        ]
+      },
+      "type": "string"
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "makeMessage: Pr1",
+      "call": {
+        "fn": "makeMessage",
+        "args": [
+          "Title"
+        ]
+      },
+      "expect": {
+        "displayName": "Title"
+      }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "encodeMessage: Pr2",
+      "call": {
+        "fn": "encodeMessage",
+        "args": [
+          {
+            "displayName": "Title"
+          }
+        ]
+      },
+      "expect": "{\"displayName\":\"Title\"}"
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "decodeMessage: Pr3",
+      "call": {
+        "fn": "decodeMessage",
+        "args": [
+          "{\"caption\":\"old\"}"
+        ]
+      },
+      "expect": {
+        "displayName": "old"
+      }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "decodeMessage: Pr4",
+      "call": {
+        "fn": "decodeMessage",
+        "args": [
+          "{\"caption\":\"old\",\"displayName\":\"\"}"
+        ]
+      },
+      "expect": {
+        "displayName": ""
+      }
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "decodeMessage: Pr5",
+      "call": {
+        "fn": "decodeMessage",
+        "args": [
+          "{\"caption\":\"old\",\"displayName\":null}"
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "PrNewTest",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "A separate executable test is present",
+      "exists": "test/additional.test.mjs"
+    },
+    {
+      "id": "RPreserve",
+      "category": "regression",
+      "claim": null,
+      "description": "Existing checks and public entry are unchanged",
+      "preserve": [
+        "src/index.ts",
+        "test/existing.test.mjs",
+        "scripts/build-check.mjs",
+        "package.json"
+      ]
+    }
+  ],
+  "referenceFiles": {
+    "record/message.mjs": "export function makeMessage(displayName) {\n  if (typeof displayName !== 'string') throw new TypeError('string required');\n  return { displayName };\n}\nexport function encodeMessage(value) {\n  return JSON.stringify({ displayName: value.displayName });\n}\nexport function decodeMessage(line) {\n  const value = JSON.parse(line);\n  return makeMessage(Object.hasOwn(value, 'displayName') ? value.displayName : value.caption);\n}\n",
+    "test/additional.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { makeMessage, encodeMessage, decodeMessage } from '../src/index.ts';\ntest('new behavior',()=>{assert.deepEqual(makeMessage(...[\"Title\"]),{\"displayName\":\"Title\"});assert.deepEqual(encodeMessage(...[{\"displayName\":\"Title\"}]),\"{\\\"displayName\\\":\\\"Title\\\"}\");assert.deepEqual(decodeMessage(...[\"{\\\"caption\\\":\\\"old\\\"}\"]),{\"displayName\":\"old\"});assert.deepEqual(decodeMessage(...[\"{\\\"caption\\\":\\\"old\\\",\\\"displayName\\\":\\\"\\\"}\"]),{\"displayName\":\"\"});});\n"
+  }
+}
+

@@ -43,6 +43,7 @@ export interface BenchResult {
     chunkSelection?: { candidates: 2 | 3; judgeModel: string; candidateTimeoutMs: number };
     guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
     preparationVersion?: BenchOptions['preparationVersion'];
+    independentAcceptanceImage?: string;
     strictQuestions?: boolean;
     profileLabel: string;
     routes: BuiltProfile['routes'];
@@ -118,6 +119,7 @@ export function buildResult(args: {
       ...(built.profile.planSelection ? { planSelection: { candidates: built.profile.planSelection.candidates,
         judgeModel: built.profile.planSelection.candidates === 1 ? null : built.profile.planSelection.judge.modelId } } : {}),
       preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
+      ...(opts.acceptanceImage ? { independentAcceptanceImage: opts.acceptanceImage } : {}),
       strictQuestions: opts.strictQuestions === true || opts.executionMode === 'guided',
       profileLabel: built.profile.label,
       routes: built.routes,

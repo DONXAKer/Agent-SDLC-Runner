@@ -4,6 +4,10 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { reviewNoChanges } from '../../noChangeReview.ts';
+import { createProvider } from '../../../provider/registry.ts';
+import { changedPaths } from '../../../gates/git.ts';
+import { readGuided } from '../../guidedState.ts';
 
 import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 
@@ -127,8 +131,18 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
   verify.lastGatesAborted = false;
 
   const facts = await attemptGateFacts(host, gates);
+  let approvedUntouched: Awaited<ReturnType<typeof reviewNoChanges>> = [];
+  if (readGuided(host.paths)?.noChanges?.length) {
+    const reviewer = host.reviewScan().route;
+    approvedUntouched = await reviewNoChanges({ paths: host.paths,
+    planned: host.planFilesFor('verify') ?? [], changed: await changedPaths(host.projectRoot, signal),
+    provider: createProvider(reviewer.provider, reviewer.providerDef, host.limits().chatTimeoutMs, host.trace('verify', 'claimFill')),
+    model: reviewer.model, params: reviewer.params, contextWindow: reviewer.contextWindow ?? 16384,
+    signal: signal ?? host.signal(), onUsage: usage => host.accountOffPathUsage('verify', usage, reviewer.providerDef.currency) });
+  }
   const results = await runGates({
     ...facts,
+    approvedUntouched,
     // Гейты без исполнителя-скрипта (строки проверяющего и сверка набора) рантаймом не
     // «прогоняются»: прогон давал им `⏭ исполнить нечем`, этот факт шёл в вердикт худшим
     // из двух и ронял каждую попытку, а строка отчёта для модели не появлялась вовсе —

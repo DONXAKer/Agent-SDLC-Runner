@@ -17,20 +17,20 @@
     "rollbacks": 0,
     "byPurpose": {
       "proposal": {
-        "requests": 11,
-        "inputTokens": 24144,
-        "outputTokens": 5689,
+        "requests": 13,
+        "inputTokens": 26957,
+        "outputTokens": 8143,
         "cost": null,
         "currency": "USD",
-        "durationMs": 331963
+        "durationMs": 334503
       },
       "review": {
-        "requests": 3,
-        "inputTokens": 7351,
-        "outputTokens": 2980,
+        "requests": 4,
+        "inputTokens": 10642,
+        "outputTokens": 4200,
         "cost": null,
         "currency": "USD",
-        "durationMs": 134225
+        "durationMs": 160767
       }
     },
     "timeToFirstMutationMs": null,
@@ -47,8 +47,8 @@
     "mode": "guided",
     "modelId": "ollama:ministral3-14b-ctx32k",
     "budgetMs": 3600000,
-    "activeMs": 398426,
-    "remainingMs": 3201574,
+    "activeMs": 477011,
+    "remainingMs": 3122989,
     "inputRevision": "",
     "currentItem": null,
     "stopReason": null,
@@ -57,8 +57,8 @@
     "decisionChecks": [
       {
         "stage": "intent",
-        "at": "2026-10-16T00:22:22.937Z",
-        "inputRevision": "82b8b75784aafb637feb423f4b53084ff0cd02bcc8dd631510be99557aefc108",
+        "at": "2026-10-19T00:31:18.964Z",
+        "inputRevision": "373d70168a4bbd200e9a138e46d2e85fa70f3af1730a14e5df35b569d31f1017",
         "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
         "evidence": [],
         "uncertainties": [],
@@ -71,14 +71,14 @@
     ],
     "workload": {
       "version": 1,
-      "startedAt": "2026-10-16T00:22:22.594Z",
+      "startedAt": "2026-10-19T00:31:18.647Z",
       "byPurpose": {
         "proposal": {
-          "usageEvents": 11,
-          "requests": 11,
-          "inputTokens": 24144,
-          "outputTokens": 5689,
-          "durationMs": 331963
+          "usageEvents": 13,
+          "requests": 13,
+          "inputTokens": 26957,
+          "outputTokens": 8143,
+          "durationMs": 334503
         },
         "format-repair": {
           "usageEvents": 0,
@@ -102,11 +102,11 @@
           "durationMs": 0
         },
         "review": {
-          "usageEvents": 3,
-          "requests": 3,
-          "inputTokens": 7351,
-          "outputTokens": 2980,
-          "durationMs": 134225
+          "usageEvents": 4,
+          "requests": 4,
+          "inputTokens": 10642,
+          "outputTokens": 4200,
+          "durationMs": 160767
         },
         "unclassified": {
           "usageEvents": 0,
@@ -161,20 +161,20 @@
       ],
       "recoveries": {
         "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›": {
-          "failures": 2,
-          "narrowed": false,
+          "failures": 3,
+          "narrowed": true,
           "stopped": false,
           "kind": "field",
-          "reason": "Приёмка противоречит запросу или не проверена: claim-1: В запросе не явно указано, что `resolveConfig` должен распространяться на частичные обновления и корректно объединять конфиги без потери `defaultDueDays` при неявном задании.; основание: Запрос требует, чтобы логика `resolveConfig` учитывала `defaultDueDays`, но **не указано как именно должны обрабатываться частичные обновления** (например, если `config` не включает `defaultDueDays`). Это может привести к пропуску или ошибочному совмещению значений.; контрпример: Если вызов `resolveConfig({ partial: { otherOption: value } })` потеряет `defaultDueDays`, результат будет некорректно отражать настройки площадки даже при явно установленном конфиге.\nclaim-2: В `expected` отсутствует требование **обязательности валидации** для `dueDays`. Запрос подразумевает, что опциональность `opts.dueDays` в `bill()` **не означает его отсутствие** в `Invoice`, т.к. `dueDays` всегда должно присутствовать со сложным приоритетом.; основание: Запрос требует, что поле `dueDays` *всегда* присутствует в `Invoice`. Однако не ясно, как верифицировать ситуацию, когда `opts.dueDays` не задан, но конфиг площадки или дефолт должны использоваться. Это может привести к конфликту между предполагаемым поведением и реальным сбросом значения `undefined`.; контрпример: Если при вызове `bill(id, customer, lines, [], {})` (без `opts.dueDays`) на выходе `invoice.dueDays` будет `undefined`, результат логически противоречит запросу.\nclaim-2: Требование о *приоритетности источников* значения `dueDays` не полностью формализовано в `procedure`. Отсутствует проверка на **порядок приоритета** в случае конфликтов (например, опциональность `opts.dueDays` подменяет конфиг площадки или наоборот).; основание: Запрос устанавливает: `opts.dueDays` (явный вызов) > `resolveConfig(Config).defaultDueDays` > встроенные 14. `Procedure` не содержит проверки логики приоритетной подмены одного поля другим, в результате чего реализация может применять значения в хаотическом пор",
-          "inputHash": "40695339932f3bfb86a07a731fde7f5f870b5a0da0c248194308b7b75357d213"
+          "reason": "Приёмка противоречит запросу или не проверена: missing: Отсутствует проверка корректности объявления опции `defaultDueDays` в интерфейсе `BillingConfig` или соответствующем типе.; основание: В запрос требовалось добавление опции `defaultDueDays` в `BillingConfig` (`src/config.ts`), а также обеспечение её типовых ограничений и дефолтного значения 14.; контрпример: Нет подтверждения в `draft`, что интерфейс `BillingConfig` был изменён и включает поле `defaultDueDays` с атрибутом `number` и дефолтом `14`.\nclaim-1: Не проверена корректность `resolveConfig` на наличие обработки невалидных значений для `defaultDueDays` в случае отсутствия входящего параметра в вызовах с частичным или пустым конфигом.; основание: Запрос требует, чтобы при вызове `resolveConfig({})` и `resolveConfig(undefined)` всегда возвращался объект с `defaultDueDays: 14` и чтобы любые недопустимые числовые значения (например, `NaN`, `Infinity`, `0` или отрицательные) заменялись на `14`.; контрпример: В `resolveConfig` не явно указаны условия проверки на корректность значений поля `defaultDueDays`, а также их нормализация до `14`.\nclaim-2: Отсутствует явный приоритет в заполнении поля `dueDays` в рамках `Invoice` на уровне логики вызова `bill`, особенно в части обработки приоритета источника: `opts.duelDays` → конфиг площадки → встроенный дефолт `14`.; основание: Требовалось четкое указание порядка использования значений `dueDays`, начиная с переданных в параметре вызова: явное преобладает над конфигурацией площадки, а отсутствие или `undefined` в обоих приводит к встроенному дефолту.; контрпример: Нет в коде проверки наличия и прецедентности логики приоритетов при заполнении поля `dueDays` при вызове метода `bill`, в частности, явное упоминание порядка применения `opts.duelDays`, `resolveConfig()` и дефолтного значения 14 в случае их отсутствия.\nclaim-3: В `README.md` не добавлено описание опции `defaultDueDays` для таблицы конфигурационного раздела.; основание: Требовалось документировать `defaultDueD",
+          "inputHash": "48aed8ea3d382e3086f82cc0b720e458c5ab15a38e19c88edbe98e1e7f8034a8"
         },
         "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›": {
-          "failures": 2,
-          "narrowed": false,
+          "failures": 3,
+          "narrowed": true,
           "stopped": false,
           "kind": "field",
           "reason": "поле основания и сценарии: basis: acceptance ещё не прошёл проверку; дождись его исправления и свяжи основания с точными ID и требованиями",
-          "inputHash": "d6dd9c04004532b702128a66a8f5bb69a07b2f6409474395c69a4b1a85734b6e"
+          "inputHash": "7f5a4736f7856239ef2153754284b2f8f377233e7724724c84681f659871bc7d"
         }
       }
     }
@@ -219,8 +219,8 @@
       "verify",
       "handoff"
     ],
-    "startedAt": "2026-10-16T00:22:21.832Z",
-    "finishedAt": "2026-10-16T00:29:01.080Z",
+    "startedAt": "2026-10-19T00:31:17.917Z",
+    "finishedAt": "2026-10-19T00:39:15.706Z",
     "maxTurns": 40,
     "maxTurnsExplicit": false,
     "maxIterationsByStage": {
@@ -238,7 +238,7 @@
         "blockers": [],
         "timedOut": false,
         "skipped": false,
-        "modelRequests": 14,
+        "modelRequests": 17,
         "failure": {
           "kind": "contract",
           "origin": "intent",
@@ -258,29 +258,32 @@
         "stage": "intent",
         "runs": 1,
         "usage": {
-          "inputTokens": 31495,
-          "outputTokens": 8669,
-          "cacheReadTokens": 12836,
+          "inputTokens": 37599,
+          "outputTokens": 12343,
+          "cacheReadTokens": 16099,
           "cacheWriteTokens": 0,
           "costUsd": null,
-          "durationMs": 466159
+          "durationMs": 495241
         },
-        "durationMs": 398466,
+        "durationMs": 477042,
         "requestDurationsMs": [
-          6800,
-          12643,
-          21293,
-          22708,
-          26342,
-          89846,
-          16125,
-          28281,
-          31061,
-          55930,
-          32391,
-          42158,
-          62170,
-          18440
+          2125,
+          6127,
+          8452,
+          4054,
+          6685,
+          34479,
+          48486,
+          37549,
+          53936,
+          32700,
+          41953,
+          39007,
+          38555,
+          30447,
+          57666,
+          41026,
+          12023
         ]
       }
     ],
@@ -307,7 +310,7 @@
         "stage": "intent",
         "questions": 0,
         "approvals": 2,
-        "waitMs": 12
+        "waitMs": 11
       }
     ],
     "artifactGaps": [
@@ -323,7 +326,7 @@
     "approvals": [
       {
         "stage": "intent",
-        "requestId": "form:801ddc40-dc7f-460d-a04c-cb59675b9ba9",
+        "requestId": "form:4b81b65f-debb-4cb7-b8e3-943d9c1eca40",
         "kind": "write",
         "toolName": "Write",
         "targets": [
@@ -332,11 +335,11 @@
         "destructive": null,
         "outcome": "granted",
         "why": "default → allow",
-        "waitedMs": 7
+        "waitedMs": 6
       },
       {
         "stage": "intent",
-        "requestId": "form:5f1f7da9-32a6-4c45-9b87-336f74efe107",
+        "requestId": "form:bb10a7f1-da76-40c0-ac46-fde5b7691f79",
         "kind": "write",
         "toolName": "Write",
         "targets": [
@@ -403,42 +406,42 @@
   "diagnostics": {
     "passport": {
       "version": 1,
-      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
-      "sourceHash": "93a9de0c4cb6a351ffa2888f9e3b7007e8f207cc49d5c76741cbf92901d0ac3a",
-      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "gitHead": "06e6e0d897c344ae5c8de159bc01ebe3994cf631",
+      "sourceHash": "acdbb86e8c65d5951b57551ded04898e2b29450a90ebb841273f3d5961790dbb",
+      "configHash": "ab81427ee2563f5dacb4ce381d6c2bfdefb88da50c2d98ece1173730ec4a90ce",
       "localEndpoints": {},
-      "inputHash": "91ff8520b6aa1d531bf04bf6ee5e42cf9a690da63edeb96e37289fdb70261235",
+      "inputHash": "876641a534ad9689d11000278e9161d7dd63b5166343625aa60484b42d969190",
       "snapshotName": null,
       "snapshotAuthor": null,
       "stageTimeoutMs": 1200000,
       "runTimeoutMs": 2700000
     },
-    "workspaceHash": "033792fc61a06c26dd87beb21923bc1a0863fc013d677a1b978aad7803c57cb9",
+    "workspaceHash": "3419d933320c66704397b4847e279f9f3eade2c863076574cadbaeb559b14db1",
     "state": "finished",
-    "capturedAt": "2026-10-16T00:29:01.114Z",
+    "capturedAt": "2026-10-19T00:39:15.735Z",
     "lastEvent": {
       "type": "stage_done",
       "stage": "intent",
-      "at": "2026-10-16T00:29:01.047Z"
+      "at": "2026-10-19T00:39:15.678Z"
     },
     "artifacts": [
       {
         "path": ".runner/metrics.md",
-        "sha256": "4433d44fb3dc646e024f677d49818e2cd531e486803475f7526b61ce97143856",
+        "sha256": "28de38c1dc9f8ac1cf8999859c3073cd2f76380ae5f75849ccf403229579f952",
         "placeholders": 1,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0
       },
       {
         "path": "intent.md",
-        "sha256": "ec9e6959cf854b3498c7d8ecefe285079e565bb977bc3fd36b11f0ee4c97afd0",
+        "sha256": "976657fdb2db037584adc4f9d3488442fc4ea2a5087aa79c87e0f4e247fc1033",
         "placeholders": 1,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0
       },
       {
         "path": "readiness.md",
-        "sha256": "695adb3371365c36424da7cb8c4c2b81fbef3ee7350d8361b9e37435ddd6622c",
+        "sha256": "f51d5b005914549620348e586eab94e959c4dac43184f7eefff9762fbd996b33",
         "placeholders": 0,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildGuidedWorkingContext, workingContextCurrent } from '../src/exec/guidedWorkingContext.ts';
 import { guidedCapabilities, validateGuidedCapabilities } from '../src/exec/guidedCapabilities.ts';
-import { parseBoundGuidedReply, guidedBoundActionResponseFormat } from '../src/exec/GuidedExecutor.ts';
+import { parseBoundGuidedReply, guidedBoundActionResponseFormat, simulateOps } from '../src/exec/GuidedExecutor.ts';
 import { observedTestFailures, groundedRepairFeedback, parseRepairDiagnosis } from '../src/exec/repairDiagnosis.ts';
 import { preservationConstraint } from '../src/run/preservationConstraint.ts';
 
@@ -50,6 +50,35 @@ test('explicit edit binds the target symbol and rejects destructive operations i
   assert.doesNotThrow(() => guidedBoundActionResponseFormat(cards, false, undefined, capability, 'n'));
   const barrel = guidedCapabilities([{ path: 'index.ts', hash: 'b', symbols: ['n'], isNew: false, barrel: true }], [{ file: 'index.ts', symbol: 'n', action: 'реэкспортировать n', claims: [] }]);
   assert.deepEqual(barrel[0]?.ops, ['ensure_reexport']);
+});
+
+test('renaming a member does not authorize renaming its containing declaration', () => {
+  for (const action of ['Rename a field inside the record', 'Переименовать свойство внутри объявления']) {
+    const capability = guidedCapabilities([{ path: 'lib/record.ts', hash: 'base', symbols: ['Record'], isNew: false }],
+      [{ file: 'lib/record.ts', symbol: 'Record', action, claims: [] }]);
+    assert.deepEqual(capability[0]?.ops, ['replace_body', 'ensure_import']);
+    assert.equal(capability[0]?.symbol, 'Record');
+    assert.throws(() => validateGuidedCapabilities([{ op: 'rename', file: 'lib/record.ts', symbol: 'Record', newName: 'field' }], capability));
+  }
+});
+
+test('a bound interface edit changes its member while preserving the declaration and unapplied source', t => {
+  const root = mkdtempSync(join(tmpdir(), 'guided-member-edit-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const original = 'export interface Envelope { previous: string; }\n';
+  writeFileSync(join(root, 'contracts.ts'), original);
+  const capability = guidedCapabilities([{ path: 'contracts.ts', hash: 'base', symbols: ['Envelope'], isNew: false }],
+    [{ file: 'contracts.ts', symbol: 'Envelope', action: 'Rename the stored member', claims: [] }]);
+  const reply = parseBoundGuidedReply(JSON.stringify({ action: 'patch', prediction: 'member updated',
+    ops: [{ op: 'replace_body', body: 'export interface Envelope { current: string; }' }] }), 'contracts.ts', 'Envelope');
+  assert.equal(reply.action, 'patch');
+  if (reply.action !== 'patch') throw new Error('Expected member edit');
+  validateGuidedCapabilities(reply.ops, capability);
+  const snapshots = simulateOps(root, ['contracts.ts'], reply.ops);
+  assert.match(snapshots[0]!.after, /interface Envelope/);
+  assert.match(snapshots[0]!.after, /current: string/);
+  assert.ok(!snapshots[0]!.after.includes('previous:'));
+  assert.equal(readFileSync(join(root, 'contracts.ts'), 'utf8'), original);
 });
 
 test('repair feedback contains observed values and exact original predicate, leaving missing input unknown', () => {

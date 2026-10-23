@@ -29,6 +29,7 @@ import type { ExchangeLabel } from '@sdlc-runner/shared';
  * вызова `provider.chat`.
  */
 export interface TraceLabel {
+  decision?: Omit<ConstructorParameters<typeof import('../exec/decisionEngine.ts').DecisionEngine>[0], 'provider'>;
   /** Слаг витка: по нему трассы разных прогонов не смешиваются в одном каталоге. */
   slug: string;
   stage: string;

@@ -1,6 +1,7 @@
 /** Версионированная проработка. Старые витки без записи версии остаются на v1. */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { atomicJson } from '../fs/atomicJson.ts';
 import { dirname, join, relative, isAbsolute, resolve } from 'node:path';
 import type { WitokPaths } from './paths.ts';
 import { readArtifact, readDecision } from './artifact.ts';
@@ -112,7 +113,7 @@ export function isPreparationV2(paths: WitokPaths): boolean { return preparation
 export function savePreparation(paths: WitokPaths, state: PreparationState): void {
   const path = statePath(paths);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  atomicJson(path, state);
 }
 
 export function requireStructuredPreparationTables(paths: WitokPaths): void {

@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "slug": "bench-oversize-ollama-gpt-oss-20b-all",
+  "startedAt": "2026-10-23T07:35:58.533Z",
+  "finishedAt": "2026-10-23T07:36:59.047Z",
+  "model": "ollama:gpt-oss-20b",
+  "task": "oversize",
+  "checks": [
+    {
+      "name": "задача: файлы фикстуры",
+      "ok": true,
+      "env": true,
+      "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+      "durationMs": 2
+    },
+    {
+      "name": "задача: банк ответов человека",
+      "ok": true,
+      "env": true,
+      "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+      "durationMs": 0
+    },
+    {
+      "name": "конфиг: контрольный маршрут",
+      "ok": true,
+      "env": true,
+      "detail": "маршрут «контроль на подписке Claude» собирается",
+      "durationMs": 6
+    },
+    {
+      "name": "фикстура: сборка",
+      "ok": true,
+      "env": true,
+      "detail": "build-check.mjs зелёный",
+      "durationMs": 142
+    },
+    {
+      "name": "фикстура: тесты",
+      "ok": true,
+      "env": true,
+      "detail": "нетронутая фикстура зелёная (2 файлов)",
+      "durationMs": 177
+    },
+    {
+      "name": "стенд: лимит ходов",
+      "ok": true,
+      "env": true,
+      "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+      "durationMs": 0
+    },
+    {
+      "name": "модель: промпт plan против окна",
+      "ok": true,
+      "env": true,
+      "detail": "системная часть plan ≈6278 токенов при окне 16384",
+      "durationMs": 2
+    },
+    {
+      "name": "модель: окно контекста",
+      "ok": true,
+      "env": true,
+      "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+      "durationMs": 0
+    },
+    {
+      "name": "модель: прогрев движка",
+      "ok": true,
+      "env": true,
+      "detail": "движок ответил — веса подняты до замеряемых проб",
+      "durationMs": 25562
+    },
+    {
+      "name": "модель: раскладка после прогрева",
+      "ok": true,
+      "env": false,
+      "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+      "durationMs": 3
+    },
+    {
+      "name": "модель: вызов Write",
+      "ok": true,
+      "env": false,
+      "detail": "Write(notes/hello.md)",
+      "durationMs": 1730
+    },
+    {
+      "name": "модель: заполнение поля через Edit",
+      "ok": true,
+      "env": false,
+      "detail": "Edit с плейсхолдером в old_string",
+      "durationMs": 3683
+    },
+    {
+      "name": "модель: чтение → запись",
+      "ok": true,
+      "env": false,
+      "detail": "сразу Edit",
+      "durationMs": 6340
+    },
+    {
+      "name": "модель: точный Edit многострочного блока",
+      "ok": true,
+      "env": false,
+      "detail": "Edit с точным многострочным old_string",
+      "durationMs": 9061
+    },
+    {
+      "name": "модель: честность путей",
+      "ok": true,
+      "env": false,
+      "detail": "Edit строго по объявленному файлу src/a.ts",
+      "durationMs": 3245
+    },
+    {
+      "name": "модель: длинная запись без усечения",
+      "ok": true,
+      "env": false,
+      "detail": "Write с маркером 60-й строки — ответ не усечён",
+      "durationMs": 6740
+    },
+    {
+      "name": "модель: правка поля без перезаписи файла",
+      "ok": true,
+      "env": false,
+      "detail": "Edit строки карты, поле решения человека не тронуто",
+      "durationMs": 3450
+    }
+  ],
+  "passed": true,
+  "envBlocked": false
+}

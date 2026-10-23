@@ -1,0 +1,289 @@
+{
+  "sourceManifest": "bench/results/guided-compatibility-v2-20261021/manifest.json",
+  "profile": {
+    "// ministral3-14b-instruct-ctx32k": "2026-09-11: базовый прогон (окно 16384, без ручек) встал на `intent` (задача `oversize`) — «упёрлась в лимит длины ответа» после 23 ходов (трение 12). Окно 32768+`max_tokens` 16384 сняло обрезку, но `intent` всё равно не прошёл — сперва лимит ходов (25), с `--max-turns 40` дошёл до конца хода, но `intent.md` остался с плейсхолдерами (модель посчитала бланк готовым). ВАЖНО: это сравнение изначально было НЕЧЕСТНЫМ — `polza:ministral-14b` (единственная ministral-модель, прошедшая весь цикл живьём) несёт `formFill`+`claimFill`+`stepFill`, а эта запись была заведена БЕЗ единой ручки («первый замер — база»); без formFill интервью идёт свободным ходом, где недобор бланка — типичный класс отказа для ЛЮБОЙ модели в этой сессии, не специфика ministral3. `formFill` добавлен сюда И в базовую запись выше — не новая гипотеза, перенос уже проверенного рычага, чтобы сравнение с polza-версией стало сопоставимым. Серия v4 5×5, 2026-09-14: «упёрлась в лимит длины ответа» на `two-right-answers`/explore даже с уже применённым `max_tokens` 16384 — сначала поднят до 24576, но разбор `docs/proposals/model-flow-improvements.md` §2.1 п.2 показал: `LoopExecutor.paramsFor` умеет считать `max_tokens` динамически по остатку окна для ЛЮБОГО провайдера (не только lmstudio), но только когда в конфиге задан `contextWindow` — у этой записи он не был задан вовсе, хотя тег `ministral3-14b-ctx32k` уже несёт `num_ctx 32768` (`ollama create`). Добавлен `contextWindow: 32768` (то же число, что в теге), явный `params.max_tokens` убран — он бы всё равно перекрыл расчёт (`applyParams` пишет безусловно). НЕ подтверждено живым повтором; ослабляет фиксированный потолок `FormFillExecutor` (`paramsFor` его не касается) — без явного `max_tokens` там действует умолчание провайдера 8192.",
+    "id": "ollama:ministral3-14b-instruct-ctx32k",
+    "provider": "ollama",
+    "model": "ministral3-14b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 40,
+    "formFill": true,
+    "placement": "gpu-only",
+    "params": {
+      "temperature": 0
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "ministral3-14b-ctx32k:latest",
+        "model": "ministral3-14b-ctx32k:latest",
+        "size": 11562280548,
+        "digest": "742b27152a4ab193d4acd4af95330050ca40bef4f10823b652edd83decbc56ac",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "mistral3",
+          "families": [
+            "mistral3",
+            "clip"
+          ],
+          "parameter_size": "13.9B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-10-21T19:44:22.1299124+03:00",
+        "size_vram": 11562280548,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": false,
+    "elapsedMs": 17738,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-105",
+          "object": "chat.completion",
+          "created": 1792600763,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 104,
+            "prompt_tokens_details": {
+              "cached_tokens": 2
+            },
+            "completion_tokens": 7,
+            "total_tokens": 111
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": false,
+        "response": {
+          "id": "chatcmpl-391",
+          "object": "chat.completion",
+          "created": 1792600764,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"parcel\",\"kind\":\"function\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 237,
+            "prompt_tokens_details": {
+              "cached_tokens": 53
+            },
+            "completion_tokens": 11,
+            "total_tokens": 248
+          }
+        },
+        "error": "Error: protocol or semantics mismatch"
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-30",
+          "object": "chat.completion",
+          "created": 1792600768,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request as it is a simple function with no additional calls or modifications needed.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 128,
+            "prompt_tokens_details": {
+              "cached_tokens": 53
+            },
+            "completion_tokens": 37,
+            "total_tokens": 165
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-670",
+          "object": "chat.completion",
+          "created": 1792600771,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\": 2, \"file\": \"lib/beta.ts\", \"dependsOn\": [1]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 54,
+            "prompt_tokens_details": {
+              "cached_tokens": 17
+            },
+            "completion_tokens": 24,
+            "total_tokens": 78
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-539",
+          "object": "chat.completion",
+          "created": 1792600771,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 104,
+            "prompt_tokens_details": {
+              "cached_tokens": 103
+            },
+            "completion_tokens": 7,
+            "total_tokens": 111
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": false,
+        "response": {
+          "id": "chatcmpl-249",
+          "object": "chat.completion",
+          "created": 1792600773,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"parcel\",\"kind\":\"function\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 237,
+            "prompt_tokens_details": {
+              "cached_tokens": 236
+            },
+            "completion_tokens": 11,
+            "total_tokens": 248
+          }
+        },
+        "error": "Error: protocol or semantics mismatch"
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-571",
+          "object": "chat.completion",
+          "created": 1792600777,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request as it is a simple function with no additional calls or modifications needed.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 128,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 37,
+            "total_tokens": 165
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-111",
+          "object": "chat.completion",
+          "created": 1792600779,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\": 2, \"file\": \"lib/beta.ts\", \"dependsOn\": [1]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 54,
+            "prompt_tokens_details": {
+              "cached_tokens": 53
+            },
+            "completion_tokens": 24,
+            "total_tokens": 78
+          }
+        }
+      }
+    ]
+  }
+}

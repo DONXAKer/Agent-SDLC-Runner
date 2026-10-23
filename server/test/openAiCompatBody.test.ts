@@ -100,8 +100,8 @@ describe('таймаут одного запроса', () => {
   });
 });
 
-describe('fallback: unsupported thinking', () => {
-  it('повтор без reasoning-параметров при HTTP 400 "does not support thinking"', async () => {
+describe('unsupported thinking remains an explicit profile failure', () => {
+  it('does not silently remove configured reasoning parameters after HTTP 400', async () => {
     let calls = 0;
     const server = createServer((req, res) => {
       let raw = '';
@@ -124,8 +124,21 @@ describe('fallback: unsupported thinking', () => {
     servers.push(server);
     const address = server.address() as AddressInfo;
     const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000 });
-    const result = await provider.chat(request({ reasoning_effort: 'low' }));
-    strictEqual(result.text, 'ok');
-    strictEqual(calls, 2);
+    await rejects(provider.chat(request({ reasoning_effort: 'low' })), /does not support thinking/);
+    strictEqual(calls, 1);
   });
+});
+
+it('literal schema choices reach the prompt without changing the caller messages or schema', async () => {
+  const baseUrl = await startStub();
+  const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl, apiKey: null, timeoutMs: 2000 });
+  const response_format = { type: 'json_schema', json_schema: { name: 'choice', schema: { type: 'object', properties: { direction: { enum: ['ascending', 'descending'] } } } } };
+  const input = request({ response_format });
+  const original = structuredClone(input.messages);
+  await provider.chat(input);
+  const sent = bodies.at(-1)!;
+  deepStrictEqual(sent.response_format, response_format);
+  deepStrictEqual(input.messages, original);
+  ok(JSON.stringify(sent.messages).includes('ascending'));
+  ok(JSON.stringify(sent.messages).includes('$.direction'));
 });

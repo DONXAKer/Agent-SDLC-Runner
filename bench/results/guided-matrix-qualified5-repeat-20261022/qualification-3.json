@@ -1,0 +1,294 @@
+{
+  "profile": {
+    "// gpt-oss-20b под роль рецензента, 2026-09-07": "Заведено после трёх прогонов посева, где gpt-oss-20b на этапе 6 упёрся в «лимит длины ответа» при ЧИСТОЙ раскладке (13 ГБ, 100 % GPU) — то есть наблюдение о модели, а не о железе. Отчёт приёмки этапа 6 — длинный структурированный документ, и умолчание max_tokens 8192 в OpenAiCompatProvider его не вмещает. Связка ровно та, что в этот же день впервые провела gemma4-12b через intent: окно 32K + max_tokens 16384. Порядок ручек значим и проверен сегодня дважды: max_tokens выше окна бессмысленен (при num_ctx 16384 потолок ответа = «16384 минус промпт»), поэтому окно первым. Контроль «только окно» отдельным прогоном НЕ снимается намеренно: сегодня он снят на granite4.2-8b и gemma4-12b — у обеих удвоение окна исход не изменило, класс отказа остался тот же. Ранг 52 прежний: ранг про силу модели, а не про окно. Цена окна по памяти: при 16K было 13 ГБ (из них ~3 ГБ KV), при 32K ожидается ~16 ГБ — впритык к измеренному полезному потолку ~17 ГБ, поэтому раскладка фиксируется ДО прогона, иначе «ручка не помогла» спутается с «модель выехала на CPU».",
+    "id": "ollama:gpt-oss-20b-ctx32k",
+    "provider": "ollama",
+    "model": "gpt-oss-20b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 52,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "gpu-only",
+    "params": {
+      "reasoning_effort": "low"
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "gpt-oss-20b-ctx32k:latest",
+        "model": "gpt-oss-20b-ctx32k:latest",
+        "size": 13198436595,
+        "digest": "ea2065cab2163f0384926babe7aaf0f9d856c3113f09b66bf3929c220c5391ab",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gpt-oss",
+          "families": [
+            "gpt-oss"
+          ],
+          "parameter_size": "20.9B",
+          "quantization_level": "unknown"
+        },
+        "expires_at": "2026-10-22T12:13:40.0507141+03:00",
+        "size_vram": 13198436595,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 7855,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-282",
+          "object": "chat.completion",
+          "created": 1792660120,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "Need to respond with JSON {\"choice\":\"explicit\"}."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 26,
+            "total_tokens": 204
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-562",
+          "object": "chat.completion",
+          "created": 1792660121,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "Need to match target Parcel to runtime declarations. Kind interface. Return {name:\"Parcel\", kind:\"interface\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 41,
+            "total_tokens": 320
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-436",
+          "object": "chat.completion",
+          "created": 1792660122,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"Source code already satisfies the request; no changes needed.\"}",
+                "reasoning": "We need to output JSON with action and reason. Since noChange."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 47,
+            "total_tokens": 243
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-564",
+          "object": "chat.completion",
+          "created": 1792660123,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We need to output exactly that JSON with no other keys."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 39,
+            "total_tokens": 160
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-341",
+          "object": "chat.completion",
+          "created": 1792660124,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "We need respond with JSON {\"choice\":\"explicit\"} because explicit overrides workspace which overrides default."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 178,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 33,
+            "total_tokens": 211
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-702",
+          "object": "chat.completion",
+          "created": 1792660125,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need output JSON with name and kind. For target Parcel, runtime bound declaration is the interface from lib. So name \"Parcel\" kind \"interface\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 127
+            },
+            "completion_tokens": 53,
+            "total_tokens": 332
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-988",
+          "object": "chat.completion",
+          "created": 1792660126,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The existing function 'ping' already returns the expected value 'pong' and conforms to the requested behavior; no modifications are necessary.\"}",
+                "reasoning": "We need to output JSON with action and reason. Since source satisfies request, we choose \"no_change\". reason explain."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 196,
+            "prompt_tokens_details": {
+              "cached_tokens": 191
+            },
+            "completion_tokens": 72,
+            "total_tokens": 268
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-611",
+          "object": "chat.completion",
+          "created": 1792660127,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We need to output JSON: {\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}. No other keys."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 55,
+            "total_tokens": 176
+          }
+        }
+      }
+    ]
+  }
+}

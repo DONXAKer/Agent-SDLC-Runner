@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { GateRunResult } from '@sdlc-runner/shared';
@@ -8,6 +8,10 @@ import type { WitokPaths } from '../artifacts/paths.ts';
 import { readCanonicalState, writeCanonicalState } from './canonicalState.ts';
 import { assertPlainPath, atomicJson, evidenceFile, fileHash, protectedRunDir, sha256 } from './protectedStore.ts';
 import { isolatedNode, pinNodeImage } from './isolatedNode.ts';
+import { escapeCell, parseTables } from '../md/table.ts';
+import { DECISION, readArtifact, readDecision } from '../artifacts/artifact.ts';
+import { manualClaimIds } from '../verdict/collect.ts';
+import { readGuided } from './guidedState.ts';
 
 export const ACCEPTANCE_GATE = 'Независимая приёмка';
 export const acceptanceRegistrationSchema = z.object({
@@ -27,7 +31,23 @@ interface FrozenSuite {
 interface AcceptanceResult { version: 1; suiteHash: string; contractHash: string; codeHash: string; image: string; executed: boolean; passed: boolean; at: string; logHash: string; }
 const registrationPath = (p: WitokPaths) => join(protectedRunDir(p.projectRoot, p.slug), 'acceptance.json');
 const manifestPath = (p: WitokPaths) => join(p.dir, 'acceptance-checks.md');
-const contractHash = (p: WitokPaths) => sha256(JSON.stringify(readCanonicalState(p)?.state.claims ?? []));
+export function acceptanceClaims(paths: WitokPaths) {
+  const canonical = readCanonicalState(paths);
+  if (canonical) return canonical.state.claims;
+  if (!readGuided(paths)) throw new Error('Нужен state-first или guided');
+  const intent = readArtifact(paths.intent).text, manual = new Set(manualClaimIds(intent));
+  const claims: { id: string; text: string; verification: string; tags?: string[] }[] = [];
+  for (const table of parseTables(intent)) for (const row of table.rows) {
+    const id = /^claim-[1-9][0-9]*$/.exec((row[0] ?? '').replace(/`/g, '').trim())?.[0];
+    if (!id || row.length < 3) continue;
+    if (claims.some(c => c.id === id)) throw new Error(`Дублируется требование ${id}`);
+    claims.push({ id, text: row[1]!.trim(), verification: row[2]!.trim(), ...(manual.has(id) ? { tags: ['manual'] } : {}) });
+  }
+  if (!claims.length) throw new Error('Нет явного приёмочного контракта');
+  return claims;
+}
+const contractHash = (p: WitokPaths) => sha256(JSON.stringify(acceptanceClaims(p)));
+export const hasIndependentAcceptance = (p: WitokPaths): boolean => existsSync(registrationPath(p));
 
 function within(root: string, target: string): boolean {
   const rel = relative(resolve(root), resolve(target));
@@ -86,7 +106,7 @@ function frozenSuite(paths: WitokPaths): { suite: FrozenSuite; hash: string; roo
 }
 
 export function acceptanceProblem(paths: WitokPaths): string | null {
-  if (!readCanonicalState(paths)) return null;
+  if (!readCanonicalState(paths) && !readGuided(paths)) return null;
   try {
     const frozen = frozenSuite(paths);
     const baseline = JSON.parse(readFileSync(join(protectedRunDir(paths.projectRoot, paths.slug), 'acceptance-baseline.json'), 'utf8')) as AcceptanceResult;
@@ -99,13 +119,15 @@ export function acceptanceProblem(paths: WitokPaths): string | null {
 export async function registerAcceptance(paths: WitokPaths, input: unknown, operator: string, executor: string): Promise<{ revision: string; baselinePassed: boolean }> {
   const registration = acceptanceRegistrationSchema.parse(input);
   const canonical = readCanonicalState(paths);
-  if (!canonical) throw new Error('Сначала включи state-first');
-  if (canonical.state.decisions.filter(d => d.kind === 'plan:approval').at(-1)?.value !== 'granted') throw new Error('Сначала требуется одобрение плана');
+  if (!canonical && !readGuided(paths)) throw new Error('Сначала включи state-first или guided');
+  const approved = canonical ? canonical.state.decisions.filter(d => d.kind === 'plan:approval').at(-1)?.value === 'granted'
+    : readDecision(readArtifact(paths.plan).text, DECISION.approval).state === 'granted';
+  if (!approved) throw new Error('Сначала требуется одобрение плана');
   if (registration.author.kind === 'model' && registration.author.id === executor) throw new Error('Автор реализации не готовит независимую приёмку');
   const source = realpathSync(registration.sourceDir);
   assertPlainPath(source);
   if (within(paths.projectRoot, source)) throw new Error('Независимый набор должен быть подготовлен вне проекта кандидата');
-  const ids = new Set(canonical.state.claims.filter(c => !c.tags?.includes('manual')).map(c => c.id));
+  const ids = new Set(acceptanceClaims(paths).filter(c => !c.tags?.includes('manual')).map(c => c.id));
   if (!ids.size || registration.checks.some(c => !ids.has(c.claimId)) || [...ids].some(id => !registration.checks.some(c => c.claimId === id))) throw new Error('Приёмка должна покрывать каждый автоматический claim');
   for (const check of registration.checks) {
     if (!/\.(?:test|spec)\.(?:mjs|cjs)$/.test(check.file) || isAbsolute(check.file) || !within(source, resolve(source, check.file))) throw new Error('Поддерживаются явные Node test/spec .mjs/.cjs внутри набора');
@@ -123,9 +145,11 @@ export async function registerAcceptance(paths: WitokPaths, input: unknown, oper
     limitations: registration.limitations, by: operator, at: new Date().toISOString(), contractHash: contractHash(paths), planHash: fileHash(paths.plan),
     baseFingerprint: fingerprint(candidateFiles(paths.projectRoot)), files, checks: registration.checks };
   // A new suite always invalidates prior acceptance and the canonical verdict.
-  canonical.state.verification.passed = false; canonical.state.verification.action = 'retry';
-  canonical.state.decisions.push({ kind: 'acceptance:freeze', by: operator, at: suite.at, value: revision });
-  writeCanonicalState(paths, canonical.state);
+  if (canonical) {
+    canonical.state.verification.passed = false; canonical.state.verification.action = 'retry';
+    canonical.state.decisions.push({ kind: 'acceptance:freeze', by: operator, at: suite.at, value: revision });
+    writeCanonicalState(paths, canonical.state);
+  }
   atomicJson(registrationPath(paths), suite);
   const markdown = ['# Независимые приёмочные проверки', '', `- Ревизия: ${revision}`, `- Проверяющий: ${suite.author.kind}:${suite.author.id}`, `- Зафиксировал: ${operator} · ${suite.at}`,
     `- Контракт (SHA-256): ${suite.contractHash}`, `- План (SHA-256): ${suite.planHash}`, `- Образ: ${suite.image}`, `- Ограничения: ${suite.limitations || 'нет'}`, '',
@@ -165,6 +189,27 @@ export async function runIndependentAcceptance(paths: WitokPaths, chunk: number,
 }
 
 export function acceptanceImage(paths: WitokPaths): string { return frozenSuite(paths).suite.image; }
+
+/** Project verified executor receipts into the current form; never invent applicability or an exemption. */
+export function independentAcceptanceReport(paths: WitokPaths, chunk: number, attempt: number): string | null {
+  if (!readCanonicalState(paths) && !hasIndependentAcceptance(paths)) return null;
+  try {
+    const frozen = frozenSuite(paths);
+    const prefix = `acceptance-${chunk}-${attempt}`;
+    const receipt = JSON.parse(readFileSync(join(protectedRunDir(paths.projectRoot, paths.slug), `${prefix}.json`), 'utf8')) as AcceptanceResult;
+    const log = join(paths.dir, 'state-evidence', `${prefix}.txt`);
+    if (receipt.image !== frozen.suite.image || receipt.suiteHash !== frozen.hash || receipt.contractHash !== contractHash(paths) ||
+      receipt.codeHash !== fingerprint(candidateFiles(paths.projectRoot)) || receipt.logHash !== fileHash(log)) return null;
+    const baseline = JSON.parse(readFileSync(join(protectedRunDir(paths.projectRoot, paths.slug), 'acceptance-baseline.json'), 'utf8')) as AcceptanceResult;
+    if (!baseline.executed || baseline.suiteHash !== frozen.hash) return null;
+    return ['## Независимые приёмочные проверки', '',
+      '- **Применимость:** обязательна: оператор зарегистрировал независимый набор для одобренного контракта и плана.',
+      `- **Зафиксированный набор:** acceptance-checks.md; SHA-256 ${frozen.hash}; проверяющий ${escapeCell(frozen.suite.author.kind + ':' + frozen.suite.author.id)}; зафиксировал ${escapeCell(frozen.suite.by)}.`,
+      `- **Прогон кандидата:** ${receipt.executed ? 'выполнен' : 'не подтверждён'}; ${receipt.passed ? 'PASS' : 'FAIL'}; код ${receipt.codeHash}; образ ${escapeCell(receipt.image)}; лог state-evidence/${prefix}.txt; SHA-256 ${receipt.logHash}.`,
+      `- **Защита и чувствительность:** отдельный исполнитель Docker без сети, кандидат и тесты только для чтения; исходный прогон ${baseline.passed ? 'PASS' : 'FAIL'}. Ограничения проверяющего: ${escapeCell(frozen.suite.limitations || 'не заявлены')}.`, '',
+    ].join('\n');
+  } catch { return null; }
+}
 
 export function acceptanceFresh(paths: WitokPaths, chunk: number, attempt: number): boolean {
   try {

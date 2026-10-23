@@ -35,6 +35,7 @@ import {
   ENGINE_UNAVAILABLE_SUBSTRINGS,
   PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
   ProviderEnvError,
+  ProviderRequestTimeoutError,
   ProviderHttpError,
   applyParams,
 } from './ChatProvider.ts';
@@ -83,6 +84,7 @@ export interface OpenAiCompatOptions {
    * секунд на набор, который весь укладывается в полторы.
    */
   retryDelayMs?: number;
+  retryDelaysMs?: readonly number[];
   /**
    * Канал предупреждений оператора (лента прогона — `Run.emit('warning')` на боевых
    * маршрутах). Сюда уходит, например, факт снятия reasoning/thinking-параметров после
@@ -460,6 +462,8 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+import { structuredOutputHint } from './structuredOutputHint.ts';
+
 export class OpenAiCompatProvider implements ChatProvider {
   readonly name: string;
   private readonly o: OpenAiCompatOptions;
@@ -523,6 +527,13 @@ export class OpenAiCompatProvider implements ChatProvider {
     };
 
     applyParams(body, req.params ?? null);
+    const schemaHint = structuredOutputHint(body.response_format);
+    if (schemaHint) {
+      const messages = body.messages as { role: string; content?: string }[];
+      const system = messages.find(message => message.role === 'system' && typeof message.content === 'string');
+      if (system) system.content += `\n${schemaHint}`;
+      else messages.unshift({ role: 'system', content: schemaHint });
+    }
 
     const url = `${this.o.baseUrl.replace(/\/+$/, '')}/chat/completions`;
     const headers = {
@@ -530,15 +541,8 @@ export class OpenAiCompatProvider implements ChatProvider {
       ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
     };
     let payload = JSON.stringify(body);
-    const isThinkingUnsupported = (t: string): boolean => /does not support thinking/iu.test(t);
-    const params = req.params ?? {};
-    const paramsWithoutReasoning = Object.fromEntries(
-      Object.entries(params).filter(([k]) => !['reasoning_effort', 'thinking', 'reasoning', 'think'].includes(k)));
-    const bodyWithoutReasoning = { ...body };
-    applyParams(bodyWithoutReasoning, paramsWithoutReasoning);
 
     // Перемежающийся отказ агрегатора — среда, а не модель, и один такой ответ не должен
-    let triedWithoutReasoning = false;
     let status = 0;
     let text = '';
     let requestId = '';
@@ -570,7 +574,7 @@ export class OpenAiCompatProvider implements ChatProvider {
         // Таймаут попытки — своим именем: reject несёт общий destroy-текст «запрос
         // отменён», и зависший сервер выглядел бы отменой оператора (ревью-3, класс К16).
         if (timeout.aborted) {
-          throw new ProviderEnvError(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`, {
+          throw new ProviderRequestTimeoutError(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`, {
             cause: e,
           });
         }
@@ -582,24 +586,15 @@ export class OpenAiCompatProvider implements ChatProvider {
             cause: e,
           });
         }
-        await abortableDelay(this.retryDelayMs * attempt, req.signal);
+        await abortableDelay(this.o.retryDelaysMs?.[attempt - 1] ?? this.retryDelayMs * attempt, req.signal);
         if (req.signal.aborted) {
           throw new Error(`${this.name}: запрос отменён во время паузы повтора (после сетевого сбоя ${code})`);
         }
         continue;
       }
-      if (status === 400 && !triedWithoutReasoning && isThinkingUnsupported(text)) {
-        // Некоторые модели Ollama падают на любом thinking-параметре (reasoning_effort и т.п.).
-        // Раз профиль не требует размышлений, повторяем без них один раз, честно предупредив.
-        triedWithoutReasoning = true;
-        for (const k of ['reasoning_effort', 'thinking', 'reasoning', 'think']) delete body[k];
-        applyParams(body, paramsWithoutReasoning);
-        payload = JSON.stringify(body);
-        continue;
-      }
       const transient = status === 429 || status >= 500;
       if (!transient || attempt > CHAT_RETRIES) break;
-      await abortableDelay(this.retryDelayMs * attempt, req.signal);
+      await abortableDelay(this.o.retryDelaysMs?.[attempt - 1] ?? this.retryDelayMs * attempt, req.signal);
       if (req.signal.aborted) {
         throw new Error(`${this.name}: запрос отменён во время паузы повтора (последний ответ: HTTP ${status})`);
       }

@@ -1,0 +1,169 @@
+{
+  "task": "guided-transfer-window",
+  "family": "transfer-window",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "inWindow: R1",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          3,
+          1,
+          5
+        ]
+      },
+      "expect": true
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr1",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          5,
+          1,
+          5
+        ]
+      },
+      "expect": false
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr2",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          2,
+          2,
+          2
+        ]
+      },
+      "expect": false
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr3",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          1,
+          1,
+          5
+        ]
+      },
+      "expect": true
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr4",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          "3",
+          1,
+          5
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr5",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          3,
+          5,
+          1
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "Pr6",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr6",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          null,
+          1,
+          5
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "Pr7",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr7",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          {
+            "$number": "NaN"
+          },
+          1,
+          5
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "Pr8",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "inWindow: Pr8",
+      "call": {
+        "fn": "inWindow",
+        "args": [
+          3,
+          1,
+          {
+            "$number": "Infinity"
+          }
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "PrNewTest",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "A separate executable test is present",
+      "exists": "test/additional.test.mjs"
+    },
+    {
+      "id": "RPreserve",
+      "category": "regression",
+      "claim": null,
+      "description": "Existing checks and public entry are unchanged",
+      "preserve": [
+        "src/index.ts",
+        "test/existing.test.mjs",
+        "scripts/build-check.mjs",
+        "package.json"
+      ]
+    }
+  ],
+  "referenceFiles": {
+    "lib/window.mjs": "export function inWindow(value, start, end) {\n  if (![value, start, end].every(Number.isFinite) || start > end) throw new TypeError('invalid window');\n  return value >= start && value < end;\n}\n",
+    "test/additional.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { inWindow } from '../src/index.ts';\ntest('new behavior',()=>{assert.deepEqual(inWindow(...[5,1,5]),false);assert.deepEqual(inWindow(...[2,2,2]),false);assert.deepEqual(inWindow(...[1,1,5]),true);});\n"
+  }
+}
+

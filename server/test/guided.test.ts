@@ -104,9 +104,37 @@ test('v4 stops identical rejected operations and does not buy another sample on 
   const req = () => ({ ...request(root), guidedEngineVersion: 4 as const, progress: new GuidedProgress(paths) });
   const result = await executor().run(req(), hooks());
   assert.equal(result.ok, false); assert.equal(result.failure?.kind, 'operation');
-  assert.match(result.note ?? '', /Повторено отклонённое/); assert.equal(calls, 2);
-  assert.equal((await executor().run(req(), hooks())).ok, false); assert.equal(calls, 2);
+  assert.match(result.note ?? '', /Повторено отклонённое/); assert.equal(calls, 3);
+  assert.equal((await executor().run(req(), hooks())).ok, false); assert.equal(calls, 3);
   assert.equal(readFileSync(join(root, 'a.ts'), 'utf8'), 'export const n = 1;\n');
+});
+
+test('v4 repairs a repeated wrong declaration through one narrowed request without writing the rejected draft', async t => {
+  const { root, paths } = fixture(t, 4);
+  const before = 'export interface Shape { old: string; }\n';
+  writeFileSync(join(root, 'shape.ts'), before);
+  let calls = 0;
+  const model: ChatProvider = { name: 'addressed-repair', async chat(req) {
+    calls++;
+    const data = JSON.parse(req.messages.find(message => message.role === 'user')!.content as string);
+    assert.equal(readFileSync(join(root, 'shape.ts'), 'utf8'), before);
+    if (calls === 3) {
+      assert.match(data.feedback, /Адресный ремонт/);
+      assert.match(data.rejectedProposal.error, /interface Shape/);
+    }
+    return { text: JSON.stringify({ action: 'patch', prediction: 'rename the field', ops: [{ op: 'replace_body',
+      body: calls < 3 ? 'export function other() { return 1; }' : 'export interface Shape { next: string; }' }] }),
+      toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } };
+  const executor = new GuidedExecutor({ paths, provider: model, items: [item(['shape.ts'])], inputRevision: () => 'stable',
+    requirements: '', sources: '', contextWindow: 16384,
+    fileTasks: [{ file: 'shape.ts', symbol: 'Shape', action: 'rename a field', claims: ['claim-1'],
+      title: 'Update shape', check: null, expect: null, contractChange: null }],
+    check: async () => ({ passed: true, result: 'checked' }) });
+  const result = await executor.run({ ...request(root), guidedEngineVersion: 4, progress: new GuidedProgress(paths) }, hooks());
+  assert.equal(result.ok, true, result.note);
+  assert.equal(calls, 3);
+  assert.match(readFileSync(join(root, 'shape.ts'), 'utf8'), /next: string/);
 });
 
 test('v4 Plan refuses unreviewed contract before any model request', async t => {
@@ -120,6 +148,17 @@ test('v4 Plan refuses unreviewed contract before any model request', async t => 
   const result = await new GuidedPlanExecutor({ paths, provider, params: null, contextWindow: 16384, slug: 'test' })
     .run({ ...request(root), guidedEngineVersion: 4, progress: new GuidedProgress(paths) }, hooks());
   assert.equal(result.ok, false); assert.equal(result.modelRequests, 0); assert.equal(result.failure?.retryStage, 'intent');
+});
+
+test('plan targets distinguish directories and check commands from files before writing', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'lib'));
+  const step = { id: 1, file: 'lib', isNew: true, symbol: 'newSymbol', action: 'add behavior', claims: ['claim-1'],
+    check: 'node tools/check.mjs', expected: 'pass', contract: 'new behavior', dependsOn: [] };
+  const plan = parseGuidedPlan({ approach: 'implement behavior', steps: [step], excluded: [], axes: [], changes: 'none' });
+  assert.match(guidedPlanTargetProblem(plan, '', root) ?? '', /шаг 1.*не является файлом/);
+  for (const command of ['npm test', 'node tools/check.mjs'])
+    assert.match(guidedPlanTargetProblem({ ...plan, steps: [{ ...plan.steps[0]!, file: command }] }, '', root) ?? '', /шаг 1.*похожа на команду/);
 });
 
 test('reject outside paths, foreign files and whole-file rewrites before writing', t => {
@@ -226,10 +265,7 @@ test('action schema never emits an empty symbol enum for Ollama compatibility', 
   const format = guidedActionResponseFormat([{ path: 'a.ts', hash: 'abc', symbols: [], isNew: false }]) as any;
   assert.ok(!JSON.stringify(format).includes('"enum":[]'));
   const patch = format.json_schema.schema.oneOf.find((v: any) => v.properties.action.const === 'patch');
-  const variant = patch.properties.ops.items.oneOf.find((v: any) => v.properties.op.const === 'replace_body');
-  assert.equal(variant.properties.symbol.enum, undefined);
-  assert.equal(variant.properties.symbol.type, 'string');
-  assert.ok(variant.properties.symbol.pattern);
+  assert.ok(!(patch.properties.ops.items.oneOf ?? [patch.properties.ops.items]).some((v: any) => v.properties.op.const === 'replace_body'), 'An unknown symbol must not be invented by the schema');
   const owned = guidedActionResponseFormat([{ path: 'new.ts', hash: 'abc', symbols: ['n'], isNew: false, ownedNewContent: 'export const n = 1;' }]) as any;
   const ownedPatch = owned.json_schema.schema.oneOf.find((v: any) => v.properties.action.const === 'patch');
   assert.ok(ownedPatch.properties.ops.items.oneOf.some((v: any) => v.properties.op.const === 'create_file'));

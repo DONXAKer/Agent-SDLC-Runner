@@ -17,6 +17,7 @@ import { REVIEW_GATE, gateResultsForVerdict } from './gates.ts';
 import { checkInvariants } from '../../guidedInvariants.ts';
 import { readCanonicalState } from '../../canonicalState.ts';
 import { reviewFromRecords } from './reviewJson.ts';
+import { ACCEPTANCE_GATE, acceptanceFresh, hasIndependentAcceptance } from '../../independentAcceptance.ts';
 
 /**
  * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
@@ -109,6 +110,11 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
     input.regressions = [...(review?.regressions.map(f => f.summary) ?? []), ...(review?.scope.map(f => f.summary) ?? [])];
     input.enabledGatesMissingFromReport = []; input.unfilledReportFields = 0; input.plannedPathsUntouched = [];
     if (!host.reviewScan().blocking || !host.verifyState.reviewerRan || !review || review.claims.length !== canonical.claims.length || review.claims.some(c => !canonical.claims.some(s => s.id === c.id))) input.brokenInvariants.push('State-first требует завершённого независимого структурированного ревью');
+  }
+  if (hasIndependentAcceptance(host.paths)) {
+    const receipt = gateResultsForVerdict(host).find(g => g.name === ACCEPTANCE_GATE);
+    const status = receipt?.status === '✅' && !acceptanceFresh(host.paths, host.chunk(), host.attempt()) ? '❌' : receipt?.status ?? '⏭';
+    input.gates = [...input.gates.filter(g => g.name !== ACCEPTANCE_GATE), { name: ACCEPTANCE_GATE, status, inapplicableSignedBy: null }];
   }
   const invariants = checkInvariants(host.paths, host.projectRoot);
   if (!invariants.passed) input.brokenInvariants.push(invariants.result);

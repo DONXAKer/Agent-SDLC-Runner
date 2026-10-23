@@ -1,3 +1,5 @@
+import { atomicJson } from '../fs/atomicJson.ts';
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
@@ -13,6 +15,7 @@ import { readGuidedWorkload } from './guidedWorkload.ts';
 
 export type Snapshot = { path: string; before: string | null; after: string; previous?: string[] };
 export interface GuidedState extends GuidedSummary {
+  noChanges?: { path: string; hash: string; reason: string; inputRevision: string }[];
   /** Durable write-ahead record; recover only bytes owned by this transaction. */
   transaction?: { itemId: string; files: Snapshot[] };
 }
@@ -100,7 +103,7 @@ export function readGuided(paths: WitokPaths): GuidedState | null {
   if (state.version !== 1 || state.mode !== 'guided' || !Array.isArray(state.items) ||
       !Array.isArray(state.observations) || !Number.isFinite(state.activeMs) || state.activeMs < 0 ||
       !Number.isFinite(state.budgetMs) || state.budgetMs <= 0) throw new Error('Повреждено состояние guided');
-  if (state.engineVersion !== undefined && ![1, 2, 3, 4].includes(state.engineVersion)) throw new Error('Неизвестная версия движка guided');
+  if (state.engineVersion !== undefined && ![1, 2, 3, 4, 5].includes(state.engineVersion)) throw new Error('Неизвестная версия движка guided');
   return state;
 }
 export function saveGuided(paths: WitokPaths, state: GuidedState): void {
@@ -109,24 +112,13 @@ export function saveGuided(paths: WitokPaths, state: GuidedState): void {
   if (disk) state.activeMs = Math.max(state.activeMs, disk.activeMs);
   state.remainingMs = Math.max(0, state.budgetMs - state.activeMs);
   const path = pathOf(paths);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.tmp`, JSON.stringify(state, null, 2) + '\n', 'utf8');
-  // Windows readers may briefly hold a handle without FILE_SHARE_DELETE.
-  // Retry the atomic rename; never fall back to truncating the live state.
-  for (let attempt = 0; ; attempt++) {
-    try { renameSync(`${path}.tmp`, path); break; }
-    catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '') || attempt >= 9) throw error;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-    }
-  }
+  atomicJson(path, state);
 }
 export function guidedSummary(paths: WitokPaths): GuidedSummary | null {
   const state = readGuided(paths);
   if (state === null) return null;
   const { transaction: _transaction, ...summary } = state;
-  const workload = state.engineVersion === 4 ? readGuidedWorkload(paths) : null;
+  const workload = hasGuidedContracts(state.engineVersion) ? readGuidedWorkload(paths) : null;
   return { ...summary, engineVersion: state.engineVersion ?? 1,
     ...(workload ? { workload } : {}),
     ...((state.engineVersion ?? 1) >= 2 ? { progress: new GuidedProgress(paths).summary() } : {}) };
@@ -142,7 +134,7 @@ export function accountGuidedTime(paths: WitokPaths, elapsedMs: number, running:
   }
   return state.activeMs >= state.budgetMs;
 }
-export function initGuided(paths: WitokPaths, modelId: string, engineVersion: 1 | 2 | 3 | 4 = 1): GuidedState {
+export function initGuided(paths: WitokPaths, modelId: string, engineVersion: 1 | 2 | 3 | 4 | 5 = 1): GuidedState {
   const old = readGuided(paths);
   if (old !== null) {
     if (old.modelId !== modelId) throw new Error('guided: смена модели внутри задачи не допускается');

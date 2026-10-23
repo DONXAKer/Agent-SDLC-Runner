@@ -8,10 +8,21 @@ export function autofillGuidedHandoff(text: string, facts: {
   gates: readonly { name: string; status: string }[];
   claims: readonly ClaimRecord[];
   reviewHistory?: readonly { path: string; findings: readonly string[] }[];
+  runtimeFacts?: { files: readonly string[]; openQuestions: readonly string[]; report: string; taskId: string };
 }): string {
   const start = lastLoopSectionStart(text);
   const prefix = text.slice(0, start);
   let current = text.slice(start);
+  if (facts.runtimeFacts) {
+    const data=facts.runtimeFacts;
+    current=current.replace(/^- \*\*Задача:\*\*[^\r\n]*‹[^\r\n]*/mu, `- **Задача:** ${data.taskId}`);
+    current=current.replace(/^- ‹что сделано›[^\r\n]*/mu, `- Подтверждённые пункты: ${facts.claims.filter(c=>c.status==='✅').map(c=>c.id).join(', ') || 'см. отчёт'}. Проверенные файлы: ${data.files.join(', ')}. Свидетельства: ${data.report}.`);
+    current=current.replace(/^- ‹с чего начинать следующую сессию›[^\r\n]*/mu, `- Проверить ${data.report} и эту передачу; решение о приёмке принимает человек.`);
+    current=current.replace(/^- ‹состояние›[^\r\n]*/mu, `- Проверенные файлы групп: ${data.files.join(', ') || 'нет групп с файлами'}. Результаты и замечания: ${data.report}.`);
+    current=current.replace(/^- Отклонено:[^\r\n]*‹[^\r\n]*/mu, '- Отклонено: история отклонённых предложений и оснований сохранена в .runner/decisions; итоговые требования — intent.md.');
+    current=current.replace(/^- Открыто на следующий виток:[^\r\n]*‹[^\r\n]*/mu, `- Открыто на следующий виток: ${data.openQuestions.join('; ') || 'нет незакрытых вопросов в Intent'}`);
+    current=current.replace(/^- Закрыто вручную вместо гейта из долга:[^\r\n]*‹[^\r\n]*/mu, `- Закрыто вручную вместо гейта из долга: отдельное ручное закрытие рантаймом не выполнялось; статусы и свидетельства сохранены в ${data.report}.`);
+  }
   const ids = (status: string): string => facts.claims.filter(c => c.status === status).map(c => c.id).join(', ') || 'ни одного';
   current = current.replace(/^- \*\*Предыдущая передача по этой задаче:\*\*[^\r\n]*/mu,
     `- **Предыдущая передача по этой задаче:** ${facts.loop <= 1 ? 'нет — это первый виток' : `handoff.md, секция витка ${facts.loop - 1}`}`);

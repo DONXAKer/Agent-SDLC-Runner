@@ -1,0 +1,75 @@
+{
+  "// файл": "Отдельный проект под замеры MCP: тот же корень, что у WarCard, но инструменты редактора выданы уже на этапе 1. Настоящий проектный конфиг ради опытов не трогается — иначе замер меняет то, что меряет. Суффикс .local.json держит файл вне репозитория.",
+
+  "name": "WarCard-MCP-проба",
+  "projectRoot": "D:/WarCard",
+
+  "activeProfile": "claude",
+  "maxBudgetUsd": 3.0,
+
+  "modules": [
+    {
+      "dir": "server",
+      "ecosystem": "gradle-wrapper",
+      "build": "sh ./gradlew build -x test --console=plain -q",
+      "test": "sh ./gradlew test --console=plain -q"
+    }
+  ],
+
+  "// mcp": "Только читающие инструменты и только на этапе 1: замеряется путь «модель → гейт → хаб → редактор», а не право что-то менять в проекте.",
+  "mcp": {
+    "enabled": true,
+    "unlistedServers": "off",
+    "maxInlineTools": 6,
+    "maxResultBytes": 12000,
+
+    "servers": {
+      "unreal-mcp": {
+        "enabled": true,
+        "callTimeoutMs": 180000,
+        "connectTimeoutMs": 30000,
+        "pollingTools": ["pie_status", "wait_for_*"]
+      },
+      "unreal-ue58": { "enabled": false }
+    },
+
+    "stages": {
+      "intent": {
+        "unreal-mcp": [
+          { "tool": "pie_status", "mode": "read" },
+          { "tool": "asset_exists", "mode": "read" },
+          { "tool": "list_actors_in_level", "mode": "read" },
+          { "tool": "get_umg_hierarchy", "mode": "read" }
+        ]
+      }
+    }
+  },
+
+  "profiles": {
+    "claude": {
+      "label": "Claude (контроль)",
+      "stages": {
+        "intent": "claude-sdk:haiku",
+        "explore": "claude-sdk:sonnet",
+        "ask": "claude-sdk:haiku",
+        "plan": "claude-sdk:sonnet",
+        "chunk": "claude-sdk:sonnet",
+        "verify": "claude-sdk:opus",
+        "handoff": "claude-sdk:haiku"
+      }
+    },
+
+    "local": {
+      "label": "Локально",
+      "stages": {
+        "intent": "ollama:qwen3.5:9b-ctx16k",
+        "explore": "ollama:qwen3:8b-ctx16k",
+        "ask": "ollama:qwen3:8b-ctx16k",
+        "plan": "ollama:qwen2.5:14b-ctx16k",
+        "chunk": "ollama:qwen3:8b-ctx16k",
+        "verify": "ollama:qwen3.6:35b-a3b",
+        "handoff": "ollama:qwen3:8b-ctx16k"
+      }
+    }
+  }
+}

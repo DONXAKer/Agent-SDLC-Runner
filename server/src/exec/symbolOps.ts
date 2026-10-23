@@ -11,11 +11,18 @@
  */
 
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
+import { syntaxIndex, isSingleDeclaration } from './syntaxIndex.ts';
+
+export const isTextDocument = (path: string): boolean => /\.(?:md|mdx|txt|rst|adoc)$/iu.test(path);
 
 export const symbolNameSchema = z.string().regex(/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u, 'Точное имя символа из карточки');
 
 const file = z.string().min(1);
 export const SymbolOp = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('replace_declaration'), file, symbol: symbolNameSchema, expectedHash: z.string().regex(/^[a-f0-9]{64}$/u), targetId: z.string().regex(/^[a-f0-9]{64}$/u), declaration: z.string().min(1) }).strict(),
+  z.object({ op: z.literal('replace_function_body'), file, symbol: symbolNameSchema, expectedHash: z.string().regex(/^[a-f0-9]{64}$/u), targetId: z.string().regex(/^[a-f0-9]{64}$/u), body: z.string().min(1) }).strict(),
+  z.object({ op: z.literal('replace_text'), file, expectedHash: z.string().regex(/^[a-f0-9]{64}$/u), search: z.string().min(1), replacement: z.string() }).strict(),
   z.object({ op: z.literal('replace_body'), file, symbol: symbolNameSchema, body: z.string().min(1) }).strict(),
   z.object({ op: z.literal('insert_after'), file, anchor: symbolNameSchema, body: z.string().min(1) }).strict(),
   z.object({ op: z.literal('insert_before'), file, anchor: symbolNameSchema, body: z.string().min(1) }).strict(),
@@ -59,7 +66,6 @@ export interface SymbolDecl {
   bodyEnd: number | null;
 }
 
-interface ScanState { depth: number; classStack: { name: string; depth: number }[]; }
 
 /** Идёт по исходнику, пропуская строки/комментарии/шаблоны; вызывает cb по значимым позициям. */
 function* codePositions(source: string): Generator<{ index: number; char: string }> {
@@ -96,159 +102,10 @@ function* codePositions(source: string): Generator<{ index: number; char: string
   }
 }
 
-const IDENT = /[A-Za-z_$][\w$]*/yu;
-const MODIFIERS = new Set(['export', 'default', 'declare', 'abstract', 'async', 'public', 'private', 'protected', 'static', 'readonly', 'override']);
-const DECL_KEYWORDS = new Set(['function', 'class', 'interface', 'type', 'enum', 'const', 'let', 'var']);
-
-/** Токены кода (идентификаторы, ключевые слова, знаки) без строк и комментариев. */
-function tokens(source: string): { text: string; index: number }[] {
-  const out: { text: string; index: number }[] = [];
-  let lastIndex = 0;
-  let boundary = true;
-  let skipUntil = 0;
-  for (const pos of codePositions(source)) {
-    const { index, char } = pos;
-    if (index < skipUntil) continue; // остаток уже захваченного идентификатора
-    if (/\s/u.test(char)) { boundary = true; lastIndex = index + 1; continue; }
-    IDENT.lastIndex = index;
-    const match = boundary ? IDENT.exec(source) : null;
-    if (match && match.index === index) {
-      out.push({ text: match[0], index });
-      lastIndex = index + match[0].length;
-      skipUntil = lastIndex;
-      boundary = false;
-      continue;
-    }
-    out.push({ text: char, index });
-    boundary = /[{}()[\];,.<>:=?&|!+\-*/@#]/u.test(char);
-    lastIndex = index + 1;
-  }
-  return out;
-}
-
-function matchBrace(source: string, openIndex: number): number | null {
-  let depth = 0;
-  for (const pos of codePositions(source)) {
-    if (pos.index < openIndex) continue;
-    if (pos.char === '{') depth++;
-    else if (pos.char === '}') { depth--; if (depth === 0) return pos.index; }
-  }
-  return null;
-}
-
-/** Вернуться через предшествующие декораторы и jsdoc-комментарий, примыкающие к объявлению. */
-function declStartWithTrivia(source: string, start: number): number {
-  let s = start;
-  for (;;) {
-    const before = source.slice(0, s);
-    const jsdoc = /\/\*\*[\s\S]*?\*\/\s*$/u.exec(before);
-    if (jsdoc && !/[^\s]/u.test(before.slice(jsdoc.index + jsdoc[0].length))) { s = jsdoc.index; continue; }
-    const line = before.slice(before.lastIndexOf('\n') + 1);
-    if (/^\s*$/u.test(line)) {
-      const prevLineEnd = before.lastIndexOf('\n');
-      if (prevLineEnd < 0) break;
-      const prevStart = before.lastIndexOf('\n', prevLineEnd - 1) + 1;
-      const prevLine = before.slice(prevStart, prevLineEnd);
-      if (/^\s*@[\w$]+(?:\([^)]*\))?\s*$/u.test(prevLine)) { s = prevStart; continue; }
-    }
-    break;
-  }
-  return s;
-}
-
-/** Объявления символов верхнего уровня и члены классов. */
-export function findSymbols(source: string): SymbolDecl[] {
-  const tk = tokens(source);
-  const out: SymbolDecl[] = [];
-  const state: ScanState = { depth: 0, classStack: [] };
-  let i = 0;
-  let exported = false;
-  let declTrivia = 0;
-  const peek = (offset: number): string | undefined => tk[i + offset]?.text;
-  while (i < tk.length) {
-    const t = tk[i]!;
-    if (t.text === '{') {
-      state.depth++;
-      if (state.classStack.length && state.classStack.at(-1)!.depth === -1) state.classStack.at(-1)!.depth = state.depth;
-      i++; continue;
-    }
-    if (t.text === '}') {
-      if (state.classStack.length && state.classStack.at(-1)!.depth === state.depth) state.classStack.pop();
-      state.depth--; i++; exported = false; continue;
-    }
-    if (t.text === 'export' || t.text === 'default') { if (t.text === 'export') { exported = true; declTrivia = declStartWithTrivia(source, t.index); } i++; continue; }
-    const inClass = state.classStack.length > 0 && state.classStack.at(-1)!.depth > 0 && state.depth === state.classStack.at(-1)!.depth;
-    if (MODIFIERS.has(t.text)) { i++; continue; }
-    // Объявления верхнего уровня — только на нулевой глубине: вложенная функция в теле
-    // другой функции не является адресуемым символом карточки.
-    if (!inClass && state.depth === 0 && DECL_KEYWORDS.has(t.text)) {
-      const keyword = t.text;
-      const nameToken = tk[i + 1];
-      if (!nameToken || !/^[A-Za-z_$][\w$]*$/u.test(nameToken.text)) { i++; continue; }
-      const name = nameToken.text;
-      let end: number;
-      let bodyStart: number | null = null;
-      let bodyEnd: number | null = null;
-      if (keyword === 'type') {
-        let j = i + 2; let semi: number | null = null; let localDepth = 0;
-        for (let k = j; k < tk.length; k++) {
-          const tt = tk[k]!.text;
-          if (tt === '{' || tt === '(' || tt === '[') localDepth++;
-          else if (tt === '}' || tt === ')' || tt === ']') localDepth--;
-          else if (tt === ';' && localDepth === 0) { semi = tk[k]!.index; break; }
-          else if ((tt === 'export' || DECL_KEYWORDS.has(tt)) && localDepth === 0 && k > j) break;
-        }
-        end = semi === null ? nameToken.index + name.length : semi + 1;
-      } else if (keyword === 'const' || keyword === 'let' || keyword === 'var') {
-        let localDepth = 0; let semi: number | null = null;
-        for (let k = i + 2; k < tk.length; k++) {
-          const tt = tk[k]!.text;
-          if (tt === '{' || tt === '(' || tt === '[') localDepth++;
-          else if (tt === '}' || tt === ')' || tt === ']') localDepth--;
-          else if (tt === ';' && localDepth === 0) { semi = tk[k]!.index; break; }
-          else if (tt === ',' && localDepth === 0) { semi = tk[k]!.index; break; } // первое имя объявления
-        }
-        end = (semi === null ? nameToken.index + name.length : semi + 1);
-        if (source[end - 1] === ',') end--;
-      } else {
-        // function/class/interface/enum: до парной закрывающей скобки тела.
-        let openIndex = -1;
-        for (let k = i + 2; k < tk.length; k++) {
-          if (tk[k]!.text === '{') { openIndex = tk[k]!.index; break; }
-          if (tk[k]!.text === ';') break;
-        }
-        if (openIndex < 0) { i++; continue; }
-        const close = matchBrace(source, openIndex);
-        if (close === null) { i++; continue; }
-        end = close + 1;
-        bodyStart = openIndex + 1; bodyEnd = close;
-        if (keyword === 'class') state.classStack.push({ name, depth: -1 });
-      }
-      out.push({ name, qualified: name, kind: keyword === 'function' ? 'function' : keyword === 'class' ? 'class' :
-        keyword === 'interface' ? 'interface' : keyword === 'enum' ? 'enum' : keyword === 'type' ? 'type' : 'variable',
-        exported, start: exported ? Math.min(declTrivia, t.index) : declStartWithTrivia(source, t.index), end, bodyStart, bodyEnd });
-      exported = false;
-      i += 2;
-      continue;
-    }
-    if (inClass && /^[A-Za-z_$][\w$]*$/u.test(t.text) && peek(1) === '(' && !new Set(['if', 'for', 'while', 'switch', 'return', 'catch']).has(t.text)) {
-      const className = state.classStack.at(-1)!.name;
-      let openIndex = -1;
-      for (let k = i + 1; k < tk.length; k++) { if (tk[k]!.text === '{') { openIndex = tk[k]!.index; break; } if (tk[k]!.text === ';') break; }
-      if (openIndex >= 0) {
-        const close = matchBrace(source, openIndex);
-        if (close !== null) {
-          out.push({ name: t.text, qualified: `${className}.${t.text}`, kind: 'method', exported,
-            start: declStartWithTrivia(source, t.index), end: close + 1, bodyStart: openIndex + 1, bodyEnd: close });
-        }
-      }
-    }
-    i++;
-  }
-  return out;
-}
-
 export type ResolveResult = { ok: true; decl: SymbolDecl } | { ok: false; ambiguous: boolean; candidates: string[] };
+
+export const findSymbols = syntaxIndex;
+export const declarationId = (source: string, decl: SymbolDecl): string => createHash('sha256').update(JSON.stringify([source, decl.kind, decl.qualified, decl.start, decl.end])).digest('hex');
 
 /** Точное совпадение имени; неоднозначность возвращает qualified-кандидатов. */
 export function resolveSymbol(decls: readonly SymbolDecl[], name: string): ResolveResult {
@@ -354,12 +211,38 @@ function fail(kind: OpDiagnostic['kind'], op: SymbolOp, message: string, extra: 
  * Применить одну операцию к тексту файла. `before === null` — файл отсутствует.
  * Никаких записей на диск: только текстовая трансформация с проверками.
  */
-export function applySymbolOp(before: string | null, op: SymbolOp): string {
+export function applySymbolOp(before: string | null, op: SymbolOp, original: string | null = before): string {
   if (op.op === 'create_file') {
     if (before !== null) fail('not_new_file', op, `create_file: ${op.file} уже существует; используй операции над символами`);
     return op.body.replace(/\r\n/gu, '\n').trimEnd() + '\n';
   }
   if (before === null) fail('missing_declaration', op, `${op.op}: файл ${op.file} не существует; новый файл создаётся только через create_file`);
+  if (op.op === 'replace_text') {
+    if (!isTextDocument(op.file)) fail('missing_declaration', op, 'replace_text поддерживает только текстовые документы md/mdx/txt/rst/adoc');
+    if (createHash('sha256').update(before).digest('hex') !== op.expectedHash) fail('missing_declaration', op, 'replace_text: источник изменился; перечитай текущий файл');
+    const at = before.indexOf(op.search);
+    if (at < 0 || before.indexOf(op.search, at + 1) >= 0) fail('missing_declaration', op, 'replace_text: search должен встречаться ровно один раз; используй более полный фрагмент');
+    return before.slice(0, at) + op.replacement + before.slice(at + op.search.length);
+  }
+  if (isTextDocument(op.file)) fail('missing_declaration', op, 'Для текстового документа используй replace_text с текущим хешем и уникальным фрагментом');
+  if (op.op === 'replace_declaration' || op.op === 'replace_function_body') {
+    if (original === null || createHash('sha256').update(original).digest('hex') !== op.expectedHash) fail('missing_declaration', op, 'Исходник целевой операции изменился; требуется новый пакет');
+    const target = findSymbols(original).find(decl => declarationId(original, decl) === op.targetId && decl.qualified === op.symbol);
+    if (!target) fail('missing_declaration', op, 'Идентификатор объявления не принадлежит закреплённому символу');
+    const candidates = findSymbols(before).filter(decl => decl.qualified === target.qualified && decl.kind === target.kind &&
+      before.slice(decl.start, decl.end) === original.slice(target.start, target.end));
+    if (candidates.length !== 1) fail('ambiguous_symbol', op, 'Объявление изменилось или неоднозначно в текущей транзакции');
+    const current = candidates[0]!;
+    if (op.op === 'replace_declaration') {
+      const member = target.qualified.includes('.');
+      const declarations = member ? findSymbols(`class ${target.qualified.split('.')[0]} {\n${op.declaration}\n}`).filter(decl => decl.qualified.includes('.')) : findSymbols(op.declaration).filter(decl => !decl.qualified.includes('.'));
+      if (!isSingleDeclaration(op.declaration,member?target.qualified.split('.')[0]:undefined) || declarations.length !== 1 || declarations[0]!.qualified !== target.qualified || declarations[0]!.kind !== target.kind ||
+          !member && op.declaration.slice(declarations[0]!.end).trim()) fail('missing_declaration', op, 'Нужно одно полное объявление закреплённого имени и вида; вспомогательные объявления добавляй отдельной разрешённой операцией');
+      return before.slice(0, current.start) + op.declaration.trimEnd() + before.slice(current.end);
+    }
+    if (!['function', 'method', 'variable'].includes(target.kind) || current.bodyStart === null || current.bodyEnd === null) fail('missing_declaration', op, 'Цель не имеет исполняемого тела функции');
+    return before.slice(0, current.bodyStart) + '\n' + op.body.trim() + '\n' + before.slice(current.bodyEnd);
+  }
   if (op.op === 'ensure_import') return ensureImport(before, op.from, op.names);
   if (op.op === 'ensure_reexport') return ensureReexport(before, op.from, op.names);
   const decls = findSymbols(before);
@@ -376,6 +259,12 @@ export function applySymbolOp(before: string | null, op: SymbolOp): string {
   const decl = resolved.decl;
   switch (op.op) {
     case 'replace_body': {
+      if (/^\s*export\b/u.test(op.body) && !declaresSymbol(op.body, decl.name)) {
+        const proposed = findSymbols(op.body).filter(symbol => !symbol.qualified.includes('.'));
+        fail('missing_declaration', op,
+          `replace_body: закреплён ${decl.kind} ${decl.qualified}, но получено другое полное объявление (${proposed.map(symbol => `${symbol.kind} ${symbol.qualified}`).join(', ') || 'не распознано'}). Верни тело или полное объявление именно ${decl.qualified}; другой символ требует отдельного шага плана.`,
+          { candidates: [decl.qualified], snippet: before.slice(decl.start, decl.end).slice(0, 3000) });
+      }
       if (declaresSymbol(op.body, decl.name)) {
         return before.slice(0, decl.start) + op.body.replace(/\r\n/gu, '\n').replace(/\s+$/u, '') + before.slice(decl.end);
       }

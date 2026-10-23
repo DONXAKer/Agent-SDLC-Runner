@@ -21,6 +21,7 @@ import { attemptHadBash, ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
 import { reuseLocatorApproval } from './locator.ts';
+import { guidedAcceptanceProblem } from '../../guidedAcceptance.ts';
 
 export const chunkStage: StageDef = {
   id: 'chunk',
@@ -157,6 +158,10 @@ export const chunkModule: StageModule = {
     // Песочница поднимается ДО пробы: у проекта с тулчейном в docker PATH хоста пуст, и
     // preflight по нему давал бы постоянный ложный блок (ревью).
     entryBlocker: async () => {
+      if (readGuided(host.paths)) {
+        const problem = guidedAcceptanceProblem(host.paths, host.runner().methodologyDir, host.chunk(), host.attempt());
+        if (problem) return problem;
+      }
       const gates = host.gatesFile();
       if (gates === null) return null;
       try {

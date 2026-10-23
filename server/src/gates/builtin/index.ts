@@ -51,6 +51,8 @@ import {
 } from './logic.ts';
 
 export interface GateContext {
+  /** Runtime-reviewed no-change decisions; candidate prose alone is never an exemption. */
+  approvedUntouched?: readonly { path: string; hash: string; reason: string }[];
   projectRoot: string;
   /**
    * Модули, описанные человеком в конфиге проекта. Пусто — работает автодетект.
@@ -1657,14 +1659,19 @@ const planCoverageGate: BuiltinGate = async (ctx) => {
 
   const uncovered = ctx.planFiles
     .map((p) => normalizePlanPath(ctx.projectRoot, p))
-    .filter((p) => !touched.has(p) && !coveredAsDir(p));
+    .filter((p) => !touched.has(p) && !coveredAsDir(p))
+    .filter(p => !ctx.approvedUntouched?.some(row => {
+      if (normalizePlanPath(ctx.projectRoot, row.path) !== p || !row.reason.trim()) return false;
+      try { return createHash('sha256').update(readFileSync(resolvePath(ctx.projectRoot, p))).digest('hex') === row.hash; }
+      catch { return false; }
+    }));
 
   if (uncovered.length === 0) {
     return {
       status: '✅',
       command: null,
       exitCode: 0,
-      lastLine: `все ${ctx.planFiles.length} путей плана тронуты`,
+      lastLine: `все ${ctx.planFiles.length} путей плана изменены либо имеют проверенное обоснование no_change`,
     };
   }
 

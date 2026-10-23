@@ -1,0 +1,284 @@
+{
+  "profile": {
+    "// ministral3-14b-instruct-ctx32k": "2026-09-11: базовый прогон (окно 16384, без ручек) встал на `intent` (задача `oversize`) — «упёрлась в лимит длины ответа» после 23 ходов (трение 12). Окно 32768+`max_tokens` 16384 сняло обрезку, но `intent` всё равно не прошёл — сперва лимит ходов (25), с `--max-turns 40` дошёл до конца хода, но `intent.md` остался с плейсхолдерами (модель посчитала бланк готовым). ВАЖНО: это сравнение изначально было НЕЧЕСТНЫМ — `polza:ministral-14b` (единственная ministral-модель, прошедшая весь цикл живьём) несёт `formFill`+`claimFill`+`stepFill`, а эта запись была заведена БЕЗ единой ручки («первый замер — база»); без formFill интервью идёт свободным ходом, где недобор бланка — типичный класс отказа для ЛЮБОЙ модели в этой сессии, не специфика ministral3. `formFill` добавлен сюда И в базовую запись выше — не новая гипотеза, перенос уже проверенного рычага, чтобы сравнение с polza-версией стало сопоставимым. Серия v4 5×5, 2026-09-14: «упёрлась в лимит длины ответа» на `two-right-answers`/explore даже с уже применённым `max_tokens` 16384 — сначала поднят до 24576, но разбор `docs/proposals/model-flow-improvements.md` §2.1 п.2 показал: `LoopExecutor.paramsFor` умеет считать `max_tokens` динамически по остатку окна для ЛЮБОГО провайдера (не только lmstudio), но только когда в конфиге задан `contextWindow` — у этой записи он не был задан вовсе, хотя тег `ministral3-14b-ctx32k` уже несёт `num_ctx 32768` (`ollama create`). Добавлен `contextWindow: 32768` (то же число, что в теге), явный `params.max_tokens` убран — он бы всё равно перекрыл расчёт (`applyParams` пишет безусловно). НЕ подтверждено живым повтором; ослабляет фиксированный потолок `FormFillExecutor` (`paramsFor` его не касается) — без явного `max_tokens` там действует умолчание провайдера 8192.",
+    "id": "ollama:ministral3-14b-instruct-ctx32k",
+    "provider": "ollama",
+    "model": "ministral3-14b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 40,
+    "formFill": true,
+    "placement": "gpu-only",
+    "params": {}
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "ministral3-14b-ctx32k:latest",
+        "model": "ministral3-14b-ctx32k:latest",
+        "size": 11562280548,
+        "digest": "742b27152a4ab193d4acd4af95330050ca40bef4f10823b652edd83decbc56ac",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "mistral3",
+          "families": [
+            "mistral3",
+            "clip"
+          ],
+          "parameter_size": "13.9B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-10-21T08:32:28.0411584+03:00",
+        "size_vram": 11562280548,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 8937,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-271",
+          "object": "chat.completion",
+          "created": 1792560448,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"choice\": \"explicit\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 49,
+            "prompt_tokens_details": {
+              "cached_tokens": 2
+            },
+            "completion_tokens": 11,
+            "total_tokens": 60
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-348",
+          "object": "chat.completion",
+          "created": 1792560449,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 64,
+            "prompt_tokens_details": {
+              "cached_tokens": 21
+            },
+            "completion_tokens": 10,
+            "total_tokens": 74
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-1",
+          "object": "chat.completion",
+          "created": 1792560450,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The source code already satisfies the request, as it retains the original behavior of `ping()` returning 'pong' without introducing or modifying any calls.\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 74,
+            "prompt_tokens_details": {
+              "cached_tokens": 19
+            },
+            "completion_tokens": 40,
+            "total_tokens": 114
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-667",
+          "object": "chat.completion",
+          "created": 1792560452,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"id\": 2,\n  \"file\": \"lib/beta.ts\",\n  \"dependsOn\": [1]\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 54,
+            "prompt_tokens_details": {
+              "cached_tokens": 19
+            },
+            "completion_tokens": 29,
+            "total_tokens": 83
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-651",
+          "object": "chat.completion",
+          "created": 1792560452,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\": \"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 49,
+            "prompt_tokens_details": {
+              "cached_tokens": 48
+            },
+            "completion_tokens": 8,
+            "total_tokens": 57
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-283",
+          "object": "chat.completion",
+          "created": 1792560453,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"name\": \"Parcel\",\n  \"kind\": \"interface\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 64,
+            "prompt_tokens_details": {
+              "cached_tokens": 63
+            },
+            "completion_tokens": 17,
+            "total_tokens": 81
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-834",
+          "object": "chat.completion",
+          "created": 1792560455,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already meets the requested criteria by exporting the `ping()` function that returns '\\\"pong\\\"' without introducing any new calls or modifying behavior.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 74,
+            "prompt_tokens_details": {
+              "cached_tokens": 73
+            },
+            "completion_tokens": 48,
+            "total_tokens": 122
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-907",
+          "object": "chat.completion",
+          "created": 1792560456,
+          "model": "ministral3-14b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"id\": 2,\n  \"file\": \"lib/beta.ts\",\n  \"dependsOn\": [1]\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 54,
+            "prompt_tokens_details": {
+              "cached_tokens": 53
+            },
+            "completion_tokens": 30,
+            "total_tokens": 84
+          }
+        }
+      }
+    ]
+  }
+}

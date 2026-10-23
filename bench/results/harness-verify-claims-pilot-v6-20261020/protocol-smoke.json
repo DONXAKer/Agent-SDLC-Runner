@@ -1,0 +1,91 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "arm": "A",
+      "manualAllowed": false,
+      "requests": 1,
+      "records": 1,
+      "validations": [
+        {
+          "questionId": "claim:criterion-neutral",
+          "accepted": true,
+          "reason": "JSON соответствует схеме; содержательные проверки выполняются при приёме записи"
+        }
+      ]
+    },
+    {
+      "arm": "A",
+      "manualAllowed": true,
+      "requests": 1,
+      "records": 1,
+      "validations": [
+        {
+          "questionId": "claim:criterion-neutral",
+          "accepted": true,
+          "reason": "JSON соответствует схеме; содержательные проверки выполняются при приёме записи"
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "manualAllowed": false,
+      "requests": 2,
+      "records": 1,
+      "validations": [
+        {
+          "questionId": "claim:criterion-neutral",
+          "accepted": false,
+          "reason": "[\n  {\n    \"code\": \"custom\",\n    \"path\": [],\n    \"message\": \"manual разрешён только для пункта, явно помеченного человеком как ручной. Для автоматического пункта выбери ✅ при наличии доказательства, ❌ при противоречии или ⚠ при недостатке фактов; укажи точный якорь доказательства.\"\n  }\n]"
+        },
+        {
+          "questionId": "claim:criterion-neutral",
+          "accepted": true,
+          "reason": "JSON соответствует схеме; содержательные проверки выполняются при приёме записи"
+        }
+      ]
+    },
+    {
+      "arm": "B",
+      "manualAllowed": true,
+      "requests": 1,
+      "records": 1,
+      "validations": [
+        {
+          "questionId": "claim:criterion-neutral",
+          "accepted": true,
+          "reason": "JSON соответствует схеме; содержательные проверки выполняются при приёме записи"
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "arm": "A",
+      "routes": {
+        "intent": "ollama:comparison-qwen-off-q8",
+        "explore": "ollama:comparison-qwen-off-q8",
+        "ask": "ollama:comparison-qwen-off-q8",
+        "plan": "ollama:comparison-qwen-off-q8",
+        "chunk": "ollama:comparison-qwen-off-q8",
+        "verify": "ollama:comparison-qwen-off-q8",
+        "handoff": "ollama:comparison-qwen-off-q8"
+      },
+      "reviewModel": "ollama:comparison-qwen-off-q8"
+    },
+    {
+      "arm": "B",
+      "routes": {
+        "intent": "ollama:comparison-qwen-off-q8",
+        "explore": "ollama:comparison-qwen-off-q8",
+        "ask": "ollama:comparison-qwen-off-q8",
+        "plan": "ollama:comparison-qwen-off-q8",
+        "chunk": "ollama:comparison-qwen-off-q8",
+        "verify": "ollama:comparison-qwen-off-q8",
+        "handoff": "ollama:comparison-qwen-off-q8"
+      },
+      "reviewModel": "ollama:comparison-qwen-off-q8"
+    }
+  ],
+  "limitation": "Deterministic provider checks protocol contrast only; this is not a model rollout or acceptance result."
+}

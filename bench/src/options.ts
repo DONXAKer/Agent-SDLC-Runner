@@ -1,3 +1,4 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 /**
  * Разбор аргументов. Без I/O — чтобы проверяться тестом без файловой системы.
  */
@@ -27,10 +28,11 @@ export const TASKS: readonly TaskId[] = TASK_DEFS.map((t) => t.id);
 export type Task = TaskId;
 
 export interface BenchOptions {
+  acceptanceImage?: string;
   /** Формат проработки; стенд по умолчанию сохраняет исторический v1. */
   preparationVersion?: 1 | 2 | 3;
   executionMode?: 'legacy' | 'guided';
-  guidedEngineVersion?: 1 | 2 | 3 | 4;
+  guidedEngineVersion?: 1 | 2 | 3 | 4 | 5;
   planCandidates?: 1 | 2 | 3;
   planJudge?: string;
   chunkCandidates?: 2 | 3;
@@ -243,7 +245,7 @@ ${taskListForUsage()}
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
-  --guided-engine-version <1|2|3|4> версия guided: 1 прежняя, 2 прогресс, 3 runtime-предусловия, 4 проверенный контракт и инварианты
+  --guided-engine-version <1|2|3|4|5> версия guided: 1 прежняя, 2 прогресс, 3 runtime-предусловия, 4 проверенный контракт и инварианты
   --plan-candidates <1|2|3> эксперимент Plan: один вариант либо выбор среди кандидатов
   --plan-judge <id>       локальный оценщик для нескольких кандидатов; по умолчанию модель Plan
   --chunk-candidates <2|3> выбор патча группы Chunk; по умолчанию выключен
@@ -253,6 +255,7 @@ ${taskListForUsage()}
   --chunk-candidate-seconds <n> лимит времени одного кандидата, по умолчанию 60 секунд
   --preparation-version <1|2|3> версия проработки (стенд: 1; guided: 3)
   --execution-mode <legacy|guided> текущий флоу или проверяемые группы одной локальной модели
+  --acceptance-image <image> независимый набор задачи в локальном Docker-образе Node
   --strict-questions             отвечать только по банку бизнес-фактов, без fallback
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
   --no-raw-log          живой прогон без сырого дампа запросов в bench/traces/raw
@@ -290,9 +293,10 @@ function positiveNumber(raw: string, what: string): number {
 }
 
 export function parseArgs(argv: readonly string[]): BenchOptions {
+  let acceptanceImage: string | undefined;
   let preparationVersion: 1 | 2 | 3 | undefined;
   let executionMode: 'legacy' | 'guided' | undefined;
-  let guidedEngineVersion: 1 | 2 | 3 | 4 | undefined;
+  let guidedEngineVersion: 1 | 2 | 3 | 4 | 5 | undefined;
   let planCandidates: 1 | 2 | 3 | undefined;
   let planJudge: string | undefined;
   let chunkCandidates: 2 | 3 | undefined;
@@ -356,6 +360,10 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     }
 
     switch (key) {
+      case '--acceptance-image':
+        acceptanceImage = next(i, key);
+        i++;
+        break;
       case '--model':
         model = next(i, key);
         i++;
@@ -475,8 +483,8 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       }
       case '--guided-engine-version': {
         const value = next(i, key);
-        if (!['1', '2', '3', '4'].includes(value)) throw new OptionsError('--guided-engine-version: ожидается 1, 2, 3 или 4');
-        guidedEngineVersion = Number(value) as 1 | 2 | 3 | 4;
+        if (!['1', '2', '3', '4', '5'].includes(value)) throw new OptionsError('--guided-engine-version: ожидается 1, 2, 3, 4 или 5');
+        guidedEngineVersion = Number(value) as 1 | 2 | 3 | 4 | 5;
         i++;
         break;
       }
@@ -602,11 +610,12 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     throw new OptionsError('guided требует --all, preparation-version 3 и одну модель; control-plan доступен только в явном эксперименте выбора плана');
   }
   if (guidedEngineVersion !== undefined && executionMode !== 'guided') throw new OptionsError('--guided-engine-version требует --execution-mode guided');
+  if (acceptanceImage !== undefined && executionMode !== 'guided') throw new OptionsError('--acceptance-image требует --execution-mode guided');
   if (planCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--plan-candidates требует --execution-mode guided');
   if (planJudge !== undefined && planCandidates === undefined) throw new OptionsError('--plan-judge требует --plan-candidates');
   if (planJudge !== undefined && planCandidates === 1) throw new OptionsError('--plan-judge требует несколько кандидатов');
   if (chunkCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--chunk-candidates требует guided');
-  if ((consumerContext || evidenceRepair) && (executionMode !== 'guided' || guidedEngineVersion !== 4)) throw new OptionsError('Эксперименты контекста/ремонта требуют guided v4');
+  if ((consumerContext || evidenceRepair) && (executionMode !== 'guided' || !hasGuidedContracts(guidedEngineVersion))) throw new OptionsError('Эксперименты контекста/ремонта требуют guided v4');
   if ((chunkJudge !== undefined || chunkCandidateTimeoutMs !== undefined) && chunkCandidates === undefined) throw new OptionsError('Настройки оценщика Chunk требуют --chunk-candidates');
   if (stopAfterStage !== undefined) {
     if (makeSnapshot !== null || probe || preflightOnly) throw new OptionsError('--stop-after-stage несовместим со снимком или пробой');
@@ -621,6 +630,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     throw new OptionsError('--capture-inputs требует живого прогона без --make-snapshot');
   }
   return {
+    ...(acceptanceImage === undefined ? {} : { acceptanceImage }),
     ...(captureInputs ? { captureInputs } : {}),
     ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,

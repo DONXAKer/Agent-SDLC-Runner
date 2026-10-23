@@ -1,0 +1,295 @@
+{
+  "profile": {
+    "// gpt-oss-20b под роль рецензента, 2026-09-07": "Заведено после трёх прогонов посева, где gpt-oss-20b на этапе 6 упёрся в «лимит длины ответа» при ЧИСТОЙ раскладке (13 ГБ, 100 % GPU) — то есть наблюдение о модели, а не о железе. Отчёт приёмки этапа 6 — длинный структурированный документ, и умолчание max_tokens 8192 в OpenAiCompatProvider его не вмещает. Связка ровно та, что в этот же день впервые провела gemma4-12b через intent: окно 32K + max_tokens 16384. Порядок ручек значим и проверен сегодня дважды: max_tokens выше окна бессмысленен (при num_ctx 16384 потолок ответа = «16384 минус промпт»), поэтому окно первым. Контроль «только окно» отдельным прогоном НЕ снимается намеренно: сегодня он снят на granite4.2-8b и gemma4-12b — у обеих удвоение окна исход не изменило, класс отказа остался тот же. Ранг 52 прежний: ранг про силу модели, а не про окно. Цена окна по памяти: при 16K было 13 ГБ (из них ~3 ГБ KV), при 32K ожидается ~16 ГБ — впритык к измеренному полезному потолку ~17 ГБ, поэтому раскладка фиксируется ДО прогона, иначе «ручка не помогла» спутается с «модель выехала на CPU».",
+    "id": "ollama:gpt-oss-20b-ctx32k",
+    "provider": "ollama",
+    "model": "gpt-oss-20b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 52,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "gpu-only",
+    "params": {
+      "reasoning_effort": "low"
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "gpt-oss-20b-ctx32k:latest",
+        "model": "gpt-oss-20b-ctx32k:latest",
+        "size": 13198436595,
+        "digest": "ea2065cab2163f0384926babe7aaf0f9d856c3113f09b66bf3929c220c5391ab",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gpt-oss",
+          "families": [
+            "gpt-oss"
+          ],
+          "parameter_size": "20.9B",
+          "quantization_level": "unknown"
+        },
+        "expires_at": "2026-10-21T08:31:58.6356932+03:00",
+        "size_vram": 13198436595,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": false,
+    "elapsedMs": 11445,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": false,
+        "response": {
+          "id": "chatcmpl-796",
+          "object": "chat.completion",
+          "created": 1792560420,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit option\"}",
+                "reasoning": "The question: \"Source: explicit option overrides workspace setting; workspace setting overrides built-in default. Which has highest priority?\" So the hierarchy: explicit option > workspace setting > built-in default. The highest priority is explicit option. Return JSON object {\"choice\":\"explicit option\"} unless they want just \"explicit\". Let's choose \"explicit option\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 116,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 86,
+            "total_tokens": 202
+          }
+        },
+        "error": "Error: protocol or semantics mismatch"
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-910",
+          "object": "chat.completion",
+          "created": 1792560422,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "We need to interpret: Source: interface Parcel { tag: string }; function parcel() { return 1; }. Target is Parcel. Return {\"name\":string,\"kind\":string}. Must preserve case. Probably we need to identify a member that matches target type. The function parcel returns 1, not Parcel. So maybe no match. But maybe the interface Parcel is target, so need to find that in source. There's interface Parcel defined. So name: \"Parcel\", kind: \"interface\". Return JSON."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 125,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 122,
+            "total_tokens": 247
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-438",
+          "object": "chat.completion",
+          "created": 1792560424,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The source function already satisfies the request of returning \\\"pong\\\" on ping.\"}",
+                "reasoning": "We need to output JSON with action and reason. Since source already satisfies, choose no_change."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 136,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 53,
+            "total_tokens": 189
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-271",
+          "object": "chat.completion",
+          "created": 1792560425,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "We need to output JSON with that single card. No extra keys.\n\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 41,
+            "total_tokens": 162
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-467",
+          "object": "chat.completion",
+          "created": 1792560426,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}",
+                "reasoning": "User asks \"Which has highest priority? Return {\"choice\":string}.\" Options? He gave \"explicit option overrides workspace setting; workspace setting overrides built-in default\". Highest priority is explicit option. So choice: \"explicit option\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 116,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 61,
+            "total_tokens": 177
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-742",
+          "object": "chat.completion",
+          "created": 1792560428,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}",
+                "reasoning": "Need mapping: source has interface Parcel with property tag, function parcel returns 1. Target is Parcel. They ask return {\"name\":\"string\",\"kind\":\"string\"} Preserve case. Likely name is \"Parcel\", kind is \"interface\" or \"function\"? Unclear. Maybe name of target: \"Parcel\", kind: \"interface\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 125,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 87,
+            "total_tokens": 212
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-49",
+          "object": "chat.completion",
+          "created": 1792560429,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"action\":\"no_change\",\"reason\":\"The source already implements ping() returning \\\"pong\\\", fulfilling the request without any changes.\"}",
+                "reasoning": "We need to output JSON with action and reason. The source already satisfies request. So action \"no_change\"."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 136,
+            "prompt_tokens_details": {
+              "cached_tokens": 131
+            },
+            "completion_tokens": 58,
+            "total_tokens": 194
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-543",
+          "object": "chat.completion",
+          "created": 1792560430,
+          "model": "gpt-oss-20b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}",
+                "reasoning": "Need to output that JSON object exactly."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 121,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 35,
+            "total_tokens": 156
+          }
+        }
+      }
+    ]
+  }
+}

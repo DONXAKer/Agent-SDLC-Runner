@@ -1,3 +1,4 @@
+import { atomicJson } from '../fs/atomicJson.ts';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { GuidedWorkload, ModelWork, Usage } from '@sdlc-runner/shared';
@@ -22,15 +23,7 @@ export class GuidedWorkloadStore {
       byPurpose: { proposal: zero(), 'format-repair': zero(), 'semantic-repair': zero(), context: zero(), review: zero(), unclassified: zero() },
       failures: {}, contextCompactions: 0, contextOverflows: 0, unclassifiedUsageEvents: 0, firstMutation: null };
     change(state);
-    const path = pathOf(this.paths); mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(`${path}.tmp`, JSON.stringify(state, null, 2) + '\n');
-    for (let attempt = 0; ; attempt++) {
-      try { renameSync(`${path}.tmp`, path); break; }
-      catch (error) {
-        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '') || attempt >= 9) throw error;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-      }
-    }
+    atomicJson(pathOf(this.paths), state);
   }
   start(): void { this.update(() => {}); }
   usage(usage: Usage, durationMs: number | undefined, work?: ModelWork): void {

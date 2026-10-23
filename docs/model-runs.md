@@ -7546,3 +7546,112 @@ hidden timeout 0. Evidence не лучше; не включать по умол�
 ready; visible `__proto__` даёт явный assert; summary разделяет abandoned/needs_input,
 hidden fail и timeout; task option-overlay фиксирует own-key/`defineProperty`.
 Серия ≥3 повторов: `bench/results/task-loop-evidence-v3`.
+
+## План ролей 2/3/4 + exploreFill — 2026-10-23
+
+**Конфиг (legacy).** Профиль `mixed-2gpu-roles` в `config/projects/runner.local.json` (active):
+intent/plan `gpt-oss-20b-ff`, explore `gpt-oss-20b-agent-explorefill` (одна ручка exploreFill),
+ask/handoff `gpt-oss-20b-agent`, chunk `gpt-oss-20b` (stepFill), verify `claude-sdk:haiku-reviewer`.
+База сравнения — прежний `mixed-2gpu` без exploreFill. В `config/runner.local.json` задан
+`reviewModel: claude-sdk:haiku-reviewer` (исключение для guided / независимое ревью).
+
+**Среда.** Preflight `ollama:gpt-oss-20b` и `ollama:gpt-oss-20b-agent-explorefill` зелёные;
+оба тега ctx на GPU 100%. Claude OAuth на контрольных этапах просрочен — для замера explore
+со снимка контроль не нужен.
+
+**Фикс стенда (блокировал все `--from-snapshot`).** На Windows + Node 24.5.0
+`fs.cpSync(..., { recursive: true })` по дереву со `.git` падает нативно
+(`STATUS_STACK_BUFFER_OVERRUN`, −1073740791) до JS-исключения. Заменено на обход
+`readdir`/`copyFile`/`symlink` в `bench/src/snapshot.ts`. Дополнительно: после копии
+`rmSync({ force })` по кириллическому пути снимка (`слот`) иногда не удалял ленту/metrics —
+`unlinkSync` в `removeCopiedFile`. Тесты `bench/test/snapshot.test.ts`: 17/17.
+
+**Замер exploreFill.**
+`npm run bench -- --task oversize --model ollama:gpt-oss-20b-agent-explorefill --stage explore --from-snapshot oversize-intent --stop-after-stage explore --slug roles-explorefill-snap-20261023 --no-preflight`
+Остановка: `stage-measured`, этап explore ✅ (конвейер рантайма). Пик контекста 14 610 / 32 768.
+Слепой лист: 11 пунктов, 9 edge. Карта: 3 строки после правок. Поле «конвенции» дважды пустое;
+на диске после этапа ещё незакрытые места в отчёте (4). «Что придётся тронуть» не записано
+(нет поля в форме конвейера). Результат: `bench/results/roles-explorefill-snap-20261023.*`.
+
+**Помогла ли ручка.** Снять класс «не дошли до explore / переполнение окна» — да, этап
+закрыт конвейером. Класс #4 (честность карты) и полнота свободных полей — не закрыты этим
+одним прогоном; нужен контроль без exploreFill на том же снимке и серия ≥3.
+
+**Следующие шаги (по одному).** (1) Контроль `ollama:gpt-oss-20b-agent` на том же снимке.
+(2) plan → `gpt-oss-20b-axisfill` в отдельном профиле. (3) Посевы axis на verify с haiku
+(нужен живой Claude OAuth или локальный apriel-rf). Guided — отдельно, с reviewModel.
+
+### Контроль без exploreFill — тот же снимок oversize-intent, 2026-10-23
+
+`ollama:gpt-oss-20b-agent` (база) vs `…-agent-explorefill` (ручка):
+| | exploreFill | контроль (agent) |
+|---|---|---|
+| исход | ✅ stage-measured | ✅ stage-measured |
+| закрытие | конвейер рантайма | formFill-добор после лимита/оформления |
+| запросов | 29 | 37 |
+| пик контекста | 14 610 (45%) | 22 548 (69%) |
+| бланк в конце | ещё были незакрытые места в логе | 0 незакрытых |
+
+**Вывод по одному повтору.** Оба доходят; exploreFill дешевле по окну и ходам; контроль полнее добивает бланк добором. Класс #4 (честность карты) этим A/B не измерен — только «дошли и сколько контекста». Серия ≥3 и сверка путей — отдельно.
+
+### planAxisFill — oversize-ask → plan, 2026-10-23
+
+`ollama:gpt-oss-20b-axisfill`: остановка `stage-measured`, этап plan ❌.
+- **Оси (#15):** топ-ап дописал **6 из 6** — ручка сработала.
+- **Провал не из осей:** `files_to_touch` включает `src/tariffs.ts` против явной границы «Чего не делаем» (страж плана).
+- 50 запросов, пик контекста 6 670 / 32 768 (20%).
+Результат: `bench/results/roles-plan-axisfill-20261023.*`.
+Контроль без planAxisFill на том же снимке не гонялся (долгий formFill); при повторе сравнивать именно добор осей и тот же страж границ.
+
+## Локальный verify (посевы осей) — 2026-10-23
+
+Apriel-1.6-15b-rf: preflight красный (89.2% GPU / 10.8% CPU). Взят `ollama:gpt-oss-20b-rf` (100% GPU).
+Снимок: `oversize-axes3-diagnostic-v4` (у `oversize-axes2` нет валидного отпечатка требований — verify не стартует).
+Рантайм-ревью через Claude OAuth упало (сессия просрочена) → гейт «Ревью независимым агентом» ⏭; ход — formFill/reviewFill самой модели.
+
+| Посев | Пойман |
+|---|---|
+| axis-config-blind | ❌ нет (`roles-verify-local-axis-config-20261023`) |
+| axis-secret-in-log | ❌ нет (`roles-verify-local-axis-secret-20261023`) |
+
+**Итог:** 0/2. Согласуется с честным замером 2026-09-28 для gpt-oss-rf. Локальный self-review+rf не закрывает #21/#25; для находимости нужен более сильный отдельный рецензент (haiku/opus при живом OAuth) или другой локальный кандидат без офлоада.
+Профиль `local-2gpu` обновлён и сделан active.
+
+### qwen gpumax-rf + локальный reviewModel — 2026-10-23
+
+Корень прошлых провалов: `reviewModel=claude-sdk:haiku` → скан шёл в SdkExecutor (OAuth), `reviewFill` на loop не вызывался; свободный ход qwen упирался в окно.
+Исправление: `reviewModel=ollama:qwen3.8-27b-iq4-gpumax-rf`.
+
+| Посев | Результат |
+|---|---|
+| axis-config-blind | ✅ назван (`roles-verify-qwen-axis-config-r3-20261023`, caught=true) |
+| axis-secret-in-log | (в прогоне) |
+| axis-secret-in-log | ✅ назван (`roles-verify-qwen-axis-secret-20261023`, caught=true) |
+
+**Итог локального рецензента:** qwen3.8-27b-iq4-gpumax-rf **2/2** осевых посева (против gpt-oss-rf 0/2). Условие: `reviewModel` = та же loop-модель с reviewFill, не Claude SDK.
+
+### qwen gpumax-rf � ����� axis-config-blind ?3, 2026-10-23
+
+`ollama:qwen3.8-27b-iq4-gpumax-rf`, ������ `oversize-axes3-diagnostic-v4`, `--stage verify`, `reviewModel` = �� �� ������ (loop reviewFill).
+
+| ����� | caught | where |
+|---|---|---|
+| s1 | ? | report |
+| s2 | ? | report |
+| s3 | ? | report |
+
+**����:** 3/3. ����������: `bench/results/roles-qwen-axis-config-x3-s{1,2,3}.*`. ��������� ����� � `axis-secret-in-log` ?3 �� ��� �� ������������.
+
+### qwen gpumax-rf � ����� axis-secret-in-log ?3, 2026-10-23
+
+�� �� ������������: `ollama:qwen3.8-27b-iq4-gpumax-rf`, ������ `oversize-axes3-diagnostic-v4`, `reviewModel` = �� �� (loop reviewFill).
+
+| ����� | caught | where |
+|---|---|---|
+| s1 | ? | report |
+| s2 | ? | report |
+| s3 | ? | report |
+
+**����:** 3/3. ����������: `bench/results/roles-qwen-axis-secret-x3-s{1,2,3}.*`.
+
+**���� �� ����� ������ (qwen gpumax-rf, n=3 �� �����):** axis-config-blind **3/3**, axis-secret-in-log **3/3**. ������ gpt-oss-rf 0/2 �� ��� �� ������� (n=1). �������: ��������� `reviewModel` � reviewFill, �� Claude SDK.

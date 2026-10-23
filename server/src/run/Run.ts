@@ -1,3 +1,4 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 /**
  * Машина витка: один прогон одного этапа за раз.
  *
@@ -81,8 +82,8 @@ import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
 
-function isRuntimeOwnedSeed(stage: StageId, path: string): boolean {
-  return stage === 'intent' && basename(path) === 'readiness.md';
+function isRuntimeOwnedSeed(stage: StageId, path: string, engineVersion?: number): boolean {
+  return stage === 'intent' && basename(path) === 'readiness.md' || engineVersion === 5 && stage === 'handoff' && basename(path) === 'handoff.md';
 }
 import { countsTowardBudget, SpentLedger } from './spentLedger.ts';
 import type { McpSetup } from '../config/mcp.ts';
@@ -102,6 +103,9 @@ import { RunFlowRecorder, flowReadDenied } from './runFlow.ts';
 import { stageInputs } from './stages/inputs.ts';
 import { guidedPrompt } from './guidedPrompt.ts';
 import { GuidedProgress } from './guidedProgress.ts';
+import { decisionOptions } from './decisionContext.ts';
+import { observeDecisions } from './decisionJournal.ts';
+import { DecisionError } from '../exec/decisionEngine.ts';
 import { GuidedWorkloadStore } from './guidedWorkload.ts';
 import { captureInvariantBaseline, checkInvariants } from './guidedInvariants.ts';
 import { guidedRuntimeReadiness } from './guidedReadiness.ts';
@@ -146,7 +150,7 @@ import { loadSubagent } from '../exec/subagents.ts';
 import { appendIteration, parseIterations, readIterationsText } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
-import { ProviderEnvError } from '../provider/ChatProvider.ts';
+import { ProviderEnvError, ProviderRequestTimeoutError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import { applyEnvRetryBudget, envRetryBudget, envRetryCount } from './envRetryBudget.ts';
 import type { Escalation } from './escalation.ts';
@@ -228,7 +232,7 @@ export interface RunOptions {
 export interface RunStageOptions {
   stateFirst?: boolean;
   executionMode?: 'legacy' | 'guided';
-  guidedEngineVersion?: 1 | 2 | 3 | 4;
+  guidedEngineVersion?: 1 | 2 | 3 | 4 | 5;
   prompt?: PreparedPrompt;
   requirement?: string;
   /** Только для нового витка: v3 по умолчанию; v1/v2 остаются для воспроизводимости. */
@@ -485,6 +489,8 @@ export class Run {
    * взводит `cancel`, а `runStage` гасит свежий `aborter` сразу (code-review-all 2026-09-23).
    */
   private cancelRequested = false;
+  private cancelNote = 'этап отменён оператором';
+  private cancelOrigin: 'operator' | 'stage-deadline' = 'operator';
   /**
    * Состояние этапов, живущее между вызовами: записи и вердикт попытки этапа 6, кэш индекса
    * и слепой лист разведки, дерево попытки chunk. Владелец — виток; объяснения полей — в
@@ -1585,7 +1591,7 @@ export class Run {
    */
   private accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void {
     this.flow().record('model_work', { usage, durationMs: usage.durationMs, currency: currency ?? 'USD' }, 'Модель', 'Учёт', stage);
-    if (readGuided(this.paths)?.engineVersion === 4) new GuidedWorkloadStore(this.paths).usage(usage, usage.durationMs);
+    if (hasGuidedContracts(readGuided(this.paths)?.engineVersion)) new GuidedWorkloadStore(this.paths).usage(usage, usage.durationMs);
     const st = this.stageStats.get(stage);
     if (st !== undefined) {
       st.usage = addUsage(st.usage, usage);
@@ -1966,6 +1972,8 @@ export class Run {
    */
   private trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel {
     return { slug: this.slug, stage, mode, attempt: this.attempt,
+      ...(readGuided(this.paths)?.engineVersion === 5 ? { decision: decisionOptions(this.paths, stage, this.profile.routes[stage].contextWindow ?? 16384,
+        result=>this.emit({type:'question_validation',runId:this.id,stage,...result})) } : {}),
       onRequest: request => this.flow().record('model_request', { ...request, mode }, 'Рантайм', 'Модель', stage),
       onResponse: exchange => this.flow().record('model_http', { ...exchange, mode, attempt: this.attempt }, 'Модель', 'Рантайм', stage) };
   }
@@ -2034,12 +2042,19 @@ export class Run {
   }
 
   private executorFor(stage: StageId, forRoute?: ResolvedRoute, preparationForms = true): StageExecutor {
+    if (stage === 'handoff' && readGuided(this.paths)?.engineVersion === 5) return { flow: 'loop', run: async () => {
+      await this.autofillMechanicalFields('handoff', []);
+      const artifact = readArtifact(this.paths.handoff);
+      const missing = countPlaceholdersExceptDecisions(artifact.text);
+      return { ok: artifact.exists && missing === 0, finalText: artifact.text, usage: emptyUsage(), modelRequests: 0,
+        closedBy: 'runtime', note: missing ? `Передаче недостаёт ${missing} проверенных фактов; требуется ввод или актуальные артефакты` : 'Передача собрана из проверенных фактов рантайма' };
+    } };
     const route = forRoute ?? this.profile.routes[stage];
     if (stage === 'plan' && this.profile.planSelection && readGuided(this.paths) === null)
       throw new Error('planSelection требует guided; эксперимент не применён');
     if (stage === 'chunk' && this.profile.chunkSelection && readGuided(this.paths) === null)
       throw new Error('chunkSelection требует guided; эксперимент не применён');
-    if (stage === 'chunk' && (this.profile.guidedImprovements?.consumerContext || this.profile.guidedImprovements?.evidenceRepair) && readGuided(this.paths)?.engineVersion !== 4)
+    if (stage === 'chunk' && (this.profile.guidedImprovements?.consumerContext || this.profile.guidedImprovements?.evidenceRepair) && !hasGuidedContracts(readGuided(this.paths)?.engineVersion))
       throw new Error('guidedImprovements требует guided v4; эксперимент не применён');
     if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route, this.profile.chunkSelection, this.profile.guidedImprovements);
     if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
@@ -2473,9 +2488,11 @@ export class Run {
   }
 
   /** Отменяет текущий этап: и исполнителя, и всё, что ждёт ответа оператора. */
-  cancel(reason: string): void {
+  cancel(reason: string, origin: 'operator' | 'stage-deadline' = 'operator'): void {
+    this.cancelOrigin = origin;
     this.cancelRequested = true;
-    this.aborter?.abort();
+    this.cancelNote = origin === 'operator' ? `этап отменён оператором: ${reason}` : `stage-deadline: ${reason}`;
+    this.aborter?.abort(new Error(this.cancelNote));
     this.gate.cancelRun(this.id, reason);
     this.askGate.cancelRun(this.id);
     this.status = 'cancelled';
@@ -2526,7 +2543,7 @@ export class Run {
   }
 
   private async runStageInternal(stage: StageId, opts: RunStageOptions): Promise<StageResult> {
-    if (opts.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(opts.guidedEngineVersion)) throw new Error('Неизвестная версия движка guided');
+    if (opts.guidedEngineVersion !== undefined && ![1, 2, 3, 4, 5].includes(opts.guidedEngineVersion)) throw new Error('Неизвестная версия движка guided');
     const existingGuided = readGuided(this.paths);
     if (opts.guidedEngineVersion !== undefined && existingGuided && opts.guidedEngineVersion !== (existingGuided.engineVersion ?? 1)) throw new Error('Версия движка закреплена за задачей');
     if (opts.guidedEngineVersion !== undefined && !existingGuided && opts.executionMode !== 'guided') throw new Error('guidedEngineVersion требует executionMode=guided');
@@ -2541,7 +2558,7 @@ export class Run {
         throw new Error('guided требует одну локальную модель на всех этапах и маршрутах ревью');
       }
       initGuided(this.paths, `${selected.provider}:${selected.model}`, opts.guidedEngineVersion ?? 1);
-      if (opts.guidedEngineVersion === 4) captureInvariantBaseline(this.paths, this.project.projectRoot);
+      if (hasGuidedContracts(opts.guidedEngineVersion)) captureInvariantBaseline(this.paths, this.project.projectRoot);
     }
     const guided = readGuided(this.paths);
     if (guided) {
@@ -2662,7 +2679,7 @@ export class Run {
     });
     this.status = 'running';
     this.aborter = new AbortController();
-    if (this.cancelRequested) this.aborter.abort();
+    if (this.cancelRequested) this.aborter.abort(new Error(this.cancelNote));
 
     // Метрики этапа копятся на витке: сколько раз он запускался, сколько это стоило и
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
@@ -2679,7 +2696,7 @@ export class Run {
       catch (error) { this.aborter?.abort(error); }
     }, 1000) : null;
     const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
-    const workload = guided?.engineVersion === 4 ? new GuidedWorkloadStore(this.paths) : null;
+    const workload = hasGuidedContracts(guided?.engineVersion) ? new GuidedWorkloadStore(this.paths) : null;
     workload?.start();
     stat.runs += 1;
     this.stageStats.set(stage, stat);
@@ -2761,7 +2778,7 @@ export class Run {
       // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
       const notDone = (): string[] => [
         ...stillMissing(produced, missingBefore),
-        ...untouchedSeeds(seeded).filter((path) => !isRuntimeOwnedSeed(stage, path)),
+        ...untouchedSeeds(seeded).filter((path) => !isRuntimeOwnedSeed(stage, path, guided?.engineVersion)),
         ...(inv.extraNotDone?.() ?? []),
       ];
       for (const path of this.seeded) {
@@ -3173,7 +3190,7 @@ export class Run {
       // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
       // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
       const finishGuard = (): string | null => {
-        if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+        if (hasGuidedContracts(guided?.engineVersion) && mod.checksImplementationInvariants) {
           const invariants = checkInvariants(this.paths, this.project.projectRoot);
           if (!invariants.passed) return invariants.result;
         }
@@ -3324,15 +3341,15 @@ export class Run {
       if (cancelled) {
         this.status = 'cancelled';
         const reason: unknown = this.aborter?.signal.reason;
-        const note = this.cancelRequested ? 'этап отменён оператором'
+        const note = this.cancelRequested ? this.cancelNote
           : `этап прерван рантаймом: ${reason instanceof Error ? reason.message : String(reason ?? 'причина не указана')}`;
         this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note });
-        return { ...result, ok: false, note };
+        return { ...result, ok: false, note, ...(this.cancelRequested ? { stopCause: this.cancelOrigin } : {}) };
       }
 
       // Вердикт этапа (verify) — сразу после хода, по только что записанному отчёту.
       await inv.verdict?.();
-      if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+      if (hasGuidedContracts(guided?.engineVersion) && mod.checksImplementationInvariants) {
         const invariants = checkInvariants(this.paths, this.project.projectRoot);
         this.flow().record('guided_invariants', invariants, 'Рантайм', 'Рантайм', stage);
         if (!invariants.passed) result = { ...result, ok: false, note: invariants.result,
@@ -3362,15 +3379,16 @@ export class Run {
       if (outcome.ok && mod.canonicalPhase === 'prepare') synchronizeStateClaims(this.paths, readArtifact(this.paths.intent).text, stage);
       this.status = outcome.ok ? 'done' : 'failed';
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
-      return outcome;
+      return guided?.engineVersion===5?observeDecisions(this.paths,stage,stageStartedAt,outcome):outcome;
     } catch (e) {
       const message = (e as Error).message;
+      if(e instanceof DecisionError&&(e.usage.inputTokens>0||e.usage.outputTokens>0))this.accountOffPathUsage(stage,e.usage,this.profile.routes[stage].providerDef.currency);
       if (this.cancelRequested && this.aborter?.signal.aborted) {
         this.status = 'cancelled';
-        this.gate.cancelRun(this.id, 'этап отменён оператором');
+        this.gate.cancelRun(this.id, this.cancelNote);
         this.askGate.cancelRun(this.id);
-        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: 'этап отменён оператором' });
-        return { ok: false, finalText: '', usage: emptyUsage(), note: 'этап отменён оператором' };
+        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: this.cancelNote });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: this.cancelNote, stopCause: this.cancelOrigin };
       }
       this.status = 'failed';
       this.gate.cancelRun(this.id, `этап оборван: ${message}`);
@@ -3379,13 +3397,16 @@ export class Run {
       // Отказ среды называется признаком, а не только текстом: обычный цикл (LoopExecutor)
       // поднимает ошибку провайдера сюда целиком, и без этого прогон, где апстрим не
       // ответил, был бы неотличим от прогона, где модель не справилась.
-      return {
+      const failureResult:StageResult = {
         ok: false,
         finalText: '',
         usage: emptyUsage(),
         note: message,
         ...(e instanceof ProviderEnvError ? { envFailure: message } : {}),
+        ...(e instanceof ProviderRequestTimeoutError ? { stopCause: 'request-timeout' as const } : {}),
+        ...(e instanceof DecisionError ? { diagnostic: { category: e.category, decisionId: e.decisionId } } : {}),
       };
+      return guided?.engineVersion===5?observeDecisions(this.paths,stage,stageStartedAt,failureResult):failureResult;
     } finally {
       if (guidedTimer) { clearInterval(guidedTimer); chargeGuided(); }
       if ((guided?.engineVersion ?? 1) >= 2) this.flow().record('guided_progress', new GuidedProgress(this.paths).summary(), 'Рантайм', 'Рантайм', stage);

@@ -9,9 +9,51 @@
  * дать то же самое дерево, каким его увидел бы следующий этап живого прогона.
  */
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+/**
+ * Рекурсивная копия дерева без `fs.cpSync`.
+ *
+ * На Windows + Node 24 `cpSync(..., { recursive: true })` по рабочей копии со `.git`
+ * падает нативно (`STATUS_STACK_BUFFER_OVERRUN`, код −1073740791) до любого JS-исключения —
+ * поймано 2026-10-23 на `--from-snapshot oversize-intent` и на голом `cpSync` того же
+ * каталога. Обход по `readdir` + `copyFile`/`symlink` то же дерево копирует. Нужен и
+ * `.git`: `verifyRestoredBranch` читает ветку после восстановления.
+ */
+function copyTree(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  for (const name of readdirSync(src)) {
+    const from = join(src, name);
+    const to = join(dest, name);
+    const st = lstatSync(from);
+    if (st.isSymbolicLink()) {
+      symlinkSync(readlinkSync(from), to);
+      continue;
+    }
+    if (st.isDirectory()) {
+      copyTree(from, to);
+      continue;
+    }
+    copyFileSync(from, to);
+  }
+}
 
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
@@ -33,8 +75,22 @@ import { patchShaOf, readRunVerdict, writeRunVerdict, type StoredVerdict } from 
  * Тот же класс, что протечка `snapshot.json` в рабочую копию (r18): чужой метафайл
  * снимка портит замер, а выглядит это как поведение измеряемой модели.
  */
+/**
+ * Удаление файла после `copyTree`. На Windows + кириллическом пути снимка (`слот`)
+ * `rmSync(path, { force: true })` иногда оставляет файл на месте без исключения (2026-10-23,
+ * Node 24.5.0) — `unlinkSync` в том же месте срабатывает. Каталоги по-прежнему через `rmSync`.
+ */
+function removeCopiedFile(path: string): void {
+  if (!existsSync(path)) return;
+  try {
+    unlinkSync(path);
+  } catch {
+    rmSync(path, { force: true });
+  }
+}
+
 function dropEventLog(root: string, slug: string): void {
-  rmSync(new WitokPaths(root, slug).events, { force: true });
+  removeCopiedFile(new WitokPaths(root, slug).events);
 }
 
 /**
@@ -48,12 +104,12 @@ function dropEventLog(root: string, slug: string): void {
  */
 function dropMetrics(root: string, slug: string): void {
   const paths = new WitokPaths(root, slug);
-  rmSync(paths.metrics, { force: true });
-  rmSync(paths.metricsReport, { force: true });
+  removeCopiedFile(paths.metrics);
+  removeCopiedFile(paths.metricsReport);
   // Прежнее место чисел (до `.runner/`): `Run` читает его как запасное для витков,
   // начатых раньше, — снимок контрольного прогона той поры нёс бы чужие числа тем же путём.
-  rmSync(paths.metricsLegacy, { force: true });
-  rmSync(join(paths.dir, 'metrics.md'), { force: true });
+  removeCopiedFile(paths.metricsLegacy);
+  removeCopiedFile(join(paths.dir, 'metrics.md'));
 }
 
 export class SnapshotError extends Error {}
@@ -184,7 +240,7 @@ export function makeSnapshot(args: {
   const dest = join(args.snapshotsDir, args.name);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(args.snapshotsDir, { recursive: true });
-  cpSync(args.workspaceRoot, dest, { recursive: true });
+  copyTree(args.workspaceRoot, dest);
 
   dropEventLog(dest, args.slug);
   dropMetrics(dest, args.slug);
@@ -254,7 +310,7 @@ export function restoreSnapshot(args: {
 
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-snap-')));
   try {
-    cpSync(src, root, { recursive: true });
+    copyTree(src, root);
     // Метафайл снимка — принадлежность БЕНЧМАРКА, и в рабочей копии ему не место:
     // untracked `snapshot.json` в корне проекта роняет гейт «Scope: файлы вне плана»
     // (и «нетракованные файлы») на каждом прогоне со снимка — красный вердикт по scope,

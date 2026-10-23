@@ -135,3 +135,115 @@ Run с отдельными сценарными ответами модели: 
 тогда как каталог Runner указывал 32768. Перед следующим измерением нужно явно
 загрузить модель с нужным контекстом и проверить фактическую конфигурацию сервера.
 Этот результат не отделяет ограничения модели от ограничений среды.
+
+## Разбор остановки: таймаут провайдера vs stage-timeout
+
+Два разных «таймаута» нельзя смешивать.
+
+| | Таймаут запроса к провайдеру | Стеновой stage-timeout |
+|---|---|---|
+| Признак | `envFailure` вида `…: ответ не получен за … мс — таймаут запроса` | `timedOut: true`, остановка `stage-timeout` |
+| Поле `timedOut` | `false` | `true` |
+| Типичный stop | после двух подряд на одном этапе (кроме verify): `stage-env-repeat` | `stage-timeout` |
+| Смысл | один chat-request к апстриму не получил ответ | этап не уложился в бюджет минут стенда |
+
+Прогон выше — первый класс: два отказа LM Studio по 180 с на Chunk, второй остановил
+драйвер с `stage-env-repeat`. Каталог артефактов:
+[`bench/results/live-state-first-range-union-20261018-model/`](../bench/results/live-state-first-range-union-20261018-model/).
+Sibling без суффикса `-model` — отдельный кейс `blocked` до модели (отрицание в ноте
+одобрения плана), не таймаут.
+
+### Чеклист «что шло в момент обрыва»
+
+Работать от каталога результата прогона.
+
+1. `summary.json` / `chunk.json` / `error.json` — этап, `stopped`, есть ли `envFailure`,
+   значение `timedOut`.
+2. `events.ndjson` — все события `error`; последние `tool_result` и `assistant_text` перед
+   каждым. Правило: успешный `tool_result`, следом `error` с `envFailure` ≈ зависание на
+   **следующем** запросе к модели, не на инструменте.
+3. `operator.ndjson` — какие инструменты и пути уже одобрялись.
+4. `artifacts/.runner/flow.html` или `artifacts/.runner/flow/*/trace.ndjson` — для таймаута
+   провайдера искать `model_http` со `status: 0` и `durationMs` около лимита запроса;
+   «сиротский» `model_request` без пары для этого класса обычно не появляется: ответ
+   записан как отмена.
+5. `artifacts/.runner/metrics.json` — сколько `runs` у этапа (повтор среды).
+6. `candidate/…` и артефакты витка (`chunk-N-journal.md` и т.п.) — что успели записать;
+   журнал может отставать от уже применённого Edit.
+7. `loaded-model.txt` (или `lms ps` на живом зависании) — фактический CONTEXT и статус
+   GENERATING; расхождение с каталогом Runner — confounder среды.
+
+### Таймлайн worked example (18 октября 2026)
+
+1. Вход в Chunk → первый `model_request` → 180 с без ответа → `envFailure` #1 →
+   `retry-stage-env` (первая запись в `stages[]` при retry снимается).
+2. Повтор Chunk: разведка (Grep/Read, Task `sdlc-locator`), отказ несуществующего
+   `sdlc-claims`, затем Edit `src/ranges.mjs` — stub `mergeRanges`.
+3. Read файла → следующий ход модели → снова 180 с → `envFailure` #2 →
+   `stage-env-repeat`. Verify и независимое ревью не стартовали.
+
+На стопе в кандидате: `protocolVersion` и пустой stub; нового теста нет.
+
+### Что легко не заметить
+
+- В итоговом `chunk.json` виден только **второй** провал среды; первый стёрт retry.
+- Таймауты без usage могут не войти в `modelRequestsObserved` (число HTTP-обменов в
+  flow больше).
+- Контекст JIT 8192 при заявленных 32768 не классифицируется как timeout, но ломает
+  сравнение с другими прогонами.
+
+## Разбор остановки: таймаут провайдера vs stage-timeout
+
+Два разных «таймаута» нельзя смешивать.
+
+| | Таймаут запроса к провайдеру | Стеновой stage-timeout |
+|---|---|---|
+| Признак | `envFailure` вида `…: ответ не получен за … мс — таймаут запроса` | `timedOut: true`, остановка `stage-timeout` |
+| Поле `timedOut` | `false` | `true` |
+| Типичный stop | после двух подряд на одном этапе (кроме verify): `stage-env-repeat` | `stage-timeout` |
+| Смысл | один chat-request к апстриму не получил ответ | этап не уложился в бюджет минут стенда |
+
+Прогон выше — первый класс: два отказа LM Studio по 180 с на Chunk, второй остановил
+драйвер с `stage-env-repeat`. Каталог артефактов:
+[`bench/results/live-state-first-range-union-20261018-model/`](../bench/results/live-state-first-range-union-20261018-model/).
+Sibling без суффикса `-model` — отдельный кейс `blocked` до модели (отрицание в ноте
+одобрения плана), не таймаут.
+
+### Чеклист «что шло в момент обрыва»
+
+Работать от каталога результата прогона.
+
+1. `summary.json` / `chunk.json` / `error.json` — этап, `stopped`, есть ли `envFailure`,
+   значение `timedOut`.
+2. `events.ndjson` — все события `error`; последние `tool_result` и `assistant_text` перед
+   каждым. Правило: успешный `tool_result`, следом `error` с `envFailure` ≈ зависание на
+   **следующем** запросе к модели, не на инструменте.
+3. `operator.ndjson` — какие инструменты и пути уже одобрялись.
+4. `artifacts/.runner/flow.html` или `artifacts/.runner/flow/*/trace.ndjson` — для таймаута
+   провайдера искать `model_http` со `status: 0` и `durationMs` около лимита запроса;
+   «сиротский» `model_request` без пары для этого класса обычно не появляется: ответ
+   записан как отмена.
+5. `artifacts/.runner/metrics.json` — сколько `runs` у этапа (повтор среды).
+6. `candidate/…` и артефакты витка (`chunk-N-journal.md` и т.п.) — что успели записать;
+   журнал может отставать от уже применённого Edit.
+7. `loaded-model.txt` (или `lms ps` на живом зависании) — фактический CONTEXT и статус
+   GENERATING; расхождение с каталогом Runner — confounder среды.
+
+### Таймлайн worked example (18 октября 2026)
+
+1. Вход в Chunk → первый `model_request` → 180 с без ответа → `envFailure` #1 →
+   `retry-stage-env` (первая запись в `stages[]` при retry снимается).
+2. Повтор Chunk: разведка (Grep/Read, Task `sdlc-locator`), отказ несуществующего
+   `sdlc-claims`, затем Edit `src/ranges.mjs` — stub `mergeRanges`.
+3. Read файла → следующий ход модели → снова 180 с → `envFailure` #2 →
+   `stage-env-repeat`. Verify и независимое ревью не стартовали.
+
+На стопе в кандидате: `protocolVersion` и пустой stub; нового теста нет.
+
+### Что легко не заметить
+
+- В итоговом `chunk.json` виден только **второй** провал среды; первый стёрт retry.
+- Таймауты без usage могут не войти в `modelRequestsObserved` (число HTTP-обменов в
+  flow больше).
+- Контекст JIT 8192 при заявленных 32768 не классифицируется как timeout, но ломает
+  сравнение с другими прогонами.

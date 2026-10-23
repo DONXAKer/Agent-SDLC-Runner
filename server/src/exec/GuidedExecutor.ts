@@ -1,3 +1,4 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 import { randomUUID } from 'node:crypto';
 import { TASK_INDEPENDENT_IMPLEMENTATION } from '../prompt/implementationPolicy.ts';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -9,11 +10,13 @@ import type { Observation, WorkItem, NormalizedCall } from '@sdlc-runner/shared'
 import type { WitokPaths } from '../artifacts/paths.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
 import type { ChatMessage, ChatProvider, ChatTurn } from '../provider/ChatProvider.ts';
-import { ProviderEnvError } from '../provider/ChatProvider.ts';
+import { ProviderEnvError, ProviderRequestTimeoutError } from '../provider/ChatProvider.ts';
 import { digest, readGuided, saveGuided, type GuidedState, type Snapshot } from '../run/guidedState.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson } from './guidedJson.ts';
+import { ReadReceipts, RepeatedReadError } from './readReceipts.ts';
+import { describeSymbolTargets } from './symbolTarget.ts';
 import { decisionData } from './guidedProtocol.ts';
 import { guidedGroupRequirements } from './guidedContext.ts';
 import { parseRepairDiagnosis, repairDiagnosisFormat, repairDiagnosisTargets, evidenceRepairTargets, observedTestFailures, groundedRepairFeedback } from './repairDiagnosis.ts';
@@ -21,7 +24,7 @@ import { guidedCapabilities, validateGuidedCapabilities, type GuidedCapability }
 import { workingContextCurrent, type GuidedWorkingContext, type WorkingTask } from './guidedWorkingContext.ts';
 import { ExecutionObserver } from './executionObserver.ts';
 import { progressHash } from '../run/guidedProgress.ts';
-import { applySymbolOp, findSymbols, renameIdentifier, SymbolOp, GuidedOpError, type OpDiagnostic } from './symbolOps.ts';
+import { applySymbolOp, findSymbols, declarationId, renameIdentifier, SymbolOp, GuidedOpError, isTextDocument, type OpDiagnostic } from './symbolOps.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { PlanStep } from '../artifacts/planSteps.ts';
 import { executeTool } from './tools/index.ts';
@@ -49,7 +52,7 @@ export function parseBoundGuidedReply(text: string, file: string, symbol?: strin
     return Reply.parse({ ...patch, ops: patch.ops.map((op: unknown) => {
       if (!op || typeof op !== 'object' || Array.isArray(op) || 'file' in op) throw new Error('Файл операции уже закреплён рантаймом; не возвращай file');
       const record = op as Record<string, unknown>;
-      if (symbol && ['replace_body', 'rename', 'delete'].includes(String(record.op))) {
+      if (symbol && ['replace_body', 'replace_declaration', 'replace_function_body', 'rename', 'delete'].includes(String(record.op))) {
         if ('symbol' in record) throw new Error('Символ операции уже закреплён рантаймом; не возвращай symbol');
         return { ...record, file, symbol };
       }
@@ -166,7 +169,8 @@ export function summarizeFailedAssertions(output: string): string {
   return [...failures.entries()].map(([name, summary]) => (summary ? `- ${name}: ${summary}` : `- ${name}`)).join('\n');
 }
 
-export interface GuidedFileCard { path: string; hash: string; symbols: readonly string[]; isNew: boolean; ownedNewContent?: string; barrel?: boolean; }
+export interface GuidedFileCard { path: string; hash: string; symbols: readonly string[]; isNew: boolean; ownedNewContent?: string; barrel?: boolean;
+  targets?: readonly { symbol: string; targetId: string; executable: boolean }[]; }
 
 /** Ollama отклоняет схему с пустым enum; пустой список символов деградирует в строку с паттерном. */
 const enumOrPattern = (values: readonly string[]): Record<string, unknown> =>
@@ -189,16 +193,28 @@ export function guidedActionResponseFormat(files: readonly GuidedFileCard[], spl
       properties: { op: { const: 'create_file' }, file: path, body: { type: 'string', minLength: 1 } },
       required: ['op', 'file', 'body'], additionalProperties: false });
     if (file.isNew) return variants;
+    if (isTextDocument(file.path)) {
+      if (allow('replace_text')) variants.push({ type: 'object', properties: { op: { const: 'replace_text' }, file: path,
+        expectedHash: { type: 'string', const: file.hash }, search: { type: 'string', minLength: 1 }, replacement: { type: 'string' } },
+        required: ['op', 'file', 'expectedHash', 'search', 'replacement'], additionalProperties: false });
+      return variants;
+    }
     const withSymbol = (op: string, extra: Record<string, unknown> = {}, requiredExtra: string[] = []) =>
       ({ type: 'object', properties: { op: { const: op }, file: path, symbol, ...extra },
         required: ['op', 'file', 'symbol', ...requiredExtra], additionalProperties: false });
-    if (allow('replace_body') && file.barrel !== true) variants.push(withSymbol('replace_body', { body: { type: 'string', minLength: 1 } }, ['body']));
-    if (allow('insert_after')) variants.push({ type: 'object', properties: { op: { const: 'insert_after' }, file: path, anchor,
+    for (const target of file.targets ?? []) for (const op of ['replace_declaration', ...(target.executable ? ['replace_function_body'] : [])]) {
+      if (!allow(op) || capability?.symbol && capability.symbol !== target.symbol) continue;
+      const payload = op === 'replace_declaration' ? 'declaration' : 'body';
+      variants.push(withSymbol(op, { symbol: { type: 'string', const: target.symbol }, expectedHash: { type: 'string', const: file.hash },
+        targetId: { type: 'string', const: target.targetId }, [payload]: { type: 'string', minLength: 1 } }, ['expectedHash', 'targetId', payload]));
+    }
+    if (file.symbols.length && allow('replace_body') && file.barrel !== true) variants.push(withSymbol('replace_body', { body: { type: 'string', minLength: 1 } }, ['body']));
+    if (file.symbols.length && allow('insert_after')) variants.push({ type: 'object', properties: { op: { const: 'insert_after' }, file: path, anchor,
       body: { type: 'string', minLength: 1 } }, required: ['op', 'file', 'anchor', 'body'], additionalProperties: false });
-    if (allow('insert_before')) variants.push({ type: 'object', properties: { op: { const: 'insert_before' }, file: path, anchor,
+    if (file.symbols.length && allow('insert_before')) variants.push({ type: 'object', properties: { op: { const: 'insert_before' }, file: path, anchor,
       body: { type: 'string', minLength: 1 } }, required: ['op', 'file', 'anchor', 'body'], additionalProperties: false });
-    if (allow('rename')) variants.push(withSymbol('rename', { newName: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' } }, ['newName']));
-    if (allow('delete')) variants.push(withSymbol('delete'));
+    if (file.symbols.length && allow('rename')) variants.push(withSymbol('rename', { newName: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' } }, ['newName']));
+    if (file.symbols.length && allow('delete')) variants.push(withSymbol('delete'));
     if (allow('ensure_import')) variants.push({ type: 'object', properties: { op: { const: 'ensure_import' }, file: path,
       from: { type: 'string', minLength: 1 }, names: { type: 'array', items: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' }, minItems: 1, maxItems: 40 } },
       required: ['op', 'file', 'from', 'names'], additionalProperties: false });
@@ -257,6 +273,8 @@ const SYSTEM = `Выполни одну группу согласованног�
 {"action":"patch","prediction":"что проверка должна показать","ops":[<операции>]}
 Операции (file — путь из files; symbol/anchor — ТОЛЬКО имя из списка symbols карточки файла):
 - {"op":"replace_body","file":"…","symbol":"имя","body":"новое тело или полное объявление символа"} — недоступно для barrel-файлов (например, index.ts, реэкспортирующих из нескольких модулей)
+- {"op":"replace_text","file":"…","expectedHash":"хеш из карточки","search":"уникальный точный фрагмент","replacement":"замена"} — для документов md/mdx/txt/rst/adoc. search должен встречаться ровно один раз; исходник и хеш должны быть актуальны.
+- v5: replace_declaration принимает полное объявление в declaration, replace_function_body принимает только исполняемое тело без внешних скобок в body. Для обеих операций symbol, targetId и expectedHash берутся буквально из текущих files.targets и карточки файла. Не путай тип результата с телом. Новые вспомогательные объявления вставляй отдельно перед/после существующего символа, если операция разрешена capabilities.
 - {"op":"insert_after"/"insert_before","file":"…","anchor":"имя существующего символа","body":"новый код"}
 - {"op":"rename","file":"…","symbol":"старое имя","newName":"новое имя"} — ссылки в разрешённых файлах перепишет рантайм
 - {"op":"delete","file":"…","symbol":"имя"}
@@ -396,7 +414,7 @@ export function simulateOps(root: string, files: readonly string[], ops: z.infer
     }
     // Отсутствующий файл (не наш собственный новый) видит null — только create_file пройдёт.
     const current = snapshot.before === null && !owned ? null : snapshot.after;
-    try { snapshot.after = applySymbolOp(current, op); }
+    try { snapshot.after = applySymbolOp(current, op, snapshot.before); }
     catch (error) {
       if (error instanceof GuidedOpError) throw new GuidedOpError(error.message, { ...error.diagnostic,
         opIndex, beforeHash: hash(current), beforeSymbols: findSymbols(current ?? '').map(symbol => symbol.qualified).slice(0, 80) });
@@ -519,6 +537,7 @@ export class GuidedExecutor implements StageExecutor {
           { claims: item.claims, files: item.files, prediction: item.prediction, result, passed }, dependencies, true);
       }
     };
+    let activeReads: ReadReceipts | undefined;
     const invoke = async (name: string, rawInput: Record<string, unknown>, validate?: (effective: NormalizedCall) => void): Promise<string> => {
       const call = normalize(name, rawInput);
       const requestId = `guided:${randomUUID()}`;
@@ -527,11 +546,27 @@ export class GuidedExecutor implements StageExecutor {
       const effective = decision.updatedInput === null ? call : normalize(name, decision.updatedInput as Record<string, unknown>);
       try { validate?.(effective); }
       catch (error) { hooks.onToolResult({ requestId, ok: false, summary: (error as Error).message, durationMs: 0 }); throw error; }
+      if (effective.kind === 'read' && activeReads) {
+        const source = readFileSync(guardedPath(req.cwd, effective.path), 'utf8');
+        const from = effective.range?.from ?? 1, to = Math.min(source.split('\n').length, effective.range?.to ?? source.split('\n').length);
+        // A historical receipt does not mean the source is still in the current prompt.
+        // Re-deliver it through the normal bounded tool result; repeated lack of progress stays bounded.
+        activeReads.duplicate(effective.path, source, from, to);
+      }
       const start = Date.now();
       const result = await executeTool(effective, { projectRoot: req.cwd, maxResultBytes: 12000,
         readRangeRequiredAboveBytes: 120000, timeoutMs: 60000, signal: req.signal });
       hooks.onToolResult({ requestId, ok: result.ok, summary: result.text.slice(0, 200), resultText: result.text, durationMs: Date.now() - start });
       if (result.ok && effective.kind === 'read') this.o.onSourceRead?.(relative(req.cwd, guardedPath(req.cwd, effective.path)).replace(/\\/gu, '/'));
+      if (result.ok && effective.kind === 'read' && activeReads) {
+        const text = readFileSync(guardedPath(req.cwd, effective.path), 'utf8');
+        const lines = text.split(/\r?\n/u);
+        const shown = result.text.split('\n').flatMap(row => {
+          const match = /^(\d+)\t(.*)$/u.exec(row);
+          return match && lines[Number(match[1]) - 1] === match[2] ? [Number(match[1])] : [];
+        });
+        for (const line of shown) activeReads.add(effective.path, text, line, line);
+      }
       return result.text;
     };
     for (const item of state.items) {
@@ -559,6 +594,8 @@ export class GuidedExecutor implements StageExecutor {
       let formatRepairPending = false;
       let proposalRepairs = 0;
       let lookups = 0;
+      const reads = new ReadReceipts();
+      activeReads = reads;
       let focused = false;
       let contentStripped = false;
       let priorFailure = '';
@@ -625,7 +662,7 @@ export class GuidedExecutor implements StageExecutor {
           }
           req.signal.throwIfAborted();
           if (calls >= req.maxTurns) throw new Error('Лимит обращений guided исчерпан');
-          if (req.guidedEngineVersion === 4 && calls >= (req.requestCap ?? Infinity)) throw new Error('Лимит запросов guided исчерпан');
+          if (hasGuidedContracts(req.guidedEngineVersion) && calls >= (req.requestCap ?? Infinity)) throw new Error('Лимит запросов guided исчерпан');
           if (this.o.inputRevision() !== revision) throw new Error('Требования или план изменились: требуется новое подтверждение');
           const drafting = this.o.draftPerFile === true && (draftFiles.length > 1 || draftFiles.length !== item.files.length) && !item.repartitioned;
           const fileTasks = this.o.fileTasks?.filter(step => step.file === draftFiles[draftIndex]) ?? [];
@@ -643,6 +680,7 @@ export class GuidedExecutor implements StageExecutor {
             return { path, hash: hash(text), isNew: text === null,
               symbols: text === null || contentStripped ? [] : findSymbols(text).map(decl => decl.qualified).slice(0, contentStripped ? 0 : 60),
               barrel: text !== null && isBarrelFile(text),
+              ...(req.guidedEngineVersion === 5 ? { targets: text === null ? [] : findSymbols(text).map(decl => ({ symbol: decl.qualified, targetId: declarationId(text, decl), executable: ['function', 'method', 'variable'].includes(decl.kind) && decl.bodyStart !== null })) } : {}),
               content: shown,
               ...(!contentStripped && ownedNew && text !== null && text.length <= 6000 ? { ownedNewContent: text } : {}),
               partial: contentStripped || (focused && text !== null && text.split('\n').length > 60) };
@@ -657,15 +695,26 @@ export class GuidedExecutor implements StageExecutor {
           const writableCards = fileCards.filter(file => this.o.writableFiles === undefined || this.o.writableFiles.includes(file.path))
             .filter(file => diagnosedRepairFiles === null || diagnosedRepairFiles.has(file.path))
             .filter(file => !repairFocus || file.path === repairFocus.file);
-          const boundFile = req.guidedEngineVersion === 4 && writableCards.length === 1 ? writableCards[0]!.path : null;
+          const boundFile = hasGuidedContracts(req.guidedEngineVersion) && writableCards.length === 1 ? writableCards[0]!.path : null;
           const tasks = (this.o.fileTasks ?? []).map(task => ({ file: task.file, action: task.action, symbol: task.symbol ?? null, claims: task.claims }));
-          const capabilities = req.guidedEngineVersion === 4 ? guidedCapabilities(writableCards, tasks) : undefined;
+          const capabilities = hasGuidedContracts(req.guidedEngineVersion) ? guidedCapabilities(writableCards, tasks) : undefined;
           const boundSymbol = boundFile ? capabilities?.find(value => value.file === boundFile)?.symbol : undefined;
-          const workingContext = req.guidedEngineVersion === 4 ? observer.sync('context', () => this.o.workingContext?.(currentFiles, tasks), { files: currentFiles }) : undefined;
+          const workingContext = hasGuidedContracts(req.guidedEngineVersion) ? observer.sync('context', () => this.o.workingContext?.(currentFiles, tasks), { files: currentFiles }) : undefined;
+          const shownSources = workingContext?.fragments.map(fragment => ({ path: fragment.path, shown: fragment.text })) ?? fileCards.filter(file => file.content !== null).map(file => ({ path: file.path, shown: file.content! }));
+          const shownReceipts: { path: string; text: string; from: number; to: number }[] = [];
+          for (const source of shownSources) {
+            const full = content(guardedPath(req.cwd, source.path));
+            if (full === null || !source.shown) continue;
+            const at = full.indexOf(source.shown);
+            if (at < 0) continue;
+            const from = full.slice(0, at).split('\n').length;
+            shownReceipts.push({ path: source.path, text: full, from, to: from + source.shown.split('\n').length - 1 });
+          }
           const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM + (boundFile ? '\nФайл всех ops закреплён рантаймом как targetFile. Не возвращай поле file в ops; оно подставляется автоматически. read/search по-прежнему указывают адрес чтения.' : '') +
             (boundSymbol ? '\nДля replace_body/rename/delete символ закреплён как targetSymbol. Не возвращай symbol, только содержательную правку.' : '') + '\nОдин файл может иметь только одну create_file в ответе; не смешивай полную замену файла с другими операциями над ним.\n' + TASK_INDEPENDENT_IMPLEMENTATION }, { role: 'user', content: JSON.stringify({
             ...(boundFile ? { targetFile: boundFile } : {}),
-            ...(boundSymbol ? { targetSymbol: boundSymbol } : {}),
+            ...(boundSymbol && boundFile ? { targetSymbol: boundSymbol, targetDeclarations: describeSymbolTargets(boundFile, content(guardedPath(req.cwd, boundFile)) ?? '', boundSymbol) } : {}),
+            readReceipts: reads.all(),
             ...(workingContext ? { workingContext } : {}),
             ...(capabilities ? { capabilities } : {}),
             questionId: `chunk:${item.id}:${calls + 1}`, question: 'Какое следующее проверяемое действие выполняет текущий шаг?',
@@ -674,9 +723,9 @@ export class GuidedExecutor implements StageExecutor {
             item: drafting ? { ...item, title: draftTitle, files: currentFiles, prediction: activePart!.prediction,
               claims: fileTasks.length ? [...new Set(fileTasks.flatMap(step => step.claims))] : item.claims } : item,
             fileTasks: drafting ? fileTasks : undefined,
-            files: fileCards.map(({ path, hash: fileHash, symbols, isNew, content: text, partial, ownedNewContent }) =>
+            files: fileCards.map(({ path, hash: fileHash, symbols, isNew, content: text, partial, ownedNewContent, targets }) =>
               ({ path, hash: fileHash, symbols, isNew, content: workingContext ? null : text,
-                ...(partial || workingContext ? { partial: true } : {}), ...(ownedNewContent ? { ownedNewContent } : {}) })),
+                ...(targets ? { targets } : {}), ...(partial || workingContext ? { partial: true } : {}), ...(ownedNewContent ? { ownedNewContent } : {}) })),
             rejectedProposal,
             activePart, drafts: draftOps, feedback, failedCheck: priorFailure || null, instruction: needSplit ? 'Прежняя гипотеза не сработала. Верни action=split с более мелкими содержательными шагами, сохраняя общий контракт.' : drafting ? 'Предложи операции только для файла activePart. Это черновик: ни один файл группы не записан до сбора всех предложений. drafts содержат предыдущие предложения. Проверка будет после применения всей группы.' : focused ? 'Дочитай необходимые диапазоны через read. Выполни activePart, если задана; контракты группы проверяются после всех частей.' : repairFocus ? `Адресный ремонт: исправь только названную в диагностике операцию файла ${repairFocus.file}; схема ответа уже сужена до неё.` : 'Предложи согласованное изменение группы.' }) }];
           const tokens = estimateMessageTokens(messages);
@@ -695,13 +744,14 @@ export class GuidedExecutor implements StageExecutor {
             throw new Error('Недостаточно контекста даже после выделения фрагментов');
           }
           const start = Date.now();
+          for (const source of shownReceipts) reads.add(source.path, source.text, source.from, source.to);
           const generationSignal = selection?.sampleSignal() ?? req.signal;
           const answer = await observer.run(priorFailure ? 'repair' : 'proposal', () => this.o.provider.chat({ model: req.model, messages, tools: [], temperature: null,
             params: { ...this.o.params, ...(responseEffort === undefined ? {} : { reasoning_effort: responseEffort }), response_format: boundFile ? guidedBoundActionResponseFormat(writableCards, needSplit, repairFocus, capabilities, boundSymbol) : guidedActionResponseFormat(writableCards, needSplit, repairFocus, capabilities), max_tokens: Math.min(tokenCap, this.o.contextWindow - tokens - 1024) }, signal: generationSignal }).catch(error => {
               if (selection && generationSignal.aborted && !req.signal.aborted) throw new ChunkSelectionError('Лимит времени кандидата Chunk исчерпан');
               throw error;
             }), { inputRevision: revision, files: currentFiles, failedCheck: priorFailure || null });
-          if (answer.finishReason === 'max_tokens' && !answer.text.trim() && !answer.toolCalls.length) {
+          if (answer.finishReason === 'max_tokens') {
             if (tokenCap < 16384 && this.o.contextWindow - tokens - 1024 > tokenCap) {
               tokenCap *= 2; hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом; повтор с увеличенным max_tokens при том же reasoning effort');
             } else {
@@ -774,23 +824,29 @@ export class GuidedExecutor implements StageExecutor {
             throw new Error('Получен вопрос о требованиях: вернись к проработке и подтверждению плана');
           }
           const rejectProposal = (error: unknown, ops: z.infer<typeof SymbolOp>[]): void => {
+            const diagnostic = error instanceof GuidedOpError ? error.diagnostic : undefined;
+            let addressedRepeat = false;
             selection?.reject((error as Error).message);
             hooks.onHarnessEvent?.({ kind: 'failure', reason: 'operation' });
-            feedback = (error as Error).message;
-            if (req.guidedEngineVersion === 4) {
+            feedback = `Предложенная группа НЕ применена. Состояние файлов на диске не изменено этой группой; диагностический snippet может описывать промежуточную симуляцию, а не диск. Для ремонта используй актуальный workingContext или Read.\n${(error as Error).message}`;
+            if (hasGuidedContracts(req.guidedEngineVersion)) {
               const dependencies = { input: revision, code: progressHash(fileCards.map(file => [file.path, file.hash])) };
               const fingerprint = progressHash({ ops, ...dependencies });
               const ticket = req.progress?.begin(recoveryKey('rejected-inputs'), 'chunk', dependencies);
               const prior = ticket ? req.progress!.reuse(ticket, value => z.array(z.string()).parse(value)) ?? [] : [];
               if (rejectedInputs.has(fingerprint) || prior.includes(fingerprint)) {
-                const reason = `Повторено отклонённое предложение при неизменных файлах: ${feedback}`;
-                if (req.progress) req.progress.stopRecovery(req.progress.begin(recoveryKey('proposal'), 'chunk', dependencies), 'operation', reason);
-                throw new Error(reason);
+                if (diagnostic && !repairFocus) {
+                  addressedRepeat = true;
+                  feedback += `\nПовтор отклонён. Адресный ремонт: только ${diagnostic.op} в ${diagnostic.file}${diagnostic.symbol ? `, символ ${diagnostic.symbol}` : ''}. Исправь названную операцию по актуальному исходнику; повтор прежнего предложения остановит восстановление.`;
+                } else {
+                  const reason = `Повторено отклонённое предложение при неизменных файлах: ${feedback}`;
+                  if (req.progress) req.progress.stopRecovery(req.progress.begin(recoveryKey('proposal'), 'chunk', dependencies), 'operation', reason);
+                  throw new Error(reason);
+                }
               }
               rejectedInputs.add(fingerprint);
               if (ticket) req.progress!.accept(ticket, [...new Set([...prior, fingerprint])], dependencies);
             }
-            const diagnostic = error instanceof GuidedOpError ? error.diagnostic : undefined;
             observe(item, 'conflict', diagnostic ? JSON.stringify({ error: feedback, diagnostic }) : feedback);
             rejectedProposal = { error: feedback, ...(diagnostic ? { diagnostic } : {}),
               ops: ops.slice(0, 4).map(op => ({ ...op, ...('body' in op ? { body: (op.body as string).slice(0, 6000) } : {}) })) };
@@ -803,7 +859,7 @@ export class GuidedExecutor implements StageExecutor {
             }
             // Ремонт только с новым входом: первая повторная выборка по той же схеме,
             // дальше — адресный ремонт с диагностикой и суженной схемой, затем split/escalate.
-            repairFocus = proposalRepairs >= (req.progress ? 3 : 2) && diagnostic !== undefined
+            repairFocus = (addressedRepeat || proposalRepairs >= (req.progress ? 3 : 2)) && diagnostic !== undefined
               ? { file: diagnostic.file, ops: [diagnostic.op] } : undefined;
             if (proposalRepairs >= (req.progress ? 4 : 3)) throw new Error(`Предложение не исправлено: повторная выборка и адресный ремонт исчерпаны: ${feedback}`);
           };
@@ -812,7 +868,15 @@ export class GuidedExecutor implements StageExecutor {
             catch (error) { rejectProposal(error, reply.ops); continue; }
           }
           if (drafting) {
-            if (selection && reply.action === 'no_change') draftNoChangeReasons.push(`${draftFiles[draftIndex]}: ${reply.reason}`);
+            // Preserve per-file explanations even when other draft files receive a patch.
+            if (reply.action === 'no_change') {
+              const path = draftFiles[draftIndex]!;
+              const text = content(guardedPath(req.cwd, path));
+              if (text === null) throw new Error('no_change требует существующий источник');
+              state.noChanges = [...(state.noChanges ?? []).filter(row => row.path !== path), { path, hash: digest(text), reason: reply.reason, inputRevision: revision }];
+              save();
+              draftNoChangeReasons.push(`${path}: ${reply.reason}`);
+            }
             if (reply.action === 'patch') {
               if (diagnosedRepairFiles && reply.ops.some(op => !diagnosedRepairFiles!.has(op.file))) throw new Error('Предложение меняет файл вне обоснованной цели ремонта');
               try { simulateOps(req.cwd, currentFiles.filter(f => this.o.writableFiles === undefined || this.o.writableFiles.includes(f))
@@ -821,7 +885,7 @@ export class GuidedExecutor implements StageExecutor {
               req.progress?.clearRecovery(recoveryKey('proposal'));
               proposalRepairs = 0; formatRepairs = 0;
               rejectedProposal = null; repairFocus = undefined;
-              if (req.guidedEngineVersion === 4) for (const [path, value] of Object.entries(workingContext?.hashes ?? {})) {
+              if (hasGuidedContracts(req.guidedEngineVersion)) for (const [path, value] of Object.entries(workingContext?.hashes ?? {})) {
                 const previous = draftSourceHashes.get(path);
                 if (previous !== undefined && previous !== value) throw new Error('Источник предыдущего черновика изменился; группа не применена');
                 draftSourceHashes.set(path, value);
@@ -832,9 +896,17 @@ export class GuidedExecutor implements StageExecutor {
               draftIndex++; feedback = 'Черновик получен; файл ещё не записан. Подготовь следующую часть группы.'; continue;
             }
             if (draftOps.length) reply = { action: 'patch', prediction: item.prediction, ops: draftOps };
-            else if (selection && draftNoChangeReasons.length) reply = { action: 'no_change', reason: draftNoChangeReasons.join('\n') };
+            else if (draftNoChangeReasons.length) reply = { action: 'no_change', reason: draftNoChangeReasons.join('\n') };
             draftNoChangeReasons = [];
             draftOps = []; draftIndex = 0;
+          }
+          if (!drafting && reply.action === 'no_change') {
+            for (const path of currentFiles) {
+              const text = content(guardedPath(req.cwd, path));
+              if (text === null) continue;
+              state.noChanges = [...(state.noChanges ?? []).filter(row => row.path !== path), { path, hash: digest(text), reason: reply.reason, inputRevision: revision }];
+            }
+            save();
           }
           if (selection) {
             let simulated: Snapshot[];
@@ -930,7 +1002,7 @@ export class GuidedExecutor implements StageExecutor {
             item.status = 'checked'; delete state.transaction; save(); break;
           }
           hooks.onHarnessEvent?.({ kind: 'failure', reason: 'checks' });
-          if (req.guidedEngineVersion === 4 && this.o.evidenceRepair) {
+          if (hasGuidedContracts(req.guidedEngineVersion) && this.o.evidenceRepair) {
             const targets = observer.sync('diagnosis', () => evidenceRepairTargets(checked.result,
               item.files.filter(file => this.o.writableFiles === undefined || this.o.writableFiles.includes(file))), { source: 'runtime', failure: checked.result });
             if (!this.o.originalRequests?.length || !targets.length) throw new ChunkSelectionError('Недостаточно наблюдений для ремонта реализации; требуется исследовать причину проверки', 'explore');
@@ -938,7 +1010,7 @@ export class GuidedExecutor implements StageExecutor {
             draftFiles = targets; draftIndex = 0; draftOps = [];
             feedback = JSON.stringify({ instruction: 'Предложи ремонт реализации по исходным требованиям и наблюдению. Не меняй тесты и ожидаемые значения. Если причины не видно, дочитай контекст. Падение теста не доказывает ошибку реализации.',
               requests: this.o.originalRequests, observedTestFailures: observedTestFailures(checked.result), output: checked.result, repairTargets: targets });
-          } else if (req.guidedEngineVersion === 4) {
+          } else if (hasGuidedContracts(req.guidedEngineVersion)) {
             const originalRequests = this.o.originalRequests ?? [];
             if (!originalRequests.length) throw new Error('Нет исходного запроса для диагностики отказа проверки; слепой ремонт не выполняется');
             const diagnosisMessages: ChatMessage[] = [
@@ -970,12 +1042,12 @@ export class GuidedExecutor implements StageExecutor {
             draftFiles = targets; draftIndex = 0; draftOps = [];
             feedback = groundedRepairFeedback(diagnosis, originalRequests, targets, checked.result);
           }
-          if (req.guidedEngineVersion !== 4 && checked.repairFiles?.length) {
+          if (!hasGuidedContracts(req.guidedEngineVersion) && checked.repairFiles?.length) {
             const scoped = item.files.filter(file => checked.repairFiles!.includes(file));
             if (scoped.length) { draftFiles = scoped; draftIndex = 0; draftOps = []; }
           }
           const brief = summarizeFailedAssertions(checked.result);
-          feedback = `${req.guidedEngineVersion === 4 ? feedback + '\n' : ''}Ожидалось: ${item.prediction}\nНаблюдение: ${brief}\n${priorFailure === brief ? 'Та же ошибка повторилась: пересмотри гипотезу и прочитай зависимости.' : 'Установи причину расхождения и исправь.'}`;
+          feedback = `${hasGuidedContracts(req.guidedEngineVersion) ? feedback + '\n' : ''}Ожидалось: ${item.prediction}\nНаблюдение: ${brief}\n${priorFailure === brief ? 'Та же ошибка повторилась: пересмотри гипотезу и прочитай зависимости.' : 'Установи причину расхождения и исправь.'}`;
           priorFailure = brief;
           if (item.attempts === 3 && !item.repartitioned) {
             item.repartitioned = true; focused = true; needSplit = true;
@@ -984,6 +1056,7 @@ export class GuidedExecutor implements StageExecutor {
         }
         if (item.status !== 'checked') throw new Error('Группа не прошла проверку после ограниченного восстановления');
       } catch (error) {
+        if (error instanceof RepeatedReadError) hooks.onHarnessEvent?.({ kind: 'failure', reason: 'operation' });
         selection?.finish(false, (error as Error).message);
         item.status = 'failed';
         if (error instanceof ProviderEnvError) hooks.onHarnessEvent?.({ kind: 'failure', reason: 'environment' });
@@ -994,7 +1067,9 @@ export class GuidedExecutor implements StageExecutor {
         }
         for (const pending of state.items) if (pending.status === 'pending') pending.status = 'blocked';
         const result = finish(false, (error as Error).message);
-        if (req.guidedEngineVersion === 4 || this.o.chunkSelection) {
+        if (error instanceof RepeatedReadError) result.stopCause = 'no-progress';
+        if (error instanceof ProviderRequestTimeoutError) result.stopCause = 'request-timeout';
+        if (hasGuidedContracts(req.guidedEngineVersion) || this.o.chunkSelection) {
           const last = state.observations.at(-1)?.kind;
           result.failure = { kind: error instanceof ProviderEnvError || last === 'environment' ? 'environment' : last === 'check' ? 'checks' : 'operation',
             origin: 'chunk', retryStage: 'chunk', reason: (error as Error).message };

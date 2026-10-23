@@ -27,6 +27,7 @@ import { ApprovalBus, AskBus, HumanScriptError, attachOperator, emptyOperatorLog
 import { createCollector } from './collector.ts';
 import type { ToolRequestEvent, ToolResolvedEvent } from './collector.ts';
 import { runBench } from './driver.ts';
+import { prepareIndependentSuite } from './independentSuite.ts';
 import type { DriverStageRecord, DriverStopReason } from './driver.ts';
 import { observeArtifacts, passport, treeDigest } from './diagnostics.ts';
 import type { DiagnosticPassport, RunDiagnostics } from './diagnostics.ts';
@@ -586,6 +587,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   };
   process.on('SIGINT', onCancel);
   process.on('SIGTERM', onCancel);
+  const registerIndependent = opts.acceptanceImage ? prepareIndependentSuite(BENCH_DIR, opts.task, files.fixtureDir,
+    join(TRACES_DIR, opts.slug, 'independent-suite'), opts.acceptanceImage) : null;
   const checkpoint = setInterval(() => {
     try { persistPartial(cancellation.signal.aborted ? 'cancelled' : 'running', cancellation.signal.aborted ? 'cancelled' : 'running'); }
     catch (error) { writeProgressFile(`checkpoint failed: ${String(error)}`); }
@@ -616,7 +619,12 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         ? { stopAfterVerify: true }
         : {}),
       onDecision: logLine,
-      ...(opts.captureInputs ? { onStageCompleted: (record: import('./driver.ts').DriverStageRecord) => {
+      ...((opts.captureInputs || registerIndependent) ? { onStageCompleted: async (record: import('./driver.ts').DriverStageRecord) => {
+        if (record.stage === 'plan' && registerIndependent) {
+          const frozen = await registerIndependent(run);
+          logLine(`Independent acceptance frozen; baselinePassed=${frozen.baselinePassed}`);
+        }
+        if (!opts.captureInputs) return;
         if (record.stage === 'handoff' || (record.stage === 'verify' && !run.lastVerdict?.passed)) return;
         const name = `${opts.slug}-after-${record.stage}-c${record.chunk}-a${record.attempt}`;
         makeSnapshot({ workspaceRoot: wsRoot, snapshotsDir: SNAPSHOTS_DIR, name, slug: opts.slug,
@@ -874,7 +882,11 @@ async function probeRun(opts: BenchOptions): Promise<number> {
  * зависел от того, откуда преполёт запустили.
  */
 async function preflightRun(opts: BenchOptions): Promise<number> {
+  const startedAt = new Date().toISOString();
   const report = await runPreflight(opts);
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  writeFileSync(join(RESULTS_DIR, `${opts.slug}.preflight.json`), JSON.stringify({ version: 1, slug: opts.slug,
+    startedAt, finishedAt: new Date().toISOString(), ...report }, null, 2) + '\n', 'utf8');
   console.log(formatPreflight(report));
   return preflightExitCode(report);
 }

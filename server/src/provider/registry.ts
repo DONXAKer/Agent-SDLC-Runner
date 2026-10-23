@@ -10,6 +10,7 @@ import type { ProviderDef } from '../config/schema.ts';
 import type { ChatProvider } from './ChatProvider.ts';
 import { OpenAiCompatProvider } from './OpenAiCompatProvider.ts';
 import type { TraceLabel } from './rawLog.ts';
+import { decisionProvider } from '../exec/decisionEngine.ts';
 
 /**
  * Провайдеры, за которые платят по токенам. Список нужен ровно для одного: потребовать
@@ -86,7 +87,7 @@ export function createProvider(
         `провайдер «${name}» платный, но ключа нет: задай ${envKey(name, 'API_KEY')} в окружении`,
       );
     }
-    return new OpenAiCompatProvider({
+    const provider = new OpenAiCompatProvider({
       name,
       baseUrl,
       apiKey,
@@ -95,7 +96,9 @@ export function createProvider(
       // рантайма сдвигала бы базовую линию всех прошлых замеров молча.
       ...(def.maxTokens === undefined ? {} : { maxTokens: def.maxTokens }),
       ...(trace === undefined ? {} : { trace }),
+      ...(trace?.decision ? { retryDelaysMs: [1000, 3000] } : {}),
     });
+    return trace?.decision ? decisionProvider(provider, trace.decision) : provider;
   }
 
   if (def.kind === 'anthropic-api') {

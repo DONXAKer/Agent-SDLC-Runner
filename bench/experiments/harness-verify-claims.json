@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "hypothesis": "Явный контракт статусов Verify и обратная связь для недопустимого manual помогают завершать приёмку без ослабления проверок.",
+  "cue": "Модель выбирает ручную проверку для критерия без разрешения человека.",
+  "lesson": "Явно передавать допустимость ручной проверки и возвращать содержательную диагностику при нарушении контракта.",
+  "model": "ollama:comparison-qwen-off-q8",
+  "modelConfig": "bench/results/model-comparison-20261019/config/models.json",
+  "tasks": [
+    "add-validator",
+    "config-default"
+  ],
+  "change": {
+    "path": "server/src/run/guidedVerificationProtocol.ts",
+    "before": "    const validator = Claim",
+    "after": "    const validator = Claim.refine(answer => answer.status !== 'manual' || claim.manualAllowed === true,\n      { message: 'manual разрешён только для пункта, явно помеченного человеком как ручной. Для автоматического пункта выбери ✅ при наличии доказательства, ❌ при противоречии или ⚠ при недостатке фактов; укажи точный якорь доказательства.' })"
+  },
+  "limits": {
+    "attempts": 3,
+    "stageMinutes": 15,
+    "runMinutes": 30
+  },
+  "engine": {
+    "host": "http://127.0.0.1:11435",
+    "cache": "q8_0",
+    "context": 32768,
+    "gpuFreeMiB": [
+      10500,
+      6500
+    ],
+    "gpuUtilMax": [
+      10,
+      25
+    ]
+  }
+}

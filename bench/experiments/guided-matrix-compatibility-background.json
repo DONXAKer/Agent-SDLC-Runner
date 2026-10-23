@@ -1,0 +1,60 @@
+{
+  "modelConfig": "bench/results/model-comparison-20261019/config/models.json",
+  "models": [
+    "ollama:comparison-qwen-off-q8",
+    "ollama:mellum2-12b-instruct-q6",
+    "ollama:gpt-oss-20b-ctx32k",
+    "ollama:ministral3-14b-instruct-ctx32k",
+    "ollama:devstral-small-2",
+    "ollama:comparison-neohorse"
+  ],
+  "tasks": [
+    "add-validator",
+    "config-default",
+    "rename-field",
+    "idempotent-retry",
+    "vat-rounding"
+  ],
+  "acceptanceImage": "node:24-alpine",
+  "profileOverrides": {
+    "ollama:comparison-qwen-off-q8": {
+      "placement": "gpu-only",
+      "params": {
+        "reasoning_effort": "none"
+      }
+    },
+    "ollama:comparison-neohorse": {
+      "placement": "gpu-only",
+      "params": {
+        "reasoning_effort": "none"
+      }
+    },
+    "ollama:gpt-oss-20b-ctx32k": {
+      "placement": "gpu-only",
+      "params": {
+        "reasoning_effort": "low"
+      }
+    },
+    "ollama:devstral-small-2": {
+      "placement": "hybrid"
+    }
+  },
+  "limits": {
+    "stageMinutes": 15,
+    "runMinutes": 30,
+    "attempts": 3,
+    "gpuWaitMinutes": 15,
+    "suiteHours": 24
+  },
+  "engine": {
+    "host": "http://127.0.0.1:11435",
+    "gpuFreeMiB": [
+      0,
+      0
+    ],
+    "gpuUtilMax": [
+      100,
+      100
+    ]
+  }
+}

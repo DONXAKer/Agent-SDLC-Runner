@@ -1,0 +1,419 @@
+{
+  "profile": {
+    "// devstral-small-2-local": "Добавлена 2026-09-01: официальный тег Ollama, 24B Q4_K_M ≈ 15 ГБ. Единственная модель этой партии с ОПУБЛИКОВАННЫМ бенчмарком именно на agentic-правку кода (SWE-bench Verified 68.0%, Multilingual 55.7%), а не общей заявкой tools=true — стоит проверить в первую очередь. Тег -ctx16k по той же причине, что у gpt-oss выше. 2026-09-01/02: обычным циклом гонялась трижды (`bench-cand-devstral-small-2`, `-v2`, `-clean`) — ни разу не дошла до измеренного вердикта (`blocked`/`stage-timeout`), модель 24B не влезает в 8 ГБ VRAM целиком (`ollama ps`: ~69%/31% CPU/GPU), запросы на этом железе слишком медленные. 2026-09-02: stepFill тоже упёрлась в тот же класс — таймаут транспорта 600 000 мс на одном из запросов, `blocked`, код 2 (среда, не модель). На этом железе для этапа 5 практически непригодна независимо от режима.",
+    "id": "ollama:devstral-small-2",
+    "provider": "ollama",
+    "model": "devstral-small-2-ctx16k",
+    "contextWindow": 16384,
+    "rank": 60,
+    "stepFill": true,
+    "formFill": true,
+    "compactForms": "fill",
+    "placement": "hybrid",
+    "params": {}
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "devstral-small-2-ctx16k:latest",
+        "model": "devstral-small-2-ctx16k:latest",
+        "size": 16447008929,
+        "digest": "b7c6205e0615cdd1146b6da7eab71a1dc490446ef3fe7b7ba2e9c340b22b0362",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "mistral3",
+          "families": [
+            "mistral3",
+            "clip"
+          ],
+          "parameter_size": "24.0B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-10-23T08:58:30.813859+03:00",
+        "size_vram": 14430167366,
+        "context_length": 16384,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "compatible": true,
+    "elapsedMs": 39975,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-466",
+          "object": "chat.completion",
+          "created": 1792734812,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 118,
+            "prompt_tokens_details": {
+              "cached_tokens": 2
+            },
+            "completion_tokens": 7,
+            "total_tokens": 125
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-59",
+          "object": "chat.completion",
+          "created": 1792734814,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{ \"name\": \"Parcel\", \"kind\": \"interface\" }"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 313,
+            "prompt_tokens_details": {
+              "cached_tokens": 64
+            },
+            "completion_tokens": 15,
+            "total_tokens": 328
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-84",
+          "object": "chat.completion",
+          "created": 1792734818,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request with no unnecessary calls or behavior changes.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 140,
+            "prompt_tokens_details": {
+              "cached_tokens": 64
+            },
+            "completion_tokens": 31,
+            "total_tokens": 171
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-789",
+          "object": "chat.completion",
+          "created": 1792734821,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 53,
+            "prompt_tokens_details": {
+              "cached_tokens": 17
+            },
+            "completion_tokens": 20,
+            "total_tokens": 73
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-357",
+          "object": "chat.completion",
+          "created": 1792734822,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\": false}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 73,
+            "prompt_tokens_details": {
+              "cached_tokens": 19
+            },
+            "completion_tokens": 7,
+            "total_tokens": 80
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 1,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-301",
+          "object": "chat.completion",
+          "created": 1792734823,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\":false}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 70,
+            "prompt_tokens_details": {
+              "cached_tokens": 19
+            },
+            "completion_tokens": 7,
+            "total_tokens": 77
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-874",
+          "object": "chat.completion",
+          "created": 1792734825,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\": \"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 118,
+            "prompt_tokens_details": {
+              "cached_tokens": 64
+            },
+            "completion_tokens": 8,
+            "total_tokens": 126
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-584",
+          "object": "chat.completion",
+          "created": 1792734827,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"name\":\"Parcel\",\"kind\":\"interface\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 313,
+            "prompt_tokens_details": {
+              "cached_tokens": 64
+            },
+            "completion_tokens": 10,
+            "total_tokens": 323
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-555",
+          "object": "chat.completion",
+          "created": 1792734837,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request; no modifications are needed.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 140,
+            "prompt_tokens_details": {
+              "cached_tokens": 64
+            },
+            "completion_tokens": 29,
+            "total_tokens": 169
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-594",
+          "object": "chat.completion",
+          "created": 1792734844,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 53,
+            "prompt_tokens_details": {
+              "cached_tokens": 52
+            },
+            "completion_tokens": 20,
+            "total_tokens": 73
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-763",
+          "object": "chat.completion",
+          "created": 1792734847,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\":false}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 73,
+            "prompt_tokens_details": {
+              "cached_tokens": 72
+            },
+            "completion_tokens": 7,
+            "total_tokens": 80
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 2,
+        "passed": true,
+        "transportOk": true,
+        "response": {
+          "id": "chatcmpl-355",
+          "object": "chat.completion",
+          "created": 1792734850,
+          "model": "devstral-small-2-ctx16k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"established\": false\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 70,
+            "prompt_tokens_details": {
+              "cached_tokens": 69
+            },
+            "completion_tokens": 10,
+            "total_tokens": 80
+          }
+        }
+      }
+    ]
+  }
+}

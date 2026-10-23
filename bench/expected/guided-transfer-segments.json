@@ -1,0 +1,113 @@
+{
+  "task": "guided-transfer-segments",
+  "family": "transfer-segments",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "normalizeKey: R1",
+      "call": {
+        "fn": "normalizeKey",
+        "args": [
+          "Alpha"
+        ]
+      },
+      "expect": "Alpha"
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "normalizeKey: Pr1",
+      "call": {
+        "fn": "normalizeKey",
+        "args": [
+          "/Alpha//Beta/"
+        ]
+      },
+      "expect": "Alpha:Beta"
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "normalizeKey: Pr2",
+      "call": {
+        "fn": "normalizeKey",
+        "args": [
+          "///"
+        ]
+      },
+      "expect": ""
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "normalizeKey: Pr3",
+      "call": {
+        "fn": "normalizeKey",
+        "args": [
+          ".././ x "
+        ]
+      },
+      "expect": "..:.: x "
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "normalizeKey: Pr4",
+      "call": {
+        "fn": "normalizeKey",
+        "args": [
+          null
+        ]
+      },
+      "throws": "TypeError"
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "splitKey: Pr5",
+      "call": {
+        "fn": "splitKey",
+        "args": [
+          "a//b"
+        ]
+      },
+      "expect": [
+        "a",
+        "b"
+      ],
+      "module": "core/segments.mjs"
+    },
+    {
+      "id": "PrNewTest",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "A separate executable test is present",
+      "exists": "test/additional.test.mjs"
+    },
+    {
+      "id": "RPreserve",
+      "category": "regression",
+      "claim": null,
+      "description": "Existing checks and public entry are unchanged",
+      "preserve": [
+        "src/index.ts",
+        "test/existing.test.mjs",
+        "scripts/build-check.mjs",
+        "package.json"
+      ]
+    }
+  ],
+  "referenceFiles": {
+    "core/key.mjs": "import { splitKey } from './segments.mjs';\nexport function normalizeKey(value) {\n  return splitKey(value).join(':');\n}\n",
+    "core/segments.mjs": "export function splitKey(value) {\n  if (typeof value !== 'string') throw new TypeError('key must be a string');\n  return value.split('/').filter(part => part !== '');\n}\n",
+    "test/additional.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalizeKey } from '../src/index.ts';\ntest('new behavior',()=>{assert.deepEqual(normalizeKey(...[\"/Alpha//Beta/\"]),\"Alpha:Beta\");assert.deepEqual(normalizeKey(...[\"///\"]),\"\");assert.deepEqual(normalizeKey(...[\".././ x \"]),\"..:.: x \");});\n"
+  }
+}
+

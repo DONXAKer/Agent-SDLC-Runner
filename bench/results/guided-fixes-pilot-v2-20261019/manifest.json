@@ -1,0 +1,238 @@
+{
+  "id": "guided-validation-pilot-20261019083431734",
+  "phase": "pilot",
+  "sourceHash": "7eced3d1f4f5df46a216115f1c307026a77673fe7cded696f4b4b76951b28db5",
+  "revision": "06e6e0d897c344ae5c8de159bc01ebe3994cf631",
+  "createdAt": "2026-10-19T08:34:31.793Z",
+  "status": "interrupted",
+  "protocol": {
+    "executionMode": "guided",
+    "guidedEngineVersion": 4,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "attempts": 3,
+    "stageMinutes": 20,
+    "runMinutes": 45
+  },
+  "models": [
+    {
+      "id": "ollama:mellum2-12b-instruct-q6",
+      "tag": "mellum2-12b-instruct-q6-ctx32k",
+      "contextWindow": 32768
+    },
+    {
+      "id": "ollama:gpt-oss-20b-ctx32k",
+      "tag": "gpt-oss-20b-ctx32k",
+      "contextWindow": 32768
+    },
+    {
+      "id": "ollama:qwen3.8-27b-iq4-gpumax",
+      "tag": "qwen3.8-27b-iq4-ctx32k-gpumax",
+      "contextWindow": 32768,
+      "params": {
+        "reasoning_effort": "none",
+        "max_tokens": 4096
+      }
+    },
+    {
+      "id": "ollama:ministral3-14b-instruct-ctx32k",
+      "tag": "ministral3-14b-ctx32k",
+      "contextWindow": 32768
+    }
+  ],
+  "limitations": [
+    "Pilot/matrix use known tasks; transfer cases are new but are not a statistical reliability estimate",
+    "Approval automation is not a live human signature",
+    "Failure attribution requires explicit analysis; it is never inferred from a message pattern"
+  ],
+  "cells": [
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "config-default",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-1-r1",
+      "status": "failed",
+      "startedAt": "2026-10-19T08:36:39.425Z",
+      "finishedAt": "2026-10-19T08:41:45.296Z",
+      "success": false,
+      "exitCode": 1,
+      "stopped": "blocked",
+      "failedStage": "intent",
+      "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт приоритетов исчисления dueDays: возможна неоднозначность в значении поля dueDays при отсутствии явной опции и конфига.; Отсутствие явного уточнения поведения при отсутствии опции и конфига — возможно, dueDays будет установлен в 14, но не дошло до тех пор, пока не проверено.; Тест обновления формы счёта с пяти на шесть полей может быть недостаточно для проверки всех сценариев приоритета dueDays.",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт приоритетов исчисления dueDays: возможна неоднозначность в значении поля dueDays при отсутствии явной опции и конфига.; Отсутствие явного уточнения поведения при отсутствии опции и конфига — возможно, dueDays будет установлен в 14, но не дошло до тех пор, пока не проверено.; Тест обновления формы счёта с пяти на шесть полей может быть недостаточно для проверки всех сценариев приоритета dueDays.",
+        "reviewStatus": "rejected"
+      },
+      "diagnosis": "unassessed",
+      "reached": [
+        {
+          "stage": "intent",
+          "ok": false,
+          "skipped": false
+        }
+      ],
+      "hidden": null,
+      "finalVerdict": null,
+      "modelRequests": 20,
+      "firstMutation": null,
+      "activeMs": 287575,
+      "log": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-fixes-pilot-v2-20261019\\guided-validation-pilot-20261019083431734-1-r1.log",
+      "resultPath": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-validation-pilot-20261019083431734-1-r1.json"
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "config-default",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-1-r2",
+      "status": "failed",
+      "startedAt": "2026-10-19T08:41:45.429Z",
+      "finishedAt": "2026-10-19T08:45:44.560Z",
+      "success": false,
+      "exitCode": 1,
+      "stopped": "blocked",
+      "failedStage": "intent",
+      "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт приоритетов инициализации dueDays: в сценарии указано, что источник значения по приоритету: явная опция → конфиг площадки → встроенные 14, но в реализации неясно, как это учитывается при отсутствии явной опции и конфига",
+      "failure": {
+        "kind": "contract",
+        "origin": "intent",
+        "retryStage": "intent",
+        "reason": "Контракт Intent противоречив после трёх ремонтов: Конфликт приоритетов инициализации dueDays: в сценарии указано, что источник значения по приоритету: явная опция → конфиг площадки → встроенные 14, но в реализации неясно, как это учитывается при отсутствии явной опции и конфига",
+        "reviewStatus": "rejected"
+      },
+      "diagnosis": "unassessed",
+      "reached": [
+        {
+          "stage": "intent",
+          "ok": false,
+          "skipped": false
+        }
+      ],
+      "hidden": null,
+      "finalVerdict": null,
+      "modelRequests": 19,
+      "firstMutation": null,
+      "activeMs": 235380,
+      "log": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-fixes-pilot-v2-20261019\\guided-validation-pilot-20261019083431734-1-r2.log",
+      "resultPath": "D:\\Проекты\\Agent-SDLC-Runner\\bench\\results\\guided-validation-pilot-20261019083431734-1-r2.json"
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "rename-field",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-2-r1",
+      "status": "interrupted",
+      "startedAt": "2026-10-19T08:45:45.316Z",
+      "interruptedAt": "2026-10-19T08:47:08.617Z",
+      "interruptionReason": "Stopped at user request; incomplete result is not assessed."
+    },
+    {
+      "model": "ollama:mellum2-12b-instruct-q6",
+      "task": "rename-field",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-2-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:gpt-oss-20b-ctx32k",
+      "task": "add-validator",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-3-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:gpt-oss-20b-ctx32k",
+      "task": "add-validator",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-3-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "vat-rounding",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-4-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "vat-rounding",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-4-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "rename-field",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-5-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:qwen3.8-27b-iq4-gpumax",
+      "task": "rename-field",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-5-r2",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k",
+      "task": "config-default",
+      "repeat": 1,
+      "slug": "guided-validation-pilot-20261019083431734-6-r1",
+      "status": "pending"
+    },
+    {
+      "model": "ollama:ministral3-14b-instruct-ctx32k",
+      "task": "config-default",
+      "repeat": 2,
+      "slug": "guided-validation-pilot-20261019083431734-6-r2",
+      "status": "pending"
+    }
+  ],
+  "environment": {
+    "node": "v24.18.0",
+    "ollama": "ollama version is 0.40.6",
+    "lmStudioServer": "",
+    "recordedAt": "2026-10-19T08:21:14.537Z"
+  },
+  "automatedChecks": {
+    "baseline": {
+      "server": {
+        "passed": 2886,
+        "failed": 0,
+        "skipped": 9,
+        "log": ".tmp/guided-fixes-server-tests.log"
+      },
+      "bench": {
+        "passed": 386,
+        "failed": 0,
+        "skipped": 2,
+        "log": ".tmp/guided-fixes-bench-tests.log"
+      },
+      "typecheck": {
+        "command": "npm.cmd run typecheck",
+        "passed": true
+      },
+      "simulation": {
+        "passed": true,
+        "cases": 29,
+        "sourceHash": "b94ce2454cc4dde8e74c6a604292d7feadf8c88477a2dc73278815fac89e52a6",
+        "report": "bench/results/guided-fixes-simulation-20261019/report.md"
+      }
+    },
+    "currentRevision": {
+      "focusedServerTests": 130,
+      "failed": 0,
+      "serverTypecheck": true,
+      "fullFlowScenarios": 4,
+      "fullFlowPassed": true,
+      "report": "bench/results/guided-fixes-v2-full-flow-20261019/report.md"
+    },
+    "additionalInterfaceEditTest": true
+  },
+  "interruptedAt": "2026-10-19T08:47:08.617Z",
+  "interruptionReason": "Stopped at user request; completed cells retained; no matrix or transfer started."
+}

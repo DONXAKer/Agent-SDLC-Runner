@@ -1,5 +1,5 @@
 import type { GateRunResult } from '@sdlc-runner/shared';
-import { escapeCell } from '../md/table.ts';
+import { escapeCell, h2SectionRanges } from '../md/table.ts';
 import { gateKey } from '../gates/gatesFile.ts';
 import { renderRecords } from './verifyReport.ts';
 import type { ClaimRecord, FindingRecord } from './verifyReport.ts';
@@ -20,7 +20,14 @@ export function renderGuidedVerification(input: {
    * `true`, прежняя форма.
    */
   scanIndependent?: boolean;
+  independentAcceptance?: string;
 }): string {
+  let header = input.header.trimEnd();
+  if (input.independentAcceptance !== undefined) {
+    const range = h2SectionRanges(header, /^Независимые приёмочные проверки$/u)[0];
+    header = range ? header.slice(0, range.start) + input.independentAcceptance.trimEnd() + '\n\n' + header.slice(range.end)
+      : header + '\n\n' + input.independentAcceptance.trimEnd();
+  }
   const row = (cells: readonly string[]): string => `| ${cells.map(escapeCell).join(' | ')} |`;
   const gates = new Map(input.gates.map(g => [gateKey(g.name), g]));
   const names = new Map(input.gates.map(g => [gateKey(g.name), g.name]));
@@ -38,7 +45,7 @@ export function renderGuidedVerification(input: {
   const scanNote = input.scanIndependent === false
     ? 'скан выполнен той же моделью, что и исполнитель; находки — справочные (advisory), перечислены отдельно'
     : 'по ответам независимого скана; находки перечислены отдельно';
-  const text = [input.header.trimEnd(), '', '## Гейты', '',
+  const text = [header.trimEnd(), '', '## Гейты', '',
     '| Гейт | Статус | Результат |', '|---|---|---|', ...gateRows, '',
     'Освобождения от гейтов не заявлены; подписи человека не создаются рантаймом.', '',
     '### Гейты ранних этапов', '', '| Гейт | Этап | Статус | Где виден |', '|---|---|---|---|',

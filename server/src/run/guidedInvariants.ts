@@ -1,3 +1,4 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -53,7 +54,7 @@ function baselineOf(paths: WitokPaths): Baseline {
 /** Only a narrow, source-backed no-touch requirement is assigned automatically.
  * Unknown or mixed requirements still need implementation/test steps. */
 export function invariantChecks(paths: WitokPaths): InvariantCheck[] {
-  if (readGuided(paths)?.engineVersion !== 4) return [];
+  if (!hasGuidedContracts(readGuided(paths)?.engineVersion)) return [];
   const baseline = baselineOf(paths);
   if (!baseline.complete || !baseline.files.length) return [];
   const state = preparation(paths);

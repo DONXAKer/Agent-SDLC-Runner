@@ -252,6 +252,10 @@ function guidedHandoffFacts(host: StageHost, text: string): string {
     }
   }
   return autofillGuidedHandoff(text, { loop: loopSectionCount(text), attempt: host.attempt(),
+    ...(readGuided(host.paths)?.engineVersion === 5 ? { runtimeFacts: {
+      files: [...new Set(readGuided(host.paths)!.items.filter(item=>item.status==='checked').flatMap(item=>item.files))],
+      openQuestions: readArtifact(host.paths.intent).text.split(/\r?\n/u).filter(line=>/^\s*[-*]\s*\[ \]/u.test(line)),
+      report: basename(host.paths.verificationReport(host.chunk(),host.attempt())), taskId: host.slug } } : {}),
     reviewHistory,
     claims: [...host.verifyState.claimRecords.values()],
     gates: [...parsed.gateStatuses].map(([key, status]) => ({ name: names.get(key) ?? key, status })) });

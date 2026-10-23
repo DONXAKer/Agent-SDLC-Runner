@@ -70,9 +70,60 @@ test('invalid review JSON cannot count as a completed clean review', async () =>
   assert.equal(result.hunksAsked, 1); assert.equal(result.axesAsked, 1);
 });
 
+test('guided claims retry unauthorized manual answers with feedback and preserve explicit human permission', async () => {
+  for (const manualAllowed of [undefined, false, true]) {
+    const requests: ChatRequest[] = [];
+    const validations: boolean[] = [];
+    const provider: ChatProvider = { name: 'test', async chat(req) {
+      requests.push(req);
+      const data = JSON.parse(req.messages[1]!.content).data;
+      if (requests.length === 2) assert.match(data.feedback, /manual/u);
+      return { text: JSON.stringify({ status: requests.length === 1 ? 'manual' : '⚠', evidence: 'src/config.ts:timeout; недостаточно фактов', fix: 'Уточнить свидетельство' }),
+        toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+    } };
+    const result = await fillClaims({ guided: true, provider, model: 'test', params: null, system: '',
+      claims: [{ id: 'claim-9', text: 'Configuration uses a validated timeout', ...(manualAllowed === undefined ? {} : { manualAllowed }) }],
+      diff: '', tests: '', evidenceBudgetBytes: 8000, signal: new AbortController().signal,
+      onValidation: v => validations.push(v.accepted) });
+    assert.equal(result.calls.length, 1);
+    assert.deepEqual(validations, manualAllowed === true ? [true] : [false, true]);
+    assert.equal(requests.length, manualAllowed === true ? 1 : 2);
+  }
+});
+
 test('question envelopes leave original user text unchanged', () => {
   const original = '# User text\n`const x = 1`';
   assert.equal(JSON.parse(guidedQuestion('x', '# Question', { original })).data.original, original);
+});
+
+test('claim refill includes already answered requirements so exceptions are not lost', async () => {
+  let calls = 0;
+  const contractClaims = [
+    { id: 'claim-2', text: 'Expose the adapter from lib/public.ts.' },
+    { id: 'claim-8', text: 'Keep other existing modules unchanged.' },
+  ];
+  const provider: ChatProvider = { name: 'test', async chat(req) {
+    calls++;
+    const { facts } = JSON.parse(req.messages[1]!.content).data;
+    assert.deepEqual(facts.contractClaims, contractClaims);
+    assert.equal(facts.claim.id, 'claim-8');
+    return { text: JSON.stringify({ status: '⚠', evidence: 'claim-2 and claim-8 require reconciling the public export exception', fix: 'Clarify the conflicting constraints' }),
+      toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } };
+  await fillClaims({ guided: true, provider, model: 'test', params: null, system: '',
+    claims: [contractClaims[1]!], contractClaims, diff: '', tests: '', evidenceBudgetBytes: 8000, signal: new AbortController().signal });
+  assert.equal(calls, 1);
+});
+
+test('oversized claim contract stays unverified instead of silently losing related requirements', async () => {
+  const notes: string[] = [];
+  const provider: ChatProvider = { name: 'test', async chat() { throw new Error('oversized request must not reach provider'); } };
+  const result = await fillClaims({ guided: true, provider, model: 'test', params: { max_tokens: 100 }, system: '',
+    claims: [{ id: 'claim-1', text: 'Keep behavior' }],
+    contractClaims: [{ id: 'claim-2', text: 'Constraint '.repeat(2000) }], contextWindow: 512,
+    diff: '', tests: '', evidenceBudgetBytes: 8000, signal: new AbortController().signal, onProgress: text => notes.push(text) });
+  assert.equal(result.calls.length, 0);
+  assert.match(notes.join(), /не усечены/);
 });
 
 test('contract repair receives numbered values and runtime renders tables and original citations', () => {
@@ -88,6 +139,24 @@ test('contract repair receives numbered values and runtime renders tables and or
   assert.ok(basis.includes('Literal `code`')); assert.ok(basis.includes('request-1:L2-L2'));
   assert.throws(() => renderGuidedContractRepair('Приёмочный лист', JSON.stringify({ section: 'Приёмочный лист',
     values: [{ id: 'claim-2', behavior: 'Behaviour', procedure: 'Run', expected: 'Pass' }] }), [request], ['claim-1']), /набор ID/);
+});
+
+test('contract citations remain one table row through multiline source text and headings', async () => {
+  const { parseTables } = await import('../src/md/table.ts');
+  const { applyIntentContractRepair } = await import('../src/exec/intentContractReview.ts');
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const request = ['First | source', '## Source heading', '', 'Last source'].join(newline);
+    const basis = renderGuidedContractRepair('Основания и сценарии', JSON.stringify({ section: 'Основания и сценарии',
+      values: [{ id: 'claim-1', basis: { file: 'request-1', lines: [1, 4] }, scenario: 'Observe\nresult', counterexample: 'Wrong\nresult' }] }), [request], ['claim-1']);
+    const tables = parseTables(basis);
+    assert.equal(tables.length, 1);
+    assert.equal(tables[0]?.rows.length, 1);
+    assert.equal(tables[0]?.rows[0]?.[3], 'claim-1');
+    assert.ok(tables[0]?.rows[0]?.[0]?.includes('## Source heading'));
+    assert.doesNotThrow(() => applyIntentContractRepair('## Основания и сценарии\nOriginal\n\n## Инварианты\nKeep\n',
+      JSON.stringify({ sections: [{ section: 'Основания и сценарии', content: basis }] }),
+      [{ problem: 'Repair', quotes: [{ section: 'Основания и сценарии', lines: [1, 1] }], source: { file: 'request-1', lines: [1, 1] } }]));
+  }
 });
 
 test('guided contract review rejects out-of-source citations instead of silently clamping them', () => {

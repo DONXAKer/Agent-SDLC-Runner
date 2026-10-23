@@ -14,15 +14,17 @@ import { renderGuidedContractRepair } from '../src/exec/guidedIntentContract.ts'
 
 const originalRows = Array.from({ length: 5 }, (_, i) => ({ id: `claim-${i + 1}`, behavior: `Value ${i + 1}`, procedure: `Check ${i + 1}`, expected: `Result ${i + 1}` }));
 async function runRepair(values: unknown[], mutation?: (path: string) => void, afterApproval?: (path: string, abort: AbortController) => void,
-  basis = false, durableRecovery = false, rendered = false) {
+  basis = false, durableRecovery = false, rendered = false, source = 'Correct result') {
   const root = mkdtempSync(join(tmpdir(), 'repair-gate-'));
   mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
   const artifact = join(root, '.sdlc', 'demo', 'intent.md');
   const originalBasis = originalRows.map(row => ({ id: row.id, basis: { file: 'request-1', lines: [1, 1] }, scenario: row.behavior, counterexample: 'Else' }));
   const section = basis ? 'Основания и сценарии' : 'Приёмочный лист';
   const before = '# Task\n\n## Что делаем\nKeep this section byte for byte.\n\n## Приёмочный лист\n<!-- sdlc-json:acceptance:start -->\n' + JSON.stringify(originalRows, null, 2) + '\n<!-- sdlc-json:acceptance:end -->\n\n' + (basis ? '## Основания и сценарии\n<!-- sdlc-json:basis:start -->\n' + JSON.stringify(originalBasis, null, 2) + '\n<!-- sdlc-json:basis:end -->\n\n' : '') + '## Инварианты\nKeep this too.\n';
-  const actualBefore = rendered ? before.replace(/<!-- sdlc-json:acceptance:start -->[\s\S]*?<!-- sdlc-json:acceptance:end -->/u,
+  let actualBefore = rendered ? before.replace(/<!-- sdlc-json:acceptance:start -->[\s\S]*?<!-- sdlc-json:acceptance:end -->/u,
     renderGuidedContractRepair('Приёмочный лист', JSON.stringify({ section: 'Приёмочный лист', values: originalRows }), ['Correct result'])) : before;
+  if (rendered && basis) actualBefore = actualBefore.replace(/<!-- sdlc-json:basis:start -->[\s\S]*?<!-- sdlc-json:basis:end -->/u,
+    renderGuidedContractRepair(section, JSON.stringify({ section, values: originalBasis }), [source]));
   writeFileSync(artifact, actualBefore);
   const denied: string[] = [];
   const gate = new ApprovalGate({ onPending: p => {
@@ -59,7 +61,7 @@ async function runRepair(values: unknown[], mutation?: (path: string) => void, a
     prompt: { system: '', user: '{"data":{"requests":["Correct result"]}}', tools: [], presetNote: null, editedByOperator: false, guidedProtocol: true },
     finishGuard: () => null, salvageFromText: null } as ExecRequest;
   const result = await new FormFillExecutor({ provider, stage: 'intent', compact: true, reviewIntentContract: true,
-    intentRequests: ['Correct result'], maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run(request, hooks);
+    intentRequests: [source], maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run(request, hooks);
   const after = readFileSync(artifact, 'utf8'); rmSync(root, { recursive: true, force: true });
   return { result, before: actualBefore, after, denied, validations };
 }
@@ -138,4 +140,16 @@ it('basis correction preserves every source reference and unrelated acceptance t
   const basisStart = outcome.before.indexOf('## Основания и сценарии');
   strictEqual(outcome.after, outcome.before.slice(0, basisStart) + outcome.before.slice(basisStart).replace('Value 1', 'Correct scenario'));
   strictEqual(outcome.denied.length, 0);
+});
+
+it('multiline basis repair crosses the real write gate without losing IDs or introducing source headings', async () => {
+  const source = 'Original requirement\n## Source heading\nRemaining requirement';
+  const values = originalRows.map(row => ({ id: row.id, basis: { file: 'request-1', lines: [1, 3] },
+    scenario: 'Correct scenario', counterexample: 'Else' }));
+  const outcome = await runRepair(values, undefined, undefined, true, false, true, source);
+  strictEqual(outcome.result.ok, true, outcome.result.note);
+  strictEqual(outcome.denied.length, 0);
+  ok(outcome.after.includes('Original requirement<br>## Source heading<br>Remaining requirement'));
+  strictEqual(outcome.after.slice(0, outcome.after.indexOf('## Основания и сценарии')),
+    outcome.before.slice(0, outcome.before.indexOf('## Основания и сценарии')));
 });

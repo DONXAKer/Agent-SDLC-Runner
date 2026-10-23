@@ -1,0 +1,78 @@
+{
+  "// файл": "Раннер как целевой проект: на нём меряются этапы 5 и 6, где нужен репозиторий с исполнимым набором гейтов и настоящими тестами. Суффикс .local.json держит машинный путь вне репозитория.",
+
+  "name": "Runner",
+  "projectRoot": "D:/Проекты/Agent-SDLC-Runner",
+
+  "// activeProfile": "mixed-2gpu — рабочая раскладка под пару карт (2026-09-08): все этапы кроме ревью на gpt-oss-20b (единственная локальная, прошедшая виток до handoff), рецензент — haiku по записи-обходу ранга (измеренно лучшая находимость посевов). measure* — замерные профили прежнего стенда, оставлены для сравнимости.",
+  "activeProfile": "mixed-2gpu",
+  "// maxBudgetUsd": "Поднято до 400 под пробы через рублёвые агрегаторы (polza/alltokens): их поле usage.cost приходит В РУБЛЯХ, а раннер кладёт его в costUsd как доллары (OpenAiCompatProvider.ts:260). Из-за этого лимит $4 срабатывал на реальных ~₽4 ≈ $0.05 и убивал виток. 400 «долларов» ≈ ₽400 ≈ $4.4 реального потолка. Для витков на claude-sdk (реальные USD) верни 4.0.",
+  "maxBudgetUsd": 400.0,
+
+  "// modules": "Один модуль на корень: `npm test` и `npm run typecheck` из корня обходят оба воркспейса сами, а per-модульный прогон гонял бы их дважды.",
+  "modules": [
+    {
+      "dir": ".",
+      "ecosystem": "node",
+      "build": "npm run typecheck",
+      "test": "npm test"
+    }
+  ],
+
+  "// profiles": "measure — то, ради чего заведён проект: этапы до пятого идут на подписке, чтобы виток вообще доехал, а замеряемые 5 и 6 — на локальных. Правило рецензента соблюдено рангами: chunk 30 < verify 65.",
+  "profiles": {
+    "mixed-2gpu": {
+      "// label": "Пара карт 12+8 ГБ. intent/plan — карточный режим с коротким ответом на поле (свип ff: 7/7); explore/ask/handoff — та же модель с длинным ответом (свип n2: 6/8, 6/6, 2/2); chunk — stepFill (9/9 скрытых, 3м41с). verify — haiku-reviewer (ранг 61 > 52): поймал оба посева, sonnet — ни одного. Контроль на opus раз в серию.",
+      "label": "Пара карт: gpt-oss-20b + haiku на ревью",
+      "stages": {
+        "intent": "ollama:gpt-oss-20b-ff",
+        "explore": "ollama:gpt-oss-20b-agent",
+        "ask": "ollama:gpt-oss-20b-agent",
+        "plan": "ollama:gpt-oss-20b-ff",
+        "chunk": "ollama:gpt-oss-20b",
+        "verify": "claude-sdk:haiku-reviewer",
+        "handoff": "ollama:gpt-oss-20b-agent"
+      }
+    },
+
+    "local-2gpu": {
+      "// label": "Полностью локально. Рецензент — Apriel-1.6-15B (ранг 56 > 52), кандидат №1 по веб-разведке 2026-09-08, НЕ ИЗМЕРЕН: годится только после посевов волны 2 (docs/model-runs.md). До этого честный профиль — mixed-2gpu.",
+      "label": "Пара карт: всё локально (рецензент не измерен)",
+      "stages": {
+        "intent": "ollama:gpt-oss-20b-ff",
+        "explore": "ollama:gpt-oss-20b-agent",
+        "ask": "ollama:gpt-oss-20b-agent",
+        "plan": "ollama:gpt-oss-20b-ff",
+        "chunk": "ollama:gpt-oss-20b",
+        "verify": "ollama:apriel-1.6-15b",
+        "handoff": "ollama:gpt-oss-20b-agent"
+      }
+    },
+
+    "measure-cline": {
+      "label": "Этап 5 на модели, дообученной под вызов инструментов",
+      "stages": {
+        "intent": "claude-sdk:haiku",
+        "explore": "claude-sdk:sonnet",
+        "ask": "claude-sdk:haiku",
+        "plan": "claude-sdk:sonnet",
+        "chunk": "ollama:cline_roocode:8b-ctx16k",
+        "verify": "lmstudio:qwen3.6-35b-a3b-opus-distill",
+        "handoff": "claude-sdk:haiku"
+      }
+    },
+
+    "claude": {
+      "label": "Claude (контроль)",
+      "stages": {
+        "intent": "claude-sdk:haiku",
+        "explore": "claude-sdk:sonnet",
+        "ask": "claude-sdk:haiku",
+        "plan": "claude-sdk:sonnet",
+        "chunk": "claude-sdk:sonnet",
+        "verify": "claude-sdk:opus",
+        "handoff": "claude-sdk:haiku"
+      }
+    }
+  }
+}

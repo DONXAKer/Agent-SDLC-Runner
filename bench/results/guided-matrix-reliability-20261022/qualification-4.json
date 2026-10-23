@@ -1,0 +1,418 @@
+{
+  "profile": {
+    "// granite4.2-8b-ctx32k": "Заведена 2026-09-05 после первого живого прогона тега -ctx16k (bench/already-done): intent встал по потолку 40 мин с НУЛЁМ вызовов инструментов, сжёг 42 174 токена — то есть промпт с историей хода в окно 16 384 не помещался и резался. Отдельный тег, а не правка старого: сравнение «то же самое с другим окном» требует, чтобы старое осталось на месте (правило журнала «менять между прогонами только одно»). Цена окна: KV на 16K добавлял к 5.3 ГБ весов ~2.9 ГБ (ollama ps: 8.2 ГБ, 24%/76% CPU/GPU), на 32K добавит вдвое больше — офлоад заведомо вырастет, и это условие замера.",
+    "id": "ollama:granite4.2-8b-ctx32k",
+    "provider": "ollama",
+    "model": "granite4.2-8b-ctx32k",
+    "contextWindow": 32768,
+    "rank": 33,
+    "formFill": true,
+    "placement": "gpu-only",
+    "params": {
+      "temperature": 0,
+      "max_tokens": 4096
+    }
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "granite4.2-8b-ctx32k:latest",
+        "model": "granite4.2-8b-ctx32k:latest",
+        "size": 9203435435,
+        "digest": "42ae5653edeab25d21359145417d27598bb3c51475c472933981ac2e51607a67",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "granite",
+          "families": [
+            "granite"
+          ],
+          "parameter_size": "8.8B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-10-22T15:20:56.5365523+03:00",
+        "size_vram": 9203435435,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 55311,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-261",
+          "object": "chat.completion",
+          "created": 1792671359,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\": \"explicit\"}",
+                "reasoning": "Okay, let's see. The user is asking which has the highest priority among explicit, workspace, and built-in default. The source says: \"explicit option overrides workspace setting; workspace setting overrides built-in default.\"\n\nSo explicit overrides workspace, and workspace overrides built-in default. That means explicit is the highest priority because it overrides workspace, which in turn overrides the default. So the highest priority is explicit.\n\nThe task is to return {\"choice\": \"explicit\"}.\n\nNeed to make sure the JSON is exactly that. No extra text. Just the JSON object.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 122,
+            "prompt_tokens_details": {
+              "cached_tokens": 3
+            },
+            "completion_tokens": 131,
+            "total_tokens": 253
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-78",
+          "object": "chat.completion",
+          "created": 1792671366,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}",
+                "reasoning": "Okay, let's see. The user wants me to return a JSON object with \"name\" and \"kind\" for the bound declaration based on the given source and target.\n\nThe source text is: \"interface Parcel { tag: string }; function parcel() { return 1; }.\" The target is Parcel. The runtime target declarations include an object with name \"Parcel\", kind \"interface\", etc.\n\nThe instruction says to return {\"name\":string,\"kind\":string} for the bound declaration, preserving case and declaration kind.\n\nThe runtime target declarations list has \"name\":\"Parcel\" and \"kind\":\"interface\". So the bound declaration should be the interface Parcel.\n\nWait, the user says \"bound declaration\" – probably referring to the declaration that matches the target Parcel. Since the target is Parcel, and the runtime target has Parcel as an interface, the bound declaration's name should be \"Parcel\" and kind \"interface\".\n\nNeed to check if \"kind\" must be exactly \"interface\" as per the runtime target. The instruction says \"preserve case and declaration kind\", so \"interface\" as given.\n\nSo the JSON should be {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n\nWait, the user says \"Return {\"name\":string,\"kind\":string} for the bound declaration.\" So the response must be exactly that JSON with those two fields.\n\nYes, so the answer is {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 222,
+            "prompt_tokens_details": {
+              "cached_tokens": 65
+            },
+            "completion_tokens": 317,
+            "total_tokens": 539
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-727",
+          "object": "chat.completion",
+          "created": 1792671371,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code 'export function ping() { return \\\"pong\\\"; }' already correctly implements the required behavior (returning \\\"pong\\\" for ping) and makes no additional calls. No changes are needed.\"\n}",
+                "reasoning": "Okay, let's see. The user wants me to preserve existing behavior and add no new calls. The source code given is \"export function ping() { return \"pong\"; }\". They say this source already satisfies the request.\n\nI need to return a JSON object with \"action\" as either \"no_change\" or \"patch\", and a \"reason\" string. Since the source already meets the request, the action should be \"no_change\". The reason would explain that no changes are needed because the existing code already returns \"pong\" as expected.\n\nWait, the instruction says \"Preserve existing behavior; add no new calls.\" The source is a function that returns \"pong\", which is correct. So no patch is needed. Therefore, action is \"no_change\", reason is something like \"Source code already correctly implements the ping function returning 'pong', satisfying the request without any changes.\"\n\nMake sure the JSON is correct. Only the object with action and reason. No extra text.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 141,
+            "prompt_tokens_details": {
+              "cached_tokens": 65
+            },
+            "completion_tokens": 272,
+            "total_tokens": 413
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-536",
+          "object": "chat.completion",
+          "created": 1792671375,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}",
+                "reasoning": "Okay, the user wants me to return only one repair card JSON object with specific fields: id 2, file \"lib/beta.ts\", and dependsOn [1]. No other cards or keys.\n\nI need to make sure the response is exactly that JSON. No extra text, no explanations. Just the JSON object. Let me check the format: {\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}. Yes, that's correct.\n\nI should output only that, nothing else. So the response should be exactly that string.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 62,
+            "prompt_tokens_details": {
+              "cached_tokens": 18
+            },
+            "completion_tokens": 143,
+            "total_tokens": 205
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-372",
+          "object": "chat.completion",
+          "created": 1792671379,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\": false}",
+                "reasoning": "Okay, let's break this down. The user is asking about a contract that says \"preserve all existing files except lib/public.ts, where adding the requested export is required.\"\n\nThe observed diff shows that only the requested export was added to lib/public.ts. The question is whether this violates the preservation constraint.\n\nPreservation constraint means keeping all existing files except lib/public.ts. But since lib/public.ts is the exception where adding the export is required, modifying lib/public.ts to add the export is exactly what's allowed. The constraint says \"preserve all existing files except lib/public.ts\", meaning lib/public.ts can be modified (specifically to add the export). The observed diff only added the export to lib/public.ts and didn't touch other files, which aligns with preserving all others.\n\nSo no violation. The answer should be {\"violates\": false}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 82,
+            "prompt_tokens_details": {
+              "cached_tokens": 23
+            },
+            "completion_tokens": 203,
+            "total_tokens": 285
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-612",
+          "object": "chat.completion",
+          "created": 1792671384,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\": false}",
+                "reasoning": "Okay, let's see. The user is asking whether a reviewer's claim that a function has a defect, when they only provide a filename without any observed behavior, source code, test result, or explanation, establishes a defect. They want a JSON response with \"established\": boolean.\n\nFirst, I need to recall the principle here. The reviewer says there's a defect but gives no evidence: just a filename. No description of what happened, no code snippet, no test output, no explanation. The question is whether this establishes a defect.\n\nThe instruction says: \"Lack of proof is not proof of correctness.\" So if the reviewer hasn't provided proof (like observed behavior, test results, etc.), then just saying \"there's a defect\" without evidence doesn't establish it as a defect. Because establishing a defect would require evidence; without it, it's just a claim without proof.\n\nSo the answer should be false for \"established\". Because the reviewer hasn't provided sufficient proof—they only gave a filename, no behavior, no test result, etc. So the defect isn't established based on that claim alone.\n\nNeed to return {\"established\": false}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 79,
+            "prompt_tokens_details": {
+              "cached_tokens": 23
+            },
+            "completion_tokens": 255,
+            "total_tokens": 334
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-576",
+          "object": "chat.completion",
+          "created": 1792671386,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\": \"explicit\"}",
+                "reasoning": "Okay, let's see. The user is asking about priority among explicit, workspace, and default settings. The source says: \"explicit option overrides workspace setting; workspace setting overrides built-in default.\" So explicit is highest, then workspace, then default.\n\nThey want a JSON with {\"choice\": \"explicit\"} since explicit has the highest priority. Need to return only that JSON.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 122,
+            "prompt_tokens_details": {
+              "cached_tokens": 121
+            },
+            "completion_tokens": 88,
+            "total_tokens": 210
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-874",
+          "object": "chat.completion",
+          "created": 1792671393,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}",
+                "reasoning": "Okay, let's see. The user wants me to return a JSON object with \"name\" and \"kind\" for the bound declaration based on the given source and target.\n\nThe source text is: \"interface Parcel { tag: string }; function parcel() { return 1; }.\" The target is Parcel. The runtime target declarations include an object with name \"Parcel\", kind \"interface\", etc.\n\nThe instruction says to return {\"name\":string,\"kind\":string} for the bound declaration, preserving case and declaration kind.\n\nThe runtime target declarations list has \"name\":\"Parcel\" and \"kind\":\"interface\". So the bound declaration should be the interface Parcel.\n\nWait, the user says \"bound declaration\" – probably referring to the declaration that matches the target Parcel. Since the target is Parcel, and the runtime target has Parcel as an interface, the bound declaration's name should be \"Parcel\" and kind \"interface\".\n\nNeed to check if \"kind\" must be exactly \"interface\" as per the runtime target. The instruction says \"preserve case and declaration kind\", so \"interface\" as given.\n\nSo the JSON should be {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n\nWait, the user says \"Return {\"name\":string,\"kind\":string} for the bound declaration.\" So the response must be that JSON object.\n\nYes, so the answer is {\"name\":\"Parcel\", \"kind\":\"interface\"}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 222,
+            "prompt_tokens_details": {
+              "cached_tokens": 221
+            },
+            "completion_tokens": 313,
+            "total_tokens": 535
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-724",
+          "object": "chat.completion",
+          "created": 1792671398,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"Source code 'export function ping() { return \\\"pong\\\"; }' already correctly implements the required behavior (returns \\\"pong\\\") with no additional calls or modifications needed.\"\n}",
+                "reasoning": "Okay, let's see. The user wants me to preserve existing behavior and add no new calls. The source code given is \"export function ping() { return \"pong\"; }\". They say this source already satisfies the request.\n\nI need to return a JSON object with \"action\" as either \"no_change\" or \"patch\", and a \"reason\" string. Since the source already meets the request, the action should be \"no_change\". The reason would explain that no changes are needed because the existing code already returns \"pong\" as expected.\n\nWait, the instruction says \"Preserve existing behavior; add no new calls.\" The source is a function that returns \"pong\", which is correct. So no patching is needed. Therefore, action is \"no_change\", reason is something like \"Source code already correctly implements ping() returning 'pong', no changes required.\"\n\nMake sure the JSON is correct. Only the object with action and reason. No extra text.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 141,
+            "prompt_tokens_details": {
+              "cached_tokens": 140
+            },
+            "completion_tokens": 261,
+            "total_tokens": 402
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-308",
+          "object": "chat.completion",
+          "created": 1792671401,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}",
+                "reasoning": "Okay, the user wants me to return only one repair card JSON object with specific fields: id 2, file \"lib/beta.ts\", and dependsOn [1]. No other cards or keys.\n\nI need to make sure the response is exactly that JSON. No extra text, no explanations. Just the JSON object. Let me check the format: {\"id\":2,\"file\":\"lib/beta.ts\",\"dependsOn\":[1]}. Yes, that's correct.\n\nI should output only that, nothing else. So the response should be exactly that string.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 62,
+            "prompt_tokens_details": {
+              "cached_tokens": 61
+            },
+            "completion_tokens": 143,
+            "total_tokens": 205
+          }
+        }
+      },
+      {
+        "name": "explicit-exception",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-700",
+          "object": "chat.completion",
+          "created": 1792671406,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"violates\": false}",
+                "reasoning": "Okay, let's break this down. The user is asking about a contract that says \"preserve all existing files except lib/public.ts, where adding the requested export is required.\" The observed diff shows that only the requested export was added to lib/public.ts.\n\nSo the constraint is to preserve all existing files except lib/public.ts, and for lib/public.ts, adding the export is required. The observed diff only added the export to lib/public.ts and didn't modify any other files. Since the contract allows modifying lib/public.ts (specifically to add the export), and no other files were changed, it should be compliant.\n\nThe question is whether this violates the preservation constraint. Preservation means keeping all existing files except lib/public.ts, but since lib/public.ts is allowed to be modified (to add the export), adding only the export there doesn't violate preserving other files. So the answer should be no violation.\n\nThus, \"violates\" should be false.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 82,
+            "prompt_tokens_details": {
+              "cached_tokens": 81
+            },
+            "completion_tokens": 223,
+            "total_tokens": 305
+          }
+        }
+      },
+      {
+        "name": "unsupported-rejection",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-103",
+          "object": "chat.completion",
+          "created": 1792671411,
+          "model": "granite4.2-8b-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"established\": false}",
+                "reasoning": "Okay, let's see. The user is asking whether a reviewer's claim that a function has a defect, when they only provide a filename without any observed behavior, source code, test result, or explanation, establishes a defect. They want a JSON response with \"established\": boolean.\n\nFirst, I need to recall the principle here. The reviewer says there's a defect but gives no evidence: just a filename. No description of what happened, no code snippet, no test output, no explanation. The question is whether this establishes a defect.\n\nThe instruction says: \"Lack of proof is not proof of correctness.\" So if the reviewer hasn't provided proof (like observed behavior, test results, etc.), then just saying \"there's a defect\" without evidence doesn't establish it as a defect. Because establishing a defect would require evidence; without it, it's just a claim without proof.\n\nSo the answer should be false for \"established\". Because the reviewer hasn't provided sufficient proof—they only gave a filename, no behavior, no test result, etc. So the defect isn't established based on that claim alone.\n\nNeed to return {\"established\": false}.\n"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 79,
+            "prompt_tokens_details": {
+              "cached_tokens": 23
+            },
+            "completion_tokens": 255,
+            "total_tokens": 334
+          }
+        }
+      }
+    ]
+  }
+}

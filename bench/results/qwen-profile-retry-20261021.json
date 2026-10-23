@@ -1,0 +1,289 @@
+{
+  "sourceManifest": "bench/results/guided-compatibility-v2-20261021/manifest.json",
+  "profile": {
+    "// qwen3.8-27b-iq4-gpumax": "Тот же тег, что qwen3.8-27b-iq4-ctx32k, но с PARAMETER num_gpu 999 — принудительная загрузка максимального числа слоёв на GPU, чтобы Ollama использовала обе видеокарты вместо ухода в CPU. 2026-10-09: одна ручка exploreFill: true — мишень таймауты E01/E02 на guided-recovery diagnostics (без конвейера explore раздувался до лимита этапа).",
+    "id": "ollama:comparison-qwen-off-q8",
+    "provider": "ollama",
+    "model": "comparison-qwen-compatible-ctx32k",
+    "contextWindow": 32768,
+    "rank": 64,
+    "formFill": true,
+    "exploreFill": true,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096,
+      "temperature": 0.15
+    },
+    "placement": "gpu-only"
+  },
+  "layout": {
+    "models": [
+      {
+        "name": "comparison-qwen-compatible-ctx32k:latest",
+        "model": "comparison-qwen-compatible-ctx32k:latest",
+        "size": 15787706281,
+        "digest": "dc538e2babe5e7514314f9c83318a4beb35f1ee3081891e8aa10b03375229e84",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "27.3B",
+          "quantization_level": "IQ4_XS"
+        },
+        "expires_at": "2026-10-21T19:48:06.1153557+03:00",
+        "size_vram": 15787706281,
+        "context_length": 32768,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "result": {
+    "passed": true,
+    "elapsedMs": 31529,
+    "cases": [
+      {
+        "name": "source-choice",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-954",
+          "object": "chat.completion",
+          "created": 1792600988,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 105,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 6,
+            "total_tokens": 111
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-162",
+          "object": "chat.completion",
+          "created": 1792600992,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 226,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 10,
+            "total_tokens": 236
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-761",
+          "object": "chat.completion",
+          "created": 1792600998,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request to preserve existing behavior and add no new calls.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 124,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 36,
+            "total_tokens": 160
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 1,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-772",
+          "object": "chat.completion",
+          "created": 1792601003,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 63,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 18,
+            "total_tokens": 81
+          }
+        }
+      },
+      {
+        "name": "source-choice",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-133",
+          "object": "chat.completion",
+          "created": 1792601005,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"choice\":\"explicit\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 105,
+            "prompt_tokens_details": {
+              "cached_tokens": 101
+            },
+            "completion_tokens": 6,
+            "total_tokens": 111
+          }
+        }
+      },
+      {
+        "name": "declaration-kind",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-257",
+          "object": "chat.completion",
+          "created": 1792601008,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"kind\":\"interface\",\"name\":\"Parcel\"}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 226,
+            "prompt_tokens_details": {
+              "cached_tokens": 222
+            },
+            "completion_tokens": 10,
+            "total_tokens": 236
+          }
+        }
+      },
+      {
+        "name": "no-change",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-567",
+          "object": "chat.completion",
+          "created": 1792601014,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\n  \"action\": \"no_change\",\n  \"reason\": \"The source code already satisfies the request to preserve existing behavior and add no new calls.\"\n}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 124,
+            "prompt_tokens_details": {
+              "cached_tokens": 120
+            },
+            "completion_tokens": 36,
+            "total_tokens": 160
+          }
+        }
+      },
+      {
+        "name": "repair-card",
+        "repetition": 2,
+        "passed": true,
+        "response": {
+          "id": "chatcmpl-531",
+          "object": "chat.completion",
+          "created": 1792601017,
+          "model": "comparison-qwen-compatible-ctx32k",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"dependsOn\":[1],\"file\":\"lib/beta.ts\",\"id\":2}"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 63,
+            "prompt_tokens_details": {
+              "cached_tokens": 59
+            },
+            "completion_tokens": 18,
+            "total_tokens": 81
+          }
+        }
+      }
+    ]
+  }
+}

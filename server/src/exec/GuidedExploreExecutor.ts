@@ -8,7 +8,7 @@ import { decisionData } from './guidedProtocol.ts';
 import { readArtifact } from '../artifacts/artifact.ts';
 import { guardedPath } from './GuidedExecutor.ts';
 import { progressHash } from '../run/guidedProgress.ts';
-import { narrowGuidedRepair } from './guidedRecovery.ts';
+import { narrowGuidedRepair, rebuildGuidedObject } from './guidedRecovery.ts';
 import type { ExploreExecutorOptions } from './ExploreExecutor.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 
@@ -173,7 +173,25 @@ change: краткое предлагаемое изменение ЭТОГО ф
             if (action === 'stop') return fail(feedback);
             if (action === 'narrow') {
               narrow = narrowGuidedRepair(raw, error, guidedFileResearchResponseFormat());
-              if (!narrow) return fail(`Нет адресованного ремонта ${path}: ${feedback}`);
+              if (!narrow) {
+                try {
+                  const rebuilt = await rebuildGuidedObject(guidedFileResearchResponseFormat(), async (format, fields) => {
+                    req.signal.throwIfAborted();
+                    if (calls >= req.maxTurns) throw new Error('Бюджет исследования исчерпан');
+                    const started = Date.now();
+                    const fieldMessages = [...messages, { role: 'user' as const, content: `Верни только поле ${fields.join(', ')} по исходнику выше. Короткий JSON без рассуждений. ${feedback}` }];
+                    if (estimateMessageTokens(fieldMessages) + 1600 > window) throw new Error('Контекст ремонта исследования превышен');
+                    const reply = await this.o.provider.chat({ model: req.model, messages: fieldMessages, tools: [], temperature: null,
+                      params: { ...this.o.params, response_format: format, max_tokens: 1200 }, signal: req.signal });
+                    calls++; usage = addUsage(usage, reply.usage); hooks.onUsage(reply.usage, Date.now() - started);
+                    hooks.onExchange?.({ question: fieldMessages.at(-1)!.content, answer: reply.text });
+                    return reply;
+                  });
+                  parsed = FileResearch.parse(rebuilt);
+                  req.progress!.accept(ticket, parsed, dependencies());
+                  break;
+                } catch (repairError) { return fail(`Ремонт исследования по полям не завершён: ${String(repairError)}`); }
+              }
             }
           }
           hooks.onWarn(feedback);

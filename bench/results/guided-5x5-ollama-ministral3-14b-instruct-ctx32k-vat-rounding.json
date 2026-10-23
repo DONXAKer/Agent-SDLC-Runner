@@ -17,20 +17,20 @@
     "rollbacks": 0,
     "byPurpose": {
       "proposal": {
-        "requests": 11,
-        "inputTokens": 33883,
-        "outputTokens": 5026,
+        "requests": 13,
+        "inputTokens": 42077,
+        "outputTokens": 7861,
         "cost": null,
         "currency": "USD",
-        "durationMs": 323324
+        "durationMs": 388522
       },
       "review": {
-        "requests": 3,
-        "inputTokens": 6227,
-        "outputTokens": 1988,
+        "requests": 4,
+        "inputTokens": 8933,
+        "outputTokens": 4605,
         "cost": null,
         "currency": "USD",
-        "durationMs": 92107
+        "durationMs": 174622
       }
     },
     "timeToFirstMutationMs": null,
@@ -47,8 +47,8 @@
     "mode": "guided",
     "modelId": "ollama:ministral3-14b-ctx32k",
     "budgetMs": 3600000,
-    "activeMs": 331161,
-    "remainingMs": 3268839,
+    "activeMs": 489688,
+    "remainingMs": 3110312,
     "inputRevision": "",
     "currentItem": null,
     "stopReason": null,
@@ -57,8 +57,8 @@
     "decisionChecks": [
       {
         "stage": "intent",
-        "at": "2026-10-16T00:42:36.576Z",
-        "inputRevision": "9c2b3dfb43d556037d89d2e5abf9731fe3b5eb82a47aa84241c69c17743327c6",
+        "at": "2026-10-19T00:55:08.834Z",
+        "inputRevision": "97919b180261075dc1ce9bf430812bca8184514df804dfe85c325092d377af41",
         "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
         "evidence": [],
         "uncertainties": [],
@@ -71,14 +71,14 @@
     ],
     "workload": {
       "version": 1,
-      "startedAt": "2026-10-16T00:42:36.226Z",
+      "startedAt": "2026-10-19T00:55:08.522Z",
       "byPurpose": {
         "proposal": {
-          "usageEvents": 11,
-          "requests": 11,
-          "inputTokens": 33883,
-          "outputTokens": 5026,
-          "durationMs": 323324
+          "usageEvents": 13,
+          "requests": 13,
+          "inputTokens": 42077,
+          "outputTokens": 7861,
+          "durationMs": 388522
         },
         "format-repair": {
           "usageEvents": 0,
@@ -102,11 +102,11 @@
           "durationMs": 0
         },
         "review": {
-          "usageEvents": 3,
-          "requests": 3,
-          "inputTokens": 6227,
-          "outputTokens": 1988,
-          "durationMs": 92107
+          "usageEvents": 4,
+          "requests": 4,
+          "inputTokens": 8933,
+          "outputTokens": 4605,
+          "durationMs": 174622
         },
         "unclassified": {
           "usageEvents": 0,
@@ -161,20 +161,20 @@
       ],
       "recoveries": {
         "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›": {
-          "failures": 2,
-          "narrowed": false,
+          "failures": 3,
+          "narrowed": true,
           "stopped": false,
           "kind": "field",
-          "reason": "Приёмка противоречит запросу или не проверена: missing: В `claim-1` отсутствует явная проверка корректности поведения при граничных значениях `subtotal` (например, `0` копеек или минимальные/максимальные значения для типа данных копеек). Хотя запрос не требует отдельных тестов на границы, логическое противоречие может возникнуть при отсутствии обработки крайних случаев в исходном black-box-тесте (например, ожидание `vat: 0` или его отсутствие для нулех; основание: Запрос явно закрепляет необходимость явно пропускать поле `vat` для `opts.vat='none'` (конкретное ожидание в `expected`). Такое поведение должно работать также и для `subtotal = 0`. Если в черновике будет добавлено поле `vat: 0`, это нарушит требование отсутствия поля по чертежу.; контрпример: Не реализована гарантия отсутствия `vat` при `subtotal = 0` и `opts.vat='none'` (или добавление `vat: 0`, что равноценно нарушению). Текущий формат входов ожидается не измененным по чертежу.",
-          "inputHash": "8ab83e3a30b4316cf0a6b9d8f78805ccf7d3d5446791122d9159072fa54292ba"
+          "reason": "Приёмка противоречит запросу или не проверена: claim-1: Отсутствует проверка значения `total` при переходе с необлагаемого на облагаемый счёт. В `expected` описано требование *полного* изменения структуры (`subtotal + vat`), но в `procedure` отсутствует инструкция о сравнении `total` между 'std' и 'none'. Это увеличивает риск непроверенного поведения.; основание: Требование в claim-1: *«total становится подытогом плюс налог»* требует проверки арифметической корректности для обоих сценариев.; контрпример: При `opts.vat = 'std'` и `subtotal = 100`: отсутствие проверки вызывает риск, что `total == subtotal` (отсутствие сложения VAT), либо отсутствие проверки поля `vat` в 'none'-режиме делает объект структурно несовместимым с тестами.\nclaim-2: Описание контрпримеров в `procedure` не уточнено. Отсутствует логическое рассуждение о *конкретном локальном вхождении* расчета, допускающем втискивание формулы при игнорировании `vat.ts`. Текст *; основание: `procedure` должна описывать очевидный контрпример: наличие явной *не-импортируемой* формулы логики VAT. Для соответствия `behavior` требуется явное отсутствие кода типа `Math.round(subtotal*0.2)`, ссылающегося на расчёты в `src/invoice.ts` без использования `vat.ts`; контрпример: Наличие выражения `if (opts.vat == 'std') { vatValue = Math.ceil(subtotal * 20 / 100)}, ...` внутри логики сборки счётов без ссылки на импорт из `vat.ts`. Проверка такого случая не включена в `procedure` даже через *антипример*.\nmissing: Отсутствует проверка *явного требования* из **рамок**: отсутствие использования поля `vat: 0` для необлагаемых счётов. Это логическое требование (`behavior`) не переходит в тест-процедуру даже как явный негативный критерий.; основание: Требование в `behavior`: «*Для неизгаемого счёта поле не добавляется вовсе*».; контрпример: Объект с полем `vat: 0` для случаев `opts.vat = 'none'`, но сохраняющий все прочие поля. В тестовом процессе отсутствует требование о **строгом удалении** поля, даже если формально проверка *от",
+          "inputHash": "5f3798a452f51a0955605840c0dae5d9757f73273a4b0167a499c4fc0d277802"
         },
         "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›": {
-          "failures": 2,
-          "narrowed": false,
+          "failures": 3,
+          "narrowed": true,
           "stopped": false,
           "kind": "field",
           "reason": "поле основания и сценарии: basis: acceptance ещё не прошёл проверку; дождись его исправления и свяжи основания с точными ID и требованиями",
-          "inputHash": "7faea650da198bcbe04204b84501454946ccd04785a7ce67735a1cdfc2768c87"
+          "inputHash": "c09f95862c3c80386d31d6db5758d398c7421d79a822cd0e487b8486b9869f33"
         }
       }
     }
@@ -219,8 +219,8 @@
       "verify",
       "handoff"
     ],
-    "startedAt": "2026-10-16T00:42:35.481Z",
-    "finishedAt": "2026-10-16T00:48:07.451Z",
+    "startedAt": "2026-10-19T00:55:07.864Z",
+    "finishedAt": "2026-10-19T01:03:18.268Z",
     "maxTurns": 40,
     "maxTurnsExplicit": false,
     "maxIterationsByStage": {
@@ -238,7 +238,7 @@
         "blockers": [],
         "timedOut": false,
         "skipped": false,
-        "modelRequests": 14,
+        "modelRequests": 17,
         "failure": {
           "kind": "contract",
           "origin": "intent",
@@ -258,29 +258,32 @@
         "stage": "intent",
         "runs": 1,
         "usage": {
-          "inputTokens": 40110,
-          "outputTokens": 7014,
-          "cacheReadTokens": 18773,
+          "inputTokens": 51010,
+          "outputTokens": 12466,
+          "cacheReadTokens": 26463,
           "cacheWriteTokens": 0,
           "costUsd": null,
-          "durationMs": 415405
+          "durationMs": 563116
         },
-        "durationMs": 331203,
+        "durationMs": 489726,
         "requestDurationsMs": [
-          12144,
-          44591,
-          53415,
-          4437,
-          23823,
-          61315,
-          66100,
-          18971,
-          30527,
-          11190,
-          9786,
-          32068,
-          14817,
-          32247
+          5028,
+          16526,
+          23054,
+          23419,
+          29209,
+          55725,
+          50137,
+          44519,
+          26398,
+          49206,
+          18891,
+          39574,
+          31400,
+          37318,
+          36748,
+          43879,
+          32113
         ]
       }
     ],
@@ -307,7 +310,7 @@
         "stage": "intent",
         "questions": 0,
         "approvals": 2,
-        "waitMs": 13
+        "waitMs": 12
       }
     ],
     "artifactGaps": [
@@ -323,7 +326,7 @@
     "approvals": [
       {
         "stage": "intent",
-        "requestId": "form:f6c37a07-8417-4987-a322-b0576a4b069f",
+        "requestId": "form:f5b7ba18-6823-471b-a98e-d337b55c8fcd",
         "kind": "write",
         "toolName": "Write",
         "targets": [
@@ -332,11 +335,11 @@
         "destructive": null,
         "outcome": "granted",
         "why": "default → allow",
-        "waitedMs": 8
+        "waitedMs": 6
       },
       {
         "stage": "intent",
-        "requestId": "form:599498d3-980d-4beb-8e7b-42b43a8ab5b5",
+        "requestId": "form:51f2a3d3-eb76-4798-ac4d-d568e9f4b85f",
         "kind": "write",
         "toolName": "Write",
         "targets": [
@@ -345,7 +348,7 @@
         "destructive": null,
         "outcome": "granted",
         "why": "default → allow",
-        "waitedMs": 4
+        "waitedMs": 5
       }
     ],
     "asks": [],
@@ -403,42 +406,42 @@
   "diagnostics": {
     "passport": {
       "version": 1,
-      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
-      "sourceHash": "93a9de0c4cb6a351ffa2888f9e3b7007e8f207cc49d5c76741cbf92901d0ac3a",
-      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "gitHead": "06e6e0d897c344ae5c8de159bc01ebe3994cf631",
+      "sourceHash": "acdbb86e8c65d5951b57551ded04898e2b29450a90ebb841273f3d5961790dbb",
+      "configHash": "ab81427ee2563f5dacb4ce381d6c2bfdefb88da50c2d98ece1173730ec4a90ce",
       "localEndpoints": {},
-      "inputHash": "91b8a0a1ef1b362d3411a60601992be2387483ffa22a7c3babb11627798f43c9",
+      "inputHash": "7ddf225a7f9d183ed94e7cacb5e587a140c093fdcb6996372a183e504617ecf2",
       "snapshotName": null,
       "snapshotAuthor": null,
       "stageTimeoutMs": 1200000,
       "runTimeoutMs": 2700000
     },
-    "workspaceHash": "0837b42634aad7b3baddf7b9b95346d236b6a2180ed9deeed90f5a8631eb0303",
+    "workspaceHash": "75246e6c994aed4bda05e1c71bced7298babd5d61c87d12dfaeb3b0c807b9913",
     "state": "finished",
-    "capturedAt": "2026-10-16T00:48:07.486Z",
+    "capturedAt": "2026-10-19T01:03:18.306Z",
     "lastEvent": {
       "type": "stage_done",
       "stage": "intent",
-      "at": "2026-10-16T00:48:07.412Z"
+      "at": "2026-10-19T01:03:18.236Z"
     },
     "artifacts": [
       {
         "path": ".runner/metrics.md",
-        "sha256": "2b91b8492fefb223c396eb4df57de77ceba16afc03dfa51ec8903437ad254543",
+        "sha256": "87282c4e5c7f37f21fa694cf47f4ff8c07aa36371fc42047587a57f2540ff20a",
         "placeholders": 1,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0
       },
       {
         "path": "intent.md",
-        "sha256": "cbb35ff3ccb5336bf2043f121c275d927708ea75d29dc77d73650445bdc4944c",
+        "sha256": "7cc5159492d83227303c1d1fd99ae56f649526e9dc79e810970670078220a293",
         "placeholders": 1,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0
       },
       {
         "path": "readiness.md",
-        "sha256": "c2a41a3198585c9cb1c1c2bf159f646df6d4f793b55a276ba9086484b33dc90b",
+        "sha256": "b1b58ff00448a6481c56086be7b0196994795a82cab824516e0e726f4426e35f",
         "placeholders": 0,
         "uncheckedQuestions": 0,
         "blockingQuestions": 0

@@ -1,3 +1,6 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
+import { INTENT_ADJUDICATION_SYSTEM, intentIssueAdjudicationFormat, parseIntentIssueAdjudication } from './intentIssueAdjudication.ts';
+import { DecisionError } from './decisionEngine.ts';
 import { fieldSystem } from './fieldPrompt.ts';
 import { contractDependencies, sourceScopeIssues, intentClaimSetProblem } from './guidedContract.ts';
 import { documentFacts, plainQuestion } from './guidedProtocol.ts';
@@ -1046,7 +1049,7 @@ export class FormFillExecutor implements StageExecutor {
   }
 
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
-    const strictIntent = req.guidedEngineVersion === 4 && this.o.stage === 'intent';
+    const strictIntent = hasGuidedContracts(req.guidedEngineVersion) && this.o.stage === 'intent';
     let contractReviewedText: string | null = null;
     let acceptanceReviewRejected = false;
     this.maxRequestTokens = null;
@@ -1502,7 +1505,7 @@ export class FormFillExecutor implements StageExecutor {
         let fieldMaxTokens = Math.min(8192, typeof this.o.params?.max_tokens === 'number' ? this.o.params.max_tokens : 4096);
         try {
           const packed = packGuidedFieldQuestion(system, field.id, questionText, fieldData, this.o.contextWindow,
-            { protectContract: req.guidedEngineVersion === 4 });
+            { protectContract: hasGuidedContracts(req.guidedEngineVersion) });
           if (packed.truncated) {
             hooks.onHarnessEvent?.({ kind: 'context-compaction' });
             hooks.onWarn(`полевой guided-запрос «${field.id}» ужат под окно ${this.o.contextWindow ?? 16384}`);
@@ -1510,6 +1513,7 @@ export class FormFillExecutor implements StageExecutor {
           messages = [{ role: 'system', content: system }, { role: 'user', content: packed.question }];
           fieldMaxTokens = Math.min(fieldMaxTokens, packed.available);
         } catch (error) {
+          if (error instanceof DecisionError) throw error;
           const reason = error instanceof Error ? error.message : String(error);
           hooks.onHarnessEvent?.({ kind: 'context-overflow' });
           fieldProgress?.reject(compactFieldKey(field), reason);
@@ -1541,6 +1545,7 @@ export class FormFillExecutor implements StageExecutor {
             });
             return { ...result, text: merged };
           } catch (error) {
+          if (error instanceof DecisionError) throw error;
             const reason = error instanceof Error ? error.message : 'Невалидный JSON';
             fieldProgress?.reject(compactFieldKey(field), reason);
             hooks.onWarn(`Проверка JSON ${field.id}: ${reason}`);
@@ -1570,6 +1575,7 @@ export class FormFillExecutor implements StageExecutor {
           hooks.onQuestionValidated?.({ questionId: field.id, accepted: true, reason: 'JSON соответствует схеме списка; оформление записей выполнено рантаймом' });
           return { ...result, text: rendered };
         } catch (error) {
+          if (error instanceof DecisionError) throw error;
           fieldProgress?.reject(compactFieldKey(field), String(error));
           hooks.onWarn(`Проверка JSON ${field.id}: ${String(error)}`); hooks.onFriction('badJson');
           hooks.onQuestionValidated?.({ questionId: field.id, accepted: false, reason: String(error) });
@@ -1951,6 +1957,7 @@ export class FormFillExecutor implements StageExecutor {
               usage = addUsage(usage, audit.usage);
               problems = intentClaimReviewProblems(audit.text, draft.map(claim => claim.id));
             } catch (error) {
+          if (error instanceof DecisionError) throw error;
               noteEnvFailure(error);
               problems = [`Проверка приёмки не завершена: ${(error as Error).message}`];
             }
@@ -2627,6 +2634,7 @@ export class FormFillExecutor implements StageExecutor {
               intentContractReviewFormat(requests, intentContractSections(intent)),
               answer => parseIntentContractReview(answer, intent, requests, strictIntent || req.prompt.guidedProtocol === true));
           } catch (error) {
+          if (error instanceof DecisionError) throw error;
             // Исчерпанный бюджет — не «битый JSON»: три ретрая только жгут warn (mellum 5×5).
             if (/бюджет запросов исчерпан/iu.test((error as Error).message)) throw error;
             parseFailStreak++;
@@ -2638,6 +2646,7 @@ export class FormFillExecutor implements StageExecutor {
           try {
             issues = parseIntentContractReview(reviewText, intent, requests, strictIntent || req.prompt.guidedProtocol === true);
           } catch (error) {
+          if (error instanceof DecisionError) throw error;
             if (/бюджет запросов исчерпан/iu.test((error as Error).message)) throw error;
             parseFailStreak++;
             hooks.onWarn(`Разбор рецензии контракта отклонён (бюджет ремонта не тратится): ${(error as Error).message}`);
@@ -2645,6 +2654,21 @@ export class FormFillExecutor implements StageExecutor {
             continue;
           }
           parseFailStreak = 0;
+          if (req.guidedEngineVersion === 5 && issues.length) {
+            const confirmed: typeof issues = [];
+            for (const [index, issue] of issues.entries()) {
+              const answer = await askContract(INTENT_ADJUDICATION_SYSTEM,
+                { questionId: `intent:adjudicate:${round}:${index}`, question: 'Могут ли оба адресованных требования выполняться одновременно?',
+                  allegedIssue: renderIntentContractIssue(issue, intent, requests), relatedSections: sectionFacts,
+                  requests: sources.map(source => ({ file: source.file, lines: sourceLineFacts(source.text) })) },
+                intentIssueAdjudicationFormat, parseIntentIssueAdjudication);
+              const judgment = parseIntentIssueAdjudication(answer);
+              hooks.onText(`Проверка основания замечания: ${judgment.relation}; ${judgment.explanation}\n`);
+              if (judgment.relation === 'unknown') throw new DecisionError('human-required', `Основание противоречия не установлено: ${judgment.explanation}`, `intent:${round}:${index}`);
+              if (judgment.relation === 'contradictory') confirmed.push(issue);
+            }
+            issues = confirmed;
+          }
           if (readArtifact(intentPath).text !== intent) throw new Error('Intent изменился во время проверки контракта; повтори этап');
           if (strictIntent) issues = [...sourceScopeIssues(intent, requests), ...issues];
           if (!issues.length) { completed = true; contractReviewedText = intent; break; }
@@ -2685,12 +2709,17 @@ export class FormFillExecutor implements StageExecutor {
                   hooks.onQuestionValidated?.({ questionId: `intent:repair:${writtenRepairs}:${section}`, accepted: true,
                     reason: 'JSON ремонта проверен: обязательные поля и ID сохранены, ссылки проверены; изменён только адресованный раздел. Запись ещё не выполнена' });
                 } catch (error) {
+          if (error instanceof DecisionError) throw error;
                   hooks.onQuestionValidated?.({ questionId: `intent:repair:${writtenRepairs}:${section}`, accepted: false,
                     reason: `JSON ремонта отклонён до записи: ${(error as Error).message}` });
                   throw error;
                 }
               }
               if (readArtifact(intentPath).text !== intent) throw new Error('Intent изменился во время ремонта контракта; повтори этап');
+              if (strictIntent) {
+                const claimsProblem = intentClaimSetProblem(repaired, requests);
+                if (claimsProblem) throw new Error(claimsProblem);
+              }
               if (repaired === intent) throw new Error('Ремонт контракта не изменил адресованные секции');
               const written = await flushArtifact(intentPath, repaired, intent);
               for (const section of sections) hooks.onQuestionValidated?.({ questionId: `intent:repair:${writtenRepairs}:${section}`, accepted: written,
@@ -2710,6 +2739,7 @@ export class FormFillExecutor implements StageExecutor {
             writtenRepairs++;
             repairFailStreak = 0;
           } catch (error) {
+          if (error instanceof DecisionError) throw error;
             // Битый JSON / отказ записи — writtenRepairs не растёт; серия отказов ремонта всё же конечна.
             hooks.onWarn(`Ремонт контракта отклонён (счётчик записанных ремонтов не увеличивается): ${(error as Error).message}`);
             // A later empty review must not erase a rejected write or malformed repair.
@@ -2722,6 +2752,7 @@ export class FormFillExecutor implements StageExecutor {
         if (!completed) throw new Error('Проверка контракта Intent не завершена');
         const over = budgetHit(); if (over !== null) throw new Error(over);
       } catch (error) {
+          if (error instanceof DecisionError) throw error;
         noteEnvFailure(error);
         return withSpent({ ok: false, finalText: '', usage, note: (error as Error).message,
           ...(strictIntent ? { failure: { kind: 'contract' as const, origin: 'intent' as const, retryStage: /требуется уточнение/u.test((error as Error).message) ? 'ask' as const : 'intent' as const,

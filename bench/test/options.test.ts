@@ -58,10 +58,10 @@ it('guided requires a full cycle and prevents contradictory preparation versions
 });
 
 it('guided engine selection is explicit and cannot be silently used in legacy diagnosis', () => {
-  for (const version of ['1', '2', '3', '4']) strictEqual(parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided',
+  for (const version of ['1', '2', '3', '4', '5']) strictEqual(parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided',
     '--guided-engine-version', version]).guidedEngineVersion, Number(version));
   throws(() => parseArgs(['--all', '--model', 'x', '--guided-engine-version', '3']), /guided/);
-  throws(() => parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided', '--guided-engine-version', '5']), /ожидается/);
+  throws(() => parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided', '--guided-engine-version', '6']), /ожидается/);
 });
 
 describe('лимиты ходов (resolveTurnLimits)', () => {

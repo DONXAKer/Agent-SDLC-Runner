@@ -35,10 +35,7 @@ export function assertPlainPath(file: string): void {
 
 export function atomicJson(file: string, value: unknown): void {
   assertPlainPath(file);
-  mkdirSync(dirname(file), { recursive: true });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-  renameSync(temporary, file);
+  writeAtomicJson(file, value);
 }
 
 export function evidenceFile(root: string, file: string): string {
@@ -51,3 +48,4 @@ export function evidenceFile(root: string, file: string): string {
 }
 
 export const fileHash = (file: string): string => sha256(readFileSync(file));
+import { atomicJson as writeAtomicJson } from '../fs/atomicJson.ts';

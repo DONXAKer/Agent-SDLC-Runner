@@ -20,6 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { atomicJson } from '../fs/atomicJson.ts';
 import { basename, join } from 'node:path';
 
 import type { Verdict, VerdictAction } from '@sdlc-runner/shared';
@@ -29,7 +30,7 @@ import type { WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_CONSTANTS, assertSameList } from '../config/constants.ts';
 import { parseIterations, readIterationsText } from './iterationsLog.ts';
 import { readCanonicalState, checkStateEvidence, writeCanonicalState } from './canonicalState.ts';
-import { acceptanceFresh } from './independentAcceptance.ts';
+import { acceptanceFresh, hasIndependentAcceptance } from './independentAcceptance.ts';
 import { canonicalRoot, fileHash, runtimeStateDir } from './protectedStore.ts';
 export { canonicalRoot, runtimeStateDir } from './protectedStore.ts';
 
@@ -39,6 +40,7 @@ assertSameList('словарь action (actions)', [...ACTIONS].sort(), [...SDLC_
 
 /** Вердикт с тем, к чему он относится, и что с ним уже сделано. */
 export interface StoredVerdict extends Verdict {
+  requiresAcceptance?: boolean;
   /** Хеш патча попытки на момент расчёта; `null` — патча не было. */
   patchSha: string | null;
   /** sha локального коммита handoff по этой попытке; `null` — коммита ещё не было. */
@@ -85,7 +87,7 @@ export function patchShaOf(paths: WitokPaths, chunk: number, attempt: number): s
 function writeStored(paths: WitokPaths, chunk: number, attempt: number, v: StoredVerdict): void {
   const file = verdictPath(paths, chunk, attempt);
   mkdirSync(join(file, '..'), { recursive: true });
-  writeFileSync(file, `${JSON.stringify({ chunk, attempt, ...v }, null, 2)}\n`, 'utf8');
+  atomicJson(file, { chunk, attempt, ...v });
 }
 
 export function writeRunVerdict(paths: WitokPaths, chunk: number, attempt: number, verdict: Verdict): void {
@@ -95,6 +97,7 @@ export function writeRunVerdict(paths: WitokPaths, chunk: number, attempt: numbe
     reasons: verdict.reasons,
     patchSha: patchShaOf(paths, chunk, attempt),
     committedSha: null,
+    ...(hasIndependentAcceptance(paths) ? { requiresAcceptance: true } : {}),
   });
 }
 
@@ -139,7 +142,11 @@ export function readRunVerdict(paths: WitokPaths, chunk: number, attempt: number
   if (action === undefined) return null;
   const reasons = Array.isArray(v['reasons']) ? v['reasons'].filter((r): r is string => typeof r === 'string') : [];
   const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
-  return { passed: v['passed'], action, reasons, patchSha: str(v['patchSha']), committedSha: str(v['committedSha']) };
+  const required = v['requiresAcceptance'] === true || hasIndependentAcceptance(paths);
+  const stale = v['passed'] && required && !acceptanceFresh(paths, chunk, attempt);
+  return { passed: v['passed'] && !stale, action: stale ? 'retry' : action,
+    reasons: stale ? [...reasons, 'Независимая приёмка устарела или не подтверждена'] : reasons,
+    patchSha: str(v['patchSha']), committedSha: str(v['committedSha']), ...(required ? { requiresAcceptance: true } : {}) };
 }
 
 /**

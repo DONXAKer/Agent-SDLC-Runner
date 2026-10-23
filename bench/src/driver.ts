@@ -1,3 +1,4 @@
+import { hasGuidedContracts } from '@sdlc-runner/shared';
 /**
  * Драйвер витка (часть шага 3 ROADMAP.md).
  *
@@ -19,6 +20,9 @@ import { stageById } from '../../server/src/run/stages.ts';
 import type { StageResult } from '../../server/src/exec/StageExecutor.ts';
 
 export interface DriverStageRecord {
+  stopCause?: StageResult['stopCause'];
+  diagnostic?: StageResult['diagnostic'];
+  decisionStats?: StageResult['decisionStats'];
   stage: StageId;
   chunk: number;
   attempt: number;
@@ -95,7 +99,7 @@ export interface DriverResult {
 export interface DriverArgs {
   preparationVersion?: 1 | 2 | 3;
   executionMode?: 'legacy' | 'guided';
-  guidedEngineVersion?: 1 | 2 | 3 | 4;
+  guidedEngineVersion?: 1 | 2 | 3 | 4 | 5;
   /** Diagnostic boundary; unlike a snapshot, also stops on failed/incomplete stages. */
   measurementEnd?: StageId;
   signal?: AbortSignal;
@@ -141,7 +145,7 @@ export interface DriverArgs {
    */
   onDecision?: (line: string) => void;
   /** Called after successful stage completion and recording its human decision. */
-  onStageCompleted?: (record: DriverStageRecord) => void;
+  onStageCompleted?: (record: DriverStageRecord) => void | Promise<void>;
 }
 
 /** Индекс этапа `chunk` в `STAGE_ORDER` — сюда прыгает `retry`. */
@@ -178,7 +182,7 @@ async function runStageWithTimeout(
     return { result: race, timedOut: false };
   }
 
-  run.cancel(`этап ${stage} превысил лимит стенных часов (${timeoutMs} мс)`);
+  run.cancel(`этап ${stage} превысил лимит стенных часов (${timeoutMs} мс)`, 'stage-deadline');
   const result = await stagePromise;
   return { result, timedOut: true };
 }
@@ -334,10 +338,13 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       timedOut,
       skipped,
       ...(result.envFailure === undefined ? {} : { envFailure: result.envFailure }),
+      ...(result.diagnostic === undefined ? {} : { diagnostic: result.diagnostic }),
+      ...(result.decisionStats === undefined ? {} : { decisionStats: result.decisionStats }),
       ...(result.turns === undefined ? {} : { turns: result.turns }),
       ...(modelRequests === undefined ? {} : { modelRequests }),
       ...(result.failure === undefined ? {} : { failure: result.failure }),
       ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
+      ...(timedOut ? { stopCause: 'stage-deadline' as const } : result.stopCause === undefined ? {} : { stopCause: result.stopCause }),
     });
 
     if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
@@ -347,6 +354,10 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     }
 
     if (timedOut) {
+      if (stage === 'intent' && hasGuidedContracts(args.guidedEngineVersion)) {
+        say('Intent остановлен по дедлайну: завершённость контракта не подтверждена');
+        return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-timeout' };
+      }
       // Бюджет времени на ЭТАП, а не на всё, что он успел записать: `runStageWithTimeout`
       // уже дождался `run.cancel()` и вернул РЕАЛЬНЫЙ результат — поля, дописанные
       // `FormFillExecutor` (или узкими доборами) до разрыва, уже лежат на диске, письмо
@@ -452,7 +463,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     // «после него» нужен диагностике, когда развилки закрыл более ранний этап.
     {
       const completed = stages.at(-1);
-      if (completed?.ok && completed.stage === stage) args.onStageCompleted?.(completed);
+      if (completed?.ok && completed.stage === stage) await args.onStageCompleted?.(completed);
     }
     if (stage === args.measurementEnd) {
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-measured' };
