@@ -129,6 +129,118 @@ describe('unsupported thinking remains an explicit profile failure', () => {
   });
 });
 
+describe('explicit unsupported-reasoning fallback', () => {
+  it('retries once without reasoning keys after a nested error and warns without mutating params', async () => {
+    let calls = 0;
+    const received: Record<string, unknown>[] = [];
+    const server = createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        calls++;
+        received.push(JSON.parse(raw));
+        res.setHeader('content-type', 'application/json');
+        if (calls === 1) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: { message: '"test-model" does not support thinking', type: 'invalid_request_error' } }));
+        } else {
+          res.end(JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const warnings: string[] = [];
+    const provider = new OpenAiCompatProvider({
+      name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000,
+      reasoningFallback: 'omit-params', onWarn: (message) => warnings.push(message),
+    });
+    const params = {
+      reasoning_effort: 'low', reasoning: { effort: 'high' }, think: true, thinking: { enabled: true },
+      max_tokens: 1234, seed: 7,
+    };
+    const original = structuredClone(params);
+    const turn = await provider.chat(request(params));
+
+    strictEqual(turn.text, 'ok');
+    strictEqual(calls, 2);
+    strictEqual(received.length, 2);
+    for (const key of ['reasoning_effort', 'reasoning', 'think', 'thinking']) {
+      strictEqual(received[1]![key], undefined);
+      ok(warnings[0]?.includes(key), `warning должно назвать ${key}`);
+    }
+    strictEqual(received[1]!['max_tokens'], 1234);
+    strictEqual(received[1]!['seed'], 7);
+    strictEqual(warnings.length, 1);
+    ok(warnings[0]!.includes('does not support thinking'));
+    deepStrictEqual(params, original);
+  });
+
+  it('does not retry when the request has no reasoning keys', async () => {
+    let calls = 0;
+    const server = createServer((_req, res) => {
+      calls++;
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'model does not support reasoning' } }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const warnings: string[] = [];
+    const provider = new OpenAiCompatProvider({
+      name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000,
+      reasoningFallback: 'omit-params', onWarn: (message) => warnings.push(message),
+    });
+    await rejects(provider.chat(request({ max_tokens: 321 })), /does not support reasoning/);
+    strictEqual(calls, 1);
+    strictEqual(warnings.length, 0);
+  });
+
+  it('does not retry when the phrase is outside the error field', async () => {
+    let calls = 0;
+    const server = createServer((_req, res) => {
+      calls++;
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        message: 'quoted: model does not support thinking',
+        error: { message: 'invalid tools schema' },
+      }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const warnings: string[] = [];
+    const provider = new OpenAiCompatProvider({
+      name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000,
+      reasoningFallback: 'omit-params', onWarn: (message) => warnings.push(message),
+    });
+    await rejects(provider.chat(request({ reasoning_effort: 'low' })), /invalid tools schema/);
+    strictEqual(calls, 1);
+    strictEqual(warnings.length, 0);
+  });
+
+  it('returns a second HTTP 400 through the normal error path after exactly two calls', async () => {
+    let calls = 0;
+    const server = createServer((_req, res) => {
+      calls++;
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'model does not support thinking' } }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const warnings: string[] = [];
+    const provider = new OpenAiCompatProvider({
+      name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000,
+      reasoningFallback: 'omit-params', onWarn: (message) => warnings.push(message),
+    });
+    await rejects(provider.chat(request({ reasoning_effort: 'low' })), /does not support thinking/);
+    strictEqual(calls, 2);
+    strictEqual(warnings.length, 1);
+  });
+});
+
 it('literal schema choices reach the prompt without changing the caller messages or schema', async () => {
   const baseUrl = await startStub();
   const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl, apiKey: null, timeoutMs: 2000 });

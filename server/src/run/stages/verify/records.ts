@@ -159,7 +159,7 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
   const { calls, envFailure } = await fillClaims({
     guided: readGuided(host.paths) !== null,
     onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'finalization' }),
     model: route.model,
     params: route.params,
     system,

@@ -32,7 +32,7 @@ export function decisionOptions(paths: WitokPaths, stage: string, contextWindow:
           if(!packet||typeof packet.path!=='string'||typeof packet.hash!=='string')throw Error('Invalid source packet');
           const text=row.sources&&typeof row.sources==='object'?(row.sources as Record<string,unknown>)[packet.path]:undefined;
           if(typeof text!=='string')throw Error(`Missing supplied source: ${packet.path}`);
-          check(packet.path,text,packet.hash);
+          check(packet.path,packet.lineNumbered===true?undefined:text,packet.hash);
         }
         if(['source','files','fragments','sourcePackets'].includes(key)&&typeof row.path==='string'){
           const text=typeof row.content==='string'?row.content:typeof row.text==='string'?row.text:undefined;

@@ -2,7 +2,14 @@ import type { BenchResult } from './result.ts';
 import { guidedSuiteSuccess } from '../../tools/guided-suite-success.ts';
 import type { PreflightReport } from './preflight.ts';
 
-export interface ValidationIdentity { slug: string; model: string; task: string; startedAt: string; finishedAt: string; guidedEngineVersion?: 4 | 5 }
+export interface ValidationIdentity { slug: string; model: string; task: string; startedAt: string; finishedAt: string; guidedEngineVersion?: 3 | 4 | 5 }
+
+export type LiveOutcomeKind = 'full-flow-success' | 'model-task-failure' | 'environment-failure' | 'preflight-failure' | 'incomplete';
+export type LiveEvidenceLevel = 'live-full-flow' | 'live-partial' | 'none';
+
+function outcome(kind: LiveOutcomeKind, evidenceLevel: LiveEvidenceLevel, modelTaskEvaluated: boolean, operationalSuccess: boolean, environmentFailure = false) {
+  return { outcomeKind: kind, evidenceLevel, modelQualitySuccess: kind === 'full-flow-success', modelTaskEvaluated, operationalSuccess, environmentFailure };
+}
 
 /** A shared filename or zero exit status is never evidence that a result belongs to this invocation. */
 export function currentGuidedResult(value: unknown, expected: ValidationIdentity): value is BenchResult {
@@ -25,17 +32,23 @@ export function assessGuidedValidation(value: unknown, expected: ValidationIdent
     Number.isFinite(Date.parse(preflight.startedAt)) && Number.isFinite(Date.parse(preflight.finishedAt)) &&
     Date.parse(preflight.startedAt) >= Date.parse(expected.startedAt) && Date.parse(preflight.finishedAt) >= Date.parse(preflight.startedAt) && Date.parse(preflight.finishedAt) <= Date.parse(expected.finishedAt))
     return { status: 'preflight-failed', success: false, exitCode, preflight,
+      ...outcome('preflight-failure', 'none', false, false, preflight.envBlocked),
       reason: preflight.checks.filter(check => !check.ok).map(check => `${check.name}: ${check.detail}`).join('; '),
       diagnosis: preflight.envBlocked ? 'environment' : 'model-probe-failure' };
   if (!currentGuidedResult(value, expected)) return {
     status: 'no-current-result', success: false, reason: value ? 'Result identity, protocol or invocation timestamps do not match' : 'No result; inspect preflight/launcher log',
-    exitCode, diagnosis: 'unassessed',
+    exitCode, diagnosis: 'unassessed', ...outcome('incomplete', 'none', false, false),
   };
   const stages = value.driver.stages;
   const failed = stages.find(stage => !stage.ok);
   const success = exitCode === 0 && guidedSuiteSuccess(value);
+  const incomplete = !success && (exitCode === null || value.driver.stopped === 'incomplete');
+  const environmentFailure = !success && !incomplete && (exitCode === 2 || stages.some(stage => stage.envFailure) ||
+    ['stage-env-repeat', 'blocked-env-repeat', 'stage-timeout', 'run-timeout'].includes(value.driver.stopped));
   return {
-    status: success ? 'success' : stages.some(stage => stage.envFailure) ? 'environment-failure' : 'failed', success,
+    status: success ? 'success' : incomplete ? 'no-current-result' : environmentFailure ? 'environment-failure' : 'failed', success,
+    ...outcome(success ? 'full-flow-success' : incomplete ? 'incomplete' : environmentFailure ? 'environment-failure' : 'model-task-failure',
+      success ? 'live-full-flow' : 'live-partial', success || (!incomplete && !environmentFailure), success, environmentFailure),
     exitCode, stopped: value.driver.stopped, failedStage: failed?.stage ?? null,
     reason: failed?.note ?? value.finalVerdict?.reasons.join('; ') ?? value.driver.stopped,
     failure: failed?.failure ?? null, diagnosis: success ? 'accepted' : 'unassessed',

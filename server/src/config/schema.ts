@@ -70,6 +70,15 @@ export interface RunnerLimits {
    * 21 такой отказ, но что починка не прячет от оператора другой вред, живьём не проверено.
    */
   restoreErasedDecisions?: boolean;
+  workBudget?: {
+    wallClockMs: number;
+    requests: number;
+    outputTokens: number;
+    reserveWallClockMs: number;
+    reserveRequests: number;
+    reserveOutputTokens: number;
+    cost?: { currency: string; amount: number; reserveAmount: number };
+  };
 }
 
 export interface RunnerConfig {
@@ -145,6 +154,7 @@ export interface ModelDef {
    * правку кода. Служебные ключи (model/messages/tools/stream) провайдер не отдаёт.
    */
   params?: Record<string, unknown>;
+  reasoningFallback?: 'omit-params';
   /**
    * Урезанный набор инструментов на этапах-документах intent/ask/plan: Read, Edit,
    * Write, AskHuman, FinalizeArtifact — без Glob/Grep/Bash. Свойство МОДЕЛИ, а не
@@ -491,6 +501,7 @@ export interface ResolvedRoute {
   rank: number;
   /** Параметры запроса из `ModelDef.params`. `null` — не заданы. */
   params: Record<string, unknown> | null;
+  reasoningFallback?: 'omit-params';
   /** Урезанный набор инструментов этапов-документов — см. `ModelDef.leanTools`. */
   leanTools: boolean;
   /** Режим заполнения бланка по полям — см. `ModelDef.formFill`. */

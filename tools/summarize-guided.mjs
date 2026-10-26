@@ -20,26 +20,30 @@ for (const [caseIndex, entry] of manifest.cases.entries()) {
   if (!groups.has(key)) groups.set(key, { model: entry.model, version: entry.version, cases: 0, completed: 0, successes: 0, failures: 0,
     environment: 0, incomplete: 0, minutes: [], tokens: [], stageStops: {}, failuresByKind: {}, terminalFailuresByKind: {}, workloadTokens: {}, mutationRuns: 0, beforeMutationTokens: [] });
   const group = groups.get(key); group.cases++;
-  if (!run || !['success', 'failed'].includes(run.status)) { group.incomplete++; continue; }
+  if (!run || !['success', 'failed', 'environment-failure'].includes(run.status)) { group.incomplete++; continue; }
   let result;
   try { result = JSON.parse(readFileSync(join(dirname(manifestPath), '..', `${run.slug}.json`), 'utf8')); }
   catch { group.incomplete++; continue; }
   const failedStage = result.driver?.stages?.findLast(stage => !stage.ok);
-  const environment = Boolean(failedStage?.envFailure || ['stage-env-repeat', 'blocked-env-repeat', 'stage-timeout', 'run-timeout'].includes(result.driver?.stopped));
+  const environment = run.environmentFailure === true || (run.environmentFailure === undefined &&
+    Boolean(failedStage?.envFailure || ['stage-env-repeat', 'blocked-env-repeat', 'stage-timeout', 'run-timeout'].includes(result.driver?.stopped)));
+  const success = run.outcomeKind === undefined ? run.success === true && guidedSuiteSuccess(result) : run.outcomeKind === 'full-flow-success';
   group.completed++;
   if (environment) group.environment++;
-  else if (run.success === true && guidedSuiteSuccess(result)) group.successes++;
+  else if (success) group.successes++;
   else group.failures++;
   if (Number.isFinite(run.minutes)) group.minutes.push(run.minutes);
   if (Number.isFinite(run.tokens)) group.tokens.push(run.tokens);
   const stop = failedStage?.stage ?? result.driver?.stopped ?? 'unknown';
-  if (run.success !== true) group.stageStops[stop] = (group.stageStops[stop] ?? 0) + 1;
+  if (!success) group.stageStops[stop] = (group.stageStops[stop] ?? 0) + 1;
   if (failedStage?.failure?.kind) group.terminalFailuresByKind[failedStage.failure.kind] = (group.terminalFailuresByKind[failedStage.failure.kind] ?? 0) + 1;
   const workload = result.guided?.workload;
   for (const [kind, count] of Object.entries(workload?.failures ?? {})) group.failuresByKind[kind] = (group.failuresByKind[kind] ?? 0) + count;
   for (const [purpose, value] of Object.entries(workload?.byPurpose ?? {})) group.workloadTokens[purpose] = (group.workloadTokens[purpose] ?? 0) + value.inputTokens + value.outputTokens;
   if (workload?.firstMutation) { group.mutationRuns++; group.beforeMutationTokens.push(workload.firstMutation.inputTokens + workload.firstMutation.outputTokens); }
-  rows.push({ ...entry, slug: run.slug, status: environment ? 'environment' : run.success === true && guidedSuiteSuccess(result) ? 'success' : 'failed',
+  rows.push({ ...entry, slug: run.slug, status: environment ? 'environment' : success ? 'success' : 'failed',
+    outcomeKind: run.outcomeKind ?? (success ? 'full-flow-success' : environment ? 'environment-failure' : 'model-task-failure'),
+    modelTaskEvaluated: run.modelTaskEvaluated ?? !environment, operationalSuccess: run.operationalSuccess ?? success,
     stopped: stop, note: failedStage?.note ?? null, failure: failedStage?.failure ?? null, hidden: result.hidden,
     minutes: run.minutes, tokens: run.tokens, firstMutation: workload?.firstMutation ?? null, workload: workload ?? null });
 }

@@ -93,7 +93,7 @@ test('legacy-origin question stays protocol after failures and blocks the stage'
   assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'protocol');
 });
 
-test('intent-origin human without AskHuman answer is deferred instead of blocking', async () => {
+test('intent-origin human without AskHuman answer remains blocking without a fabricated answer', async () => {
   const { root, paths } = fixture();
   seedQuestion(paths, ['intent'], 'human');
   const provider: ChatProvider = {
@@ -110,6 +110,8 @@ test('intent-origin human without AskHuman answer is deferred instead of blockin
   h.onAskHuman = async () => ({}); // strict-questions / пустой банк
   const result = await new GuidedAskExecutor(host(paths), { provider, params: null, contextWindow: 16384 })
     .run(request(root), h);
-  assert.equal(result.ok, true, result.note);
-  assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'deferred');
+  assert.equal(result.ok, false);
+  const entry = preparation(paths)?.questionJournal?.entries[0];
+  assert.equal(entry?.status, 'human');
+  assert.equal(entry?.answer, '');
 });

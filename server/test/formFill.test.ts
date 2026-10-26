@@ -7,7 +7,8 @@
  * за стражем завершения, а не за счётчиком полей.
  */
 
-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual, rejects } from 'node:assert/strict';
+import { DecisionError } from '../src/exec/decisionEngine.ts';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +41,80 @@ import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from '../src/exec/contextBudget.ts';
 
 const roots: string[] = [];
+it('v5 can finish a valid contract review with the last available request', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'intent-last-request-')); roots.push(root);
+  const artifact = join(root, 'intent.md'); writeFileSync(artifact, '# Task\n## Что делаем\nPreserve behavior.\n');
+  let calls = 0;
+  const provider: ChatProvider = { name: 'last-request', async chat() {
+    calls++;
+    return { text: '{"issues":[]}', toolCalls: [], finishReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  const result = await new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000,
+    compact: true, reviewIntentContract: true, stage: 'intent', intentRequests: ['Preserve behavior.'] })
+    .run(request(root, artifact, { guidedEngineVersion: 5, requestCap: 1 }), hooks({ writes: [] }, true));
+  strictEqual(result.ok, true, result.note); strictEqual(calls, 1);
+});
+for (const relation of ['compatible', 'unknown', 'contradictory'] as const) it(`v5 contract batch keeps ${relation} judgments authoritative`, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'intent-batch-')); roots.push(root);
+  const artifact = join(root, 'intent.md');
+  const initial = '# Task\n## Что делаем\nReject invalid entries.\n';
+  writeFileSync(artifact, initial);
+  let reviews = 0, batches = 0, repairs = 0;
+  const provider: ChatProvider = { name: 'batch-contract', async chat(req) {
+    const data = JSON.parse(req.messages.find(message => message.role === 'user')!.content);
+    let text: string;
+    if (data.questionId.startsWith('intent:contract:')) {
+      reviews++;
+      const issue = { problem: 'alleged conflict', quotes: [{ section: 'Что делаем', lines: [1, 1] }], source: { file: 'request-1', lines: [1, 1] } };
+      text = JSON.stringify({ issues: reviews === 1 ? [issue, issue] : [] });
+    } else if (data.questionId.startsWith('intent:adjudicate:')) {
+      batches++;
+      strictEqual(data.issues.length, 1);
+      ok(data.issues[0].assertions.every((assertion: string) => assertion.startsWith('1 | ')));
+      text = JSON.stringify({ judgments: [1].map(issue => ({ issue, relation, condition: 'same input', explanation: 'evaluated from sources', witness: 'concrete result',
+        conflict: relation === 'contradictory' ? [
+          { assertion: 1, lines: [1, 1], subject: 'entry', condition: 'invalid entry', requiredResult: 'allow' },
+          { assertion: 2, lines: [1, 1], subject: 'entry', condition: 'invalid entry', requiredResult: 'reject' },
+        ] : null })) });
+    } else {
+      repairs++;
+      strictEqual(relation, 'contradictory');
+      text = JSON.stringify({ section: 'Что делаем', values: ['Allow invalid entries.'] });
+    }
+    return { text, toolCalls: [], finishReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  const run = () => new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000,
+    compact: true, reviewIntentContract: true, stage: 'intent', intentRequests: [relation === 'contradictory' ? 'Allow invalid entries.' : 'Reject invalid entries and preserve valid entries.'] })
+    .run(request(root, artifact, { guidedEngineVersion: 5, prompt: { presetNote: null, system: '', user: 'request', tools: [], editedByOperator: false, guidedProtocol: true } }), hooks({ writes: [] }, true));
+  // compatible proceeds; unknown and model-labelled contradictory (rewritten to unknown) cannot
+  // authorize repair and no longer block Intent for a human without independent proof.
+  strictEqual((await run()).ok, true);
+  strictEqual(batches, 2);
+  strictEqual(repairs, 0);
+  strictEqual(readFileSync(artifact, 'utf8'), initial);
+});
+it('v5 adjudicates eight long allegations as bounded independent packets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'intent-bounded-')); roots.push(root);
+  const source = 'Preserve the supplied record and its invariants. '.repeat(156);
+  const artifact = join(root, 'intent.md'); writeFileSync(artifact, '# Task\n## Что делаем\n' + source + '\n');
+  let adjudications = 0;
+  const provider: ChatProvider = { name: 'bounded-adjudication', async chat(req) {
+    ok(estimateMessageTokens(req.messages) + 4096 + 512 < 32768, 'every actual provider packet fits');
+    const data = JSON.parse(req.messages.find(message => message.role === 'user')!.content);
+    const text = data.questionId.startsWith('intent:contract:')
+      ? JSON.stringify({ issues: Array.from({ length: 8 }, () => ({ problem: 'allegation', quotes: [{ section: 'Что делаем', lines: [1, 1] }], source: { file: 'request-1', lines: [1, 1] } })) })
+      : (() => {
+        strictEqual(data.issues.length, 1); adjudications++;
+        return JSON.stringify({ judgments: [{ issue: 1, relation: 'compatible', condition: 'record', explanation: 'both hold', witness: 'preserve it', conflict: null }] });
+      })();
+    return { text, toolCalls: [], finishReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  const result = await new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000,
+    compact: true, reviewIntentContract: true, stage: 'intent', intentRequests: [source], contextWindow: 32768 })
+    .run(request(root, artifact, { guidedEngineVersion: 5, maxTurns: 50, prompt: { presetNote: null, system: '', user: source, tools: [], editedByOperator: false, guidedProtocol: true } }), hooks({ writes: [] }, true));
+  strictEqual(result.ok, true, result.note); strictEqual(adjudications, 8); strictEqual(result.modelRequests, 9);
+});
+
 it('guided reviews acceptance before writing it and retries concrete semantic errors', async () => {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-')); roots.push(root);
   const artifact = join(root, 'intent.md');

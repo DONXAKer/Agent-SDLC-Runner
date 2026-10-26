@@ -67,6 +67,12 @@ function resolveRoute(
     );
     return null;
   }
+  const reasoningFallback: unknown = def.reasoningFallback;
+  if (reasoningFallback !== undefined && reasoningFallback !== 'omit-params') {
+    problems.push(
+      `этап «${stage}»: у модели «${modelId}» reasoningFallback = ${JSON.stringify(reasoningFallback)} — допустимо только "omit-params"`,
+    );
+  }
   return {
     stage,
     modelId,
@@ -76,6 +82,7 @@ function resolveRoute(
     flow: providerDef.flow,
     rank: def.rank,
     params: def.params ?? null,
+    ...(reasoningFallback === 'omit-params' ? { reasoningFallback } : {}),
     leanTools: def.leanTools ?? false,
     formFill: def.formFill ?? false,
     claimFill: def.claimFill ?? false,

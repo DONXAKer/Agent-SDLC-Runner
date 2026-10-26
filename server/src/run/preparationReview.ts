@@ -10,6 +10,7 @@ import { artifactFacts, documentFacts, guidedQuestion, plainQuestion } from '../
 import { createProvider } from '../provider/registry.ts';
 import { estimateMessageTokens } from '../exec/contextBudget.ts';
 import { z } from 'zod';
+import { WorkBudgetExhausted } from '../exec/workBudget.ts';
 
 export function validateGuidedPreparationAnswer(kind: 'scenarios' | 'issues', text: string): void {
   const sentence = z.string().trim().min(1).max(1000);
@@ -99,22 +100,41 @@ export function packGuidedPreparationReview(
     }
     const record = packed as Record<string, unknown>;
     const sources = Array.isArray(record.sources) ? record.sources as ReviewSource[] : [];
-    if (sources.length === 0 || sources.every(source => source.content.length <= 128)) {
-      throw new Error('Структурированные данные независимого ревью не помещаются в контекст');
+    if (sources.length > 0 && !sources.every(source => source.content.length <= 128)) {
+      if (sources.every(source => source.content.length <= 256)) {
+        sources.pop();
+      } else {
+        for (const source of sources) {
+          if (source.content.length <= 128) continue;
+          source.content = source.content.slice(0, Math.floor(source.content.length / 2));
+          source.partial = true;
+        }
+      }
+      const coverage = typeof record.coverage === 'object' && record.coverage !== null && !Array.isArray(record.coverage)
+        ? record.coverage as Record<string, unknown>
+        : {};
+      packed = { ...record, sources, coverage: { ...coverage, provided: sources.length, truncatedForContext: true } };
+      continue;
     }
-    if (sources.every(source => source.content.length <= 256)) {
-      sources.pop();
-    } else {
-      for (const source of sources) {
-        if (source.content.length <= 128) continue;
-        source.content = source.content.slice(0, Math.floor(source.content.length / 2));
-        source.partial = true;
+    // Sources alone are not enough on 16k: shrink plan/intent prose next.
+    let shrunk = false;
+    for (const key of ['intent', 'plan', 'previousIntent', 'independent', 'requirements'] as const) {
+      const value = record[key];
+      if (typeof value === 'string' && value.length > 256) {
+        record[key] = value.slice(0, Math.floor(value.length / 2));
+        shrunk = true;
+      } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const row = value as Record<string, unknown>;
+        for (const [field, item] of Object.entries(row)) {
+          if (typeof item === 'string' && item.length > 256) {
+            row[field] = item.slice(0, Math.floor(item.length / 2));
+            shrunk = true;
+          }
+        }
       }
     }
-    const coverage = typeof record.coverage === 'object' && record.coverage !== null && !Array.isArray(record.coverage)
-      ? record.coverage as Record<string, unknown>
-      : {};
-    packed = { ...record, sources, coverage: { ...coverage, provided: sources.length, truncatedForContext: true } };
+    if (!shrunk) throw new Error('Структурированные данные независимого ревью не помещаются в контекст');
+    packed = { ...record, truncatedForContext: true };
   }
 }
 
@@ -143,7 +163,11 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
   };
   const run = async (system: string, user: string, kind: 'scenarios' | 'issues' = system.includes('"scenarios"') ? 'scenarios' : 'issues', data?: unknown) => {
     if (guided) {
-      const provider = createProvider(route.provider, route.providerDef, host.limits().chatTimeoutMs, host.trace('plan', 'loop'));
+      // Independent review already packs its own guided packet. Wrapping it again in
+      // decisionProvider doubles the envelope and overflows 16k windows after a full plan.
+      const trace = host.trace('plan', 'loop');
+      const { decision: _decision, ...reviewTrace } = trace;
+      const provider = createProvider(route.provider, route.providerDef, host.limits().chatTimeoutMs, reviewTrace, { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'work' });
       let feedback = '';
       for (let attempt = 0; attempt < 2; attempt++) {
         signal.throwIfAborted();
@@ -272,6 +296,7 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
     savePreparation(host.paths, { ...state, review });
   } catch (error) {
     savePreparation(host.paths, { ...state, review: { fingerprint, independent, issues: [String(error)], completed: false } });
+    if (error instanceof WorkBudgetExhausted) throw error;
     return `проверка проработки не завершена: ${String(error)}`;
   }
   return preparationReviewProblem(host.paths);

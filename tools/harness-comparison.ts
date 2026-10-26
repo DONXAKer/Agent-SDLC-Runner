@@ -165,7 +165,8 @@ export async function run(dir: string, resume: boolean): Promise<void> {
       assertFrozen(dir, m);
       const availableMs = remainingRunMs(cell, m.spec.limits.runMinutes * 60000);
       if (availableMs <= 0) {
-        cell.status = 'complete'; cell.outcome = { status: 'no-current-result', success: false, reason: 'Invocation budget exhausted after interruption', exitCode: null, diagnosis: 'unassessed' };
+        cell.status = 'complete'; cell.outcome = { status: 'no-current-result', success: false, reason: 'Invocation budget exhausted after interruption', exitCode: null, diagnosis: 'unassessed',
+          outcomeKind: 'incomplete', evidenceLevel: 'none', modelQualitySuccess: false, modelTaskEvaluated: false, operationalSuccess: false, environmentFailure: false };
         emit(dir, m); continue;
       }
       // Clear KV/runtime state between arms and verify the effective layout for every invocation.

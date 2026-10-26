@@ -11,6 +11,8 @@ import type { ChatProvider } from './ChatProvider.ts';
 import { OpenAiCompatProvider } from './OpenAiCompatProvider.ts';
 import type { TraceLabel } from './rawLog.ts';
 import { decisionProvider } from '../exec/decisionEngine.ts';
+import { BudgetedChatProvider } from '../exec/workBudget.ts';
+import type { WorkBudget, WorkPhase } from '../exec/workBudget.ts';
 
 /**
  * Провайдеры, за которые платят по токенам. Список нужен ровно для одного: потребовать
@@ -69,6 +71,7 @@ export function createProvider(
   def: ProviderDef,
   timeoutMs: number,
   trace?: TraceLabel,
+  options: { reasoningFallback?: 'omit-params' | undefined; workBudget?: WorkBudget | null; workPhase?: WorkPhase } = {},
 ): ChatProvider {
   if (def.kind === 'openai-compat') {
     const baseUrl = baseUrlFor(name) ?? def.baseUrl;
@@ -96,9 +99,13 @@ export function createProvider(
       // рантайма сдвигала бы базовую линию всех прошлых замеров молча.
       ...(def.maxTokens === undefined ? {} : { maxTokens: def.maxTokens }),
       ...(trace === undefined ? {} : { trace }),
+      ...(options.reasoningFallback === undefined ? {} : { reasoningFallback: options.reasoningFallback }),
       ...(trace?.decision ? { retryDelaysMs: [1000, 3000] } : {}),
     });
-    return trace?.decision ? decisionProvider(provider, trace.decision) : provider;
+    if (options.workBudget != null && options.workPhase === undefined) throw new Error('WorkBudget требует явной фазы');
+    const budgeted = options.workBudget == null || options.workPhase === undefined ? provider
+      : new BudgetedChatProvider(provider, options.workBudget, options.workPhase, def.currency ?? 'USD');
+    return trace?.decision ? decisionProvider(budgeted, trace.decision) : budgeted;
   }
 
   if (def.kind === 'anthropic-api') {

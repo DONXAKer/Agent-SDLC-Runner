@@ -23,6 +23,7 @@ import type { StageHost } from '../types.ts';
 import { REVIEW_GATE } from './gates.ts';
 import { acceptRecord } from './records.ts';
 import { readBaseline } from '../chunk/evidence.ts';
+import { WorkBudgetExhausted } from '../../../exec/workBudget.ts';
 import { reviewBaselineContext } from '../../reviewBaseline.ts';
 import { guidedSourceHunks } from '../../guidedState.ts';
 import { readGuided, guidedReviewContext } from '../../guidedState.ts';
@@ -166,7 +167,7 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute, block
     onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
     taskData: { requests: preparation(host.paths)?.requests ?? [], requirements: preparation(host.paths)?.canonical?.requirements,
       observed: decisionData(guidedReviewContext(host.paths)), baseline: documentFacts(reviewBaselineContext(host.paths.projectRoot, diff.text, readBaseline(host))) },
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'reviewFill')),
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'reviewFill'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'finalization' }),
     model: route.model,
     params: route.params,
     taskContext,
@@ -395,6 +396,7 @@ export async function runReviewerDirectly(
     host.markReviewerRan();
     return text;
   } catch (e) {
+    if (e instanceof WorkBudgetExhausted) throw e;
     // Падение рецензента не роняет этап: у модели остаётся собственный `Task`, а
     // несостоявшееся ревью честно видно по `⏭` гейта минимума.
     host.emit({

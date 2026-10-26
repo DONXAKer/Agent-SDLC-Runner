@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { simulationSourceHash } from './sourceHash.ts';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderReport, reportPassed, type SimulationReport, type Suite } from './report.ts';
+import { renderReport, reportPassed, simulationOutcomeKind, type SimulationReport, type Suite } from './report.ts';
 import type { SimulationCaseResult } from './taskLoop.ts';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -29,23 +29,6 @@ function options(args: string[]): { suites: Suite[]; output: string | null; imag
   return { suites: selection, output, image };
 }
 
-function sources(): string {
-  const hash = createHash('sha256');
-  // Снимок включает незакоммиченные исходники, сценарии и lockfile; без результатов, секретов и node_modules.
-  const walk = (directory: string): void => {
-    for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name);
-      const stat = lstatSync(path);
-      if (stat.isSymbolicLink()) throw new Error(`Источник симулятора не должен быть симлинком: ${path}`);
-      if (stat.isDirectory()) walk(path);
-      else if (/\.(ts|mjs|json|md)$/.test(name)) hash.update(relative(repository, path)).update('\0').update(readFileSync(path)).update('\0');
-    }
-  };
-  for (const folder of ['server/src', 'server/methodology', 'shared/src', 'bench/src', 'server/test/fixtures/guided-v4', 'bench/fixtures/guided-process']) walk(join(repository, folder));
-  hash.update(readFileSync(join(repository, 'package.json')));
-  hash.update(readFileSync(join(repository, 'package-lock.json')));
-  return hash.digest('hex');
-}
 
 async function main() {
   if (process.argv.slice(2).includes('--help')) {
@@ -66,7 +49,7 @@ async function main() {
   const startedAt = new Date().toISOString();
   const cases: SimulationReport['cases'] = [];
   try {
-    const sourceHash = sources();
+    const sourceHash = simulationSourceHash(repository);
     const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
     const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: repository, encoding: 'utf8' }).trim() !== '';
     for (const suite of opts.suites) {
@@ -91,11 +74,12 @@ async function main() {
         const traceFile = `traces/${suite}-${result.id}.json`;
         writeFileSync(join(output, traceFile), JSON.stringify(trace, null, 2) + '\n', { flag: 'wx' });
         const passed = reportPassed([result]);
-        cases.push({ ...summary, passed, suite, traceFile });
+        cases.push({ ...summary, passed, suite, outcomeKind: simulationOutcomeKind(suite), traceFile });
         console.log(`  ${passed ? 'PASS' : 'FAIL'} ${result.id}: ${result.actual}`);
       }
     }
-    const report: SimulationReport = { version: 1, kind: 'deterministic-runtime-simulation', startedAt,
+    const report: SimulationReport = { version: 1, kind: 'deterministic-runtime-simulation',
+      evidenceLevel: 'simulated-protocol', liveModelQuality: 'not-evaluated', startedAt,
       finishedAt: new Date().toISOString(), revision, dirty, sourceHash, node: process.version,
       suites: opts.suites, passed: reportPassed(cases), cases };
     writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });

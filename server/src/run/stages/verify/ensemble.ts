@@ -22,6 +22,7 @@ import type { StageDef, StageHost } from '../types.ts';
 import { evidenceHaystack } from './records.ts';
 import { routeKey } from '../../reviewRoute.ts';
 import { readGuided } from '../../guidedState.ts';
+import { WorkBudgetExhausted } from '../../../exec/workBudget.ts';
 
 /**
  * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
@@ -65,7 +66,7 @@ export async function narrowRoute(
   const { calls, envFailure } = await fillClaims({
     guided: readGuided(host.paths) !== null,
     onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'finalization' }),
     model: route.model,
     params: route.params,
     system: prompt.system,
@@ -214,6 +215,7 @@ export async function runEnsembleReviewers(
         hooks,
       );
     } catch (e) {
+      if (e instanceof WorkBudgetExhausted) throw e;
       // Падение ДОПОЛНИТЕЛЬНОГО рецензента не отменяет вердикт по уже готовым отчётам:
       // пока оно улетало в общий catch этапа, работа основного маршрута выбрасывалась
       // целиком и оператор возвращался к попытке с нуля.

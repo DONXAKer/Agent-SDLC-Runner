@@ -11,7 +11,7 @@ import { hasGuidedContracts } from '@sdlc-runner/shared';
  */
 
 import { STAGE_ORDER } from '@sdlc-runner/shared';
-import type { StageId, Verdict } from '@sdlc-runner/shared';
+import type { StageId, Verdict, WorkIncomplete } from '@sdlc-runner/shared';
 
 import { DecisionFormError } from '../../server/src/artifacts/artifact.ts';
 import { isPreparationV2, preparationFingerprint } from '../../server/src/artifacts/preparation.ts';
@@ -52,6 +52,7 @@ export interface DriverStageRecord {
   failure?: import('@sdlc-runner/shared').GuidedFailure;
   /** `runtime` — этап закрыл рантайм, а не заявка модели (`StageResult.closedBy`). */
   closedBy?: 'runtime';
+  incomplete?: WorkIncomplete;
 }
 
 export type DriverStopReason =
@@ -88,12 +89,14 @@ export type DriverStopReason =
    * восстановленном снимке (серия 2026-09-27/28) шумела в измерении verify, которое к этому
    * моменту уже состоялось.
    */
-  | 'verify-measured';
+  | 'verify-measured'
+  | 'incomplete';
 
 export interface DriverResult {
   stages: DriverStageRecord[];
   finalVerdict: Verdict | null;
   stopped: DriverStopReason;
+  incomplete?: WorkIncomplete;
 }
 
 export interface DriverArgs {
@@ -344,10 +347,28 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       ...(modelRequests === undefined ? {} : { modelRequests }),
       ...(result.failure === undefined ? {} : { failure: result.failure }),
       ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
+      ...(result.incomplete === undefined ? {} : { incomplete: result.incomplete }),
       ...(timedOut ? { stopCause: 'stage-deadline' as const } : result.stopCause === undefined ? {} : { stopCause: result.stopCause }),
     });
 
     if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
+    if (result.incomplete !== undefined) {
+      say(`Бюджет работы исчерпан: ${result.incomplete.detail}; запускаю только доступную финализацию`);
+      const finalize = async (finalStage: StageId, options: RunStageOptions) => {
+        if (Date.now() >= deadline) return;
+        const completed = await runStageWithTimeout(run, finalStage, options, Math.min(stageTimeoutMs, Math.max(1, deadline - Date.now())));
+        const finalResult = completed.result;
+        stages.push({ stage: finalStage, chunk: run.chunk, attempt: run.attempt, ok: finalResult.ok, note: finalResult.note,
+          blockers: [], timedOut: completed.timedOut, skipped: false,
+          ...(finalResult.envFailure === undefined ? {} : { envFailure: finalResult.envFailure }),
+          ...(finalResult.modelRequests === undefined ? {} : { modelRequests: finalResult.modelRequests }),
+          ...(finalResult.stopCause === undefined ? {} : { stopCause: finalResult.stopCause }),
+          ...(finalResult.incomplete === undefined ? {} : { incomplete: finalResult.incomplete }) });
+      };
+      if (stage !== 'verify' && stage !== 'handoff' && run.blockerDetails('verify').length === 0) await finalize('verify', {});
+      if (run.blockerDetails('handoff').length === 0) await finalize('handoff', { abortHandoff: true });
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'incomplete', incomplete: result.incomplete };
+    }
     if (Date.now() >= deadline) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'run-timeout' };
     if (stage === args.measurementEnd && (timedOut || !result.ok || stage === 'verify')) {
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: timedOut ? 'stage-timeout' : 'stage-measured' };

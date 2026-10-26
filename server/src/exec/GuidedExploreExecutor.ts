@@ -11,6 +11,7 @@ import { progressHash } from '../run/guidedProgress.ts';
 import { narrowGuidedRepair, rebuildGuidedObject } from './guidedRecovery.ts';
 import type { ExploreExecutorOptions } from './ExploreExecutor.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+import { WorkBudgetExhausted } from './workBudget.ts';
 
 const text = z.string().trim().min(1).refine(s => !/[‹›]/u.test(s), 'Нужен факт, а не плейсхолдер');
 const Research = z.object({
@@ -190,7 +191,10 @@ change: краткое предлагаемое изменение ЭТОГО ф
                   parsed = FileResearch.parse(rebuilt);
                   req.progress!.accept(ticket, parsed, dependencies());
                   break;
-                } catch (repairError) { return fail(`Ремонт исследования по полям не завершён: ${String(repairError)}`); }
+                } catch (repairError) {
+                  if (repairError instanceof WorkBudgetExhausted) throw repairError;
+                  return fail(`Ремонт исследования по полям не завершён: ${String(repairError)}`);
+                }
               }
             }
           }

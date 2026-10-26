@@ -12,6 +12,8 @@ import {pinNodeImage} from '../server/src/run/isolatedNode.ts';
 import type {BenchResult} from '../bench/src/result.ts';
 import type {PreflightReport} from '../bench/src/preflight.ts';
 import {checkPlacement,placementPolicy,qualifyModel,type Qualification} from '../bench/src/modelQualification.ts';
+import { acquireProcessLock, releaseProcessLock } from '../server/src/fs/processLock.ts';
+import { MatrixControl } from './matrixControl.ts';
 
 const root=resolve(import.meta.dirname,'..');
 const specSchema=z.object({modelConfig:z.string(),models:z.array(z.string()).min(1).max(6),tasks:z.array(z.string()).min(1).max(5),acceptanceImage:z.string(),
@@ -23,7 +25,7 @@ type Spec=z.infer<typeof specSchema>;
 type Profile={id:string;provider:string;model:string;contextWindow?:number;params?:Record<string,unknown>;placement?:'gpu-only'|'hybrid'};
 type Cell={id:string;model:string;task:string;status:string;slug?:string;startedAt?:string;finishedAt?:string;pid?:number;elapsedMs?:number;outcome?:ReturnType<typeof assessGuidedValidation>;evidence?:ReturnType<typeof collectComparisonEvidence>;error?:string;layout?:unknown;invocationBudgetMs?:number};
 type Matrix={version:1;status:string;preparedAt:string;spec:Spec;specHash:string;acceptanceImage:string;profiles:Profile[];cells:Cell[];inputs:Record<string,string>;common:Record<string,string>;coordinatorHash:string;nodeVersion:string;modelDigests?:Record<string,string>;qualifications?:Record<string,Qualification>;engineVersion?:unknown;startedAt?:string;finishedAt?:string;error?:string;active?:string};
-const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','tools/guided-suite-success.ts']));
+const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','tools/matrixControl.ts','server/src/fs/processLock.ts','server/src/fs/atomicJson.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','tools/guided-suite-success.ts']));
 function emit(dir:string,m:Matrix){
  saveJson(join(dir,'manifest.json'),m);
  const clean=(x:unknown)=>String(x??'неизвестно').replace(/\|/g,'\\|').replace(/[\r\n]+/g,' ');
@@ -41,7 +43,7 @@ export function linkFrozenTree(source:string,destination:string):void{
    try{linkSync(source,destination);}catch(error){if((error as NodeJS.ErrnoException).code!=='EXDEV')throw error;copyFileSync(source,destination);}
  }else throw Error('Unsupported frozen dependency entry');
 }
-export async function prepareMatrix(dir:string,specFile:string,reuseDependencies?:string){
+export async function prepareMatrix(dir:string,specFile:string,reuseDependencies?:string,referenceEnvironment?:string){
  if(existsSync(dir))throw Error('Use a fresh output directory');
  const spec=specSchema.parse(readJson(specFile));
  if(new Set(spec.models).size!==spec.models.length||new Set(spec.tasks).size!==spec.tasks.length)throw Error('Duplicate models/tasks');
@@ -50,16 +52,21 @@ export async function prepareMatrix(dir:string,specFile:string,reuseDependencies
  const supplied=readJson<{models:Profile[];providers:Record<string,any>}>(resolve(root,spec.modelConfig));
  const profiles=spec.models.map(id=>{const p=supplied.models.find(p=>p.id===id);if(!p||p.provider!=='ollama')throw Error(`Missing local model ${id}`);const override=spec.profileOverrides[id];return {...p,placement:override?.placement??'gpu-only' as const,params:{...p.params,...override?.params}};});
  for(const task of spec.tasks)if(!existsSync(join(root,'bench/acceptance',task+'.mjs')))throw Error(`Missing acceptance suite ${task}`);
- const acceptanceImage=pinNodeImage(spec.acceptanceImage);
+ const reference=referenceEnvironment?readJson<Matrix>(join(referenceEnvironment,'manifest.json')):undefined;
+ if(referenceEnvironment && (!reuseDependencies || resolve(reuseDependencies)!==resolve(referenceEnvironment)))throw Error('Verified environment requires its frozen dependencies');
+ if(referenceEnvironment && stableDigest(reference!.common)!==stableDigest(inventory(join(referenceEnvironment,'common'))))throw Error('Reference environment changed');
+ const acceptanceImage=reference?.acceptanceImage??pinNodeImage(spec.acceptanceImage);
  mkdirSync(common,{recursive:true});
- for(const [name,source]of [['methodology',config.runner.methodologyDir],['skills',config.runner.skillsDir],['agents',config.runner.agentsDir]] as const){
+ for(const [name,original]of [['methodology',config.runner.methodologyDir],['skills',config.runner.skillsDir],['agents',config.runner.agentsDir]] as const){
+   const source=referenceEnvironment?join(referenceEnvironment,'common',name):original;
    inventory(source,readdirSync(source).filter(n=>n!=='.git'));cpSync(source,join(common,name),{recursive:true,filter:src=>relative(source,src).split(sep)[0]!=='.git'});
  }
- cpSync(config.dir,join(common,'config'),{recursive:true});
+ cpSync(referenceEnvironment?join(referenceEnvironment,'common/config'):config.dir,join(common,'config'),{recursive:true});
  const models=readJson<{models:Profile[];providers:Record<string,any>}>(join(common,'config/models.json'));
  models.models=[...models.models.filter(p=>!spec.models.includes(p.id)),...profiles];
  models.providers.ollama.baseUrl=spec.engine.host+'/v1';saveJson(join(common,'config/models.json'),models);
- saveJson(join(common,'config/runner.local.json'),{...config.runner,methodologyDir:join(common,'methodology'),skillsDir:join(common,'skills'),agentsDir:join(common,'agents')});
+ const runner=referenceEnvironment?readJson<Record<string,unknown>>(join(referenceEnvironment,'common/config/runner.local.json')):config.runner;
+ saveJson(join(common,'config/runner.local.json'),{...runner,methodologyDir:join(common,'methodology'),skillsDir:join(common,'skills'),agentsDir:join(common,'agents')});
  if(reuseDependencies){
    const parent=resolve(root,reuseDependencies),back=relative(root,parent);
    if(back.startsWith('..')||!back.split(sep).slice(0,2).every((part,index)=>part===['bench','results'][index]))throw Error('Dependency source must be a workspace benchmark result');
@@ -79,33 +86,36 @@ export async function prepareMatrix(dir:string,specFile:string,reuseDependencies
  const m:Matrix={version:1,status:'prepared',preparedAt:new Date().toISOString(),spec,specHash:stableDigest(spec),acceptanceImage,profiles,
    cells:profiles.flatMap((p,i)=>spec.tasks.flatMap((task,j)=>Array.from({length:spec.repetitions},(_,rep)=>({id:`${i+1}-${j+1}${spec.repetitions>1?'-'+(rep+1):''}`,model:p.id,task,status:'pending'})))),
    inputs:inventory(snapshot,INPUTS),common:inventory(common),coordinatorHash:coordinatorHash(),nodeVersion:process.version};
+ if(reference){m.engineVersion=reference.engineVersion;m.modelDigests=Object.fromEntries(Object.entries(reference.modelDigests??{}).filter(([id])=>profiles.some(p=>p.id===id)));}
  emit(dir,m);
 }
 function assertFrozen(dir:string,m:Matrix){
  if(m.specHash!==stableDigest(m.spec)||m.nodeVersion!==process.version||m.coordinatorHash!==coordinatorHash()||stableDigest(m.inputs)!==stableDigest(inventory(join(dir,'snapshots/current'),INPUTS))||stableDigest(m.common)!==stableDigest(inventory(join(dir,'common'))))throw Error('Frozen inputs changed');
 }
 const killTree=(pid:number)=>execFileSync('taskkill',['/PID',String(pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
-export async function runMatrix(dir:string){
+export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signal?:AbortSignal}={}){
  const m=readJson<Matrix>(join(dir,'manifest.json'));specSchema.parse(m.spec);assertFrozen(dir,m);
- const lock=join(dir,'run.lock');if(existsSync(lock))throw Error('Run lock exists; do not start a duplicate');
- saveJson(lock,{pid:process.pid});let cancelled=false;let engine:ReturnType<typeof spawn>|undefined;let child:ReturnType<typeof spawn>|undefined;
- const qualificationAbort=new AbortController();
- const cancel=()=>{cancelled=true;qualificationAbort.abort(new Error('operator cancellation'));if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}};
+ const host=m.spec.engine.host,url=new URL(host);if(!['localhost','127.0.0.1'].includes(url.hostname)||url.protocol!=='http:')throw Error('Local dedicated HTTP engine required');
+ const lock=join(dir,'run.lock'),lease=acquireProcessLock(lock);
+ let cancelled=false;let engine:ReturnType<typeof spawn>|undefined;let child:ReturnType<typeof spawn>|undefined;
+ const control=new MatrixControl(options.stopOnFailure);
+ const cancel=()=>{cancelled=true;control.cancel();if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}};
+ options.signal?.addEventListener('abort',cancel,{once:true});if(options.signal?.aborted)cancel();
  process.once('SIGINT',cancel);process.once('SIGTERM',cancel);
  const deadline=Date.now()+m.spec.limits.suiteHours*3600000;
- const host=m.spec.engine.host,url=new URL(host);if(!['localhost','127.0.0.1'].includes(url.hostname)||url.protocol!=='http:')throw Error('Local dedicated HTTP engine required');
- const request=async(path:string,data?:unknown,timeout=10000)=>{const r=await fetch(host+path,{...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),signal:AbortSignal.timeout(timeout)});if(!r.ok)throw Error(`${path}: ${r.status}`);return r.json();};
+ const request=(path:string,data?:unknown,timeout=10000)=>control.request(host,path,data,timeout);
  const start=(cmd:string,args:string[],cwd:string,env:NodeJS.ProcessEnv,log:string)=>{const fd=openSync(log,'a');const p=spawn(cmd,args,{cwd,env,windowsHide:true,stdio:['ignore',fd,fd]});closeSync(fd);return p;};
  const waitGpu=async()=>{const until=Math.min(deadline,Date.now()+m.spec.limits.gpuWaitMinutes*60000);m.status='waiting-gpu';emit(dir,m);
    while(!cancelled){const gpu=execFileSync('nvidia-smi',['--query-gpu=memory.free,utilization.gpu','--format=csv,noheader,nounits'],{encoding:'utf8',windowsHide:true}).trim().split(/\r?\n/).map(l=>l.split(',').map(Number));
     saveJson(join(dir,'gpu.json'),{at:new Date().toISOString(),gpu});
     if(gpu.length===2&&gpu.every((g,i)=>g[0]!>=m.spec.engine.gpuFreeMiB[i]!&&g[1]!<=m.spec.engine.gpuUtilMax[i]!))return;
-    if(Date.now()>=until)throw Error('GPU wait budget exhausted; remaining cases not run');await delay(15000);}
+     if(Date.now()>=until)throw Error('GPU wait budget exhausted; remaining cases not run');await delay(15000,undefined,{signal:control.signal});}
  };
  try{
    if(m.cells.some(c=>c.status==='running'))throw Error('Interrupted invocation requires explicit assessment before resuming');
    delete m.error;delete m.finishedAt;
-   await waitGpu();if(cancelled)return;
+   for(const existing of m.cells)control.complete(existing);
+   control.assertMayStart();await waitGpu();control.assertMayStart();
    let occupied=false;try{await request('/api/version');occupied=true;}catch{}if(occupied)throw Error('Dedicated engine port occupied');
    const env:NodeJS.ProcessEnv={...process.env,OLLAMA_HOST:url.host,OLLAMA_KV_CACHE_TYPE:'q8_0',OLLAMA_FLASH_ATTENTION:'1',OLLAMA_NUM_PARALLEL:'1',OLLAMA_MAX_LOADED_MODELS:'1',OLLAMA_VULKAN:'false',OLLAMA_SCHED_SPREAD:'true',OLLAMA_LLM_LIBRARY:'cuda_v12',OLLAMA_NO_CLOUD:'true'};delete env.CUDA_VISIBLE_DEVICES;
    if(!env.OLLAMA_MODELS)env.OLLAMA_MODELS=execFileSync('powershell.exe',['-NoProfile','-Command',"[Environment]::GetEnvironmentVariable('OLLAMA_MODELS','User')"],{encoding:'utf8',windowsHide:true}).trim();
@@ -115,7 +125,7 @@ export async function runMatrix(dir:string){
    if(m.engineVersion&&stableDigest(m.engineVersion)!==stableDigest(engineVersion))throw Error('Engine version changed');m.engineVersion=engineVersion;
    const tags=await request('/api/tags') as {models:{name:string;digest:string}[]};
    const digests=Object.fromEntries(m.profiles.map(p=>{const installed=tags.models.find(t=>t.name===p.model||t.name===p.model+':latest');if(!installed)throw Error(`Model not installed: ${p.model}`);return [p.id,installed.digest];}));
-   if(m.modelDigests&&stableDigest(m.modelDigests)!==stableDigest(digests))throw Error('Model digests changed');m.modelDigests=digests;
+   if(m.modelDigests&&Object.entries(m.modelDigests).some(([id,digest])=>digests[id]!==digest))throw Error('Model digests changed');m.modelDigests=digests;
    m.startedAt??=new Date().toISOString();
    m.qualifications={};
    for(const profile of m.profiles){
@@ -129,9 +139,9 @@ export async function runMatrix(dir:string){
        checkPlacement(layout.models.find(p=>p.name===profile.model||p.name===profile.model+':latest'),profile.contextWindow??32768,profile.placement??'gpu-only');
        const log=readFileSync(engineLog,'utf8').slice(offset),gpus=new Set([...log.matchAll(/(CUDA\d+)\s+model buffer/g)].map(x=>x[1])).size;
        if(gpus<1||gpus>2)throw Error('placement: no supported CUDA allocation');assertEngineLog(log,gpus);
-       m.qualifications[profile.id]=await qualifyModel({host,model:profile.model,budgetMs:Math.max(1,900000-(Date.now()-qualificationStarted)),signal:qualificationAbort.signal,...(profile.params?{params:profile.params}:{})});
+       m.qualifications[profile.id]=await qualifyModel({host,model:profile.model,budgetMs:Math.max(1,900000-(Date.now()-qualificationStarted)),signal:control.signal,...(profile.params?{params:profile.params}:{})});
        saveJson(join(dir,`qualification-${m.profiles.indexOf(profile)+1}.json`),{profile,layout,result:m.qualifications[profile.id]});
-     }catch(error){m.qualifications[profile.id]={passed:false,elapsedMs:Date.now()-qualificationStarted,cases:[{name:'placement',repetition:0,passed:false,error:String(error)}]};}
+     }catch(error){if(cancelled)throw error;m.qualifications[profile.id]={passed:false,elapsedMs:Date.now()-qualificationStarted,cases:[{name:'placement',repetition:0,passed:false,error:String(error)}]};}
      emit(dir,m);await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});
    }
    if(m.profiles.some(p=>!m.qualifications?.[p.id]?.passed)){
@@ -140,6 +150,7 @@ export async function runMatrix(dir:string){
      emit(dir,m);
    }
    for(const c of m.cells.filter(c=>c.status==='pending')){
+     control.assertMayStart();
      if(cancelled)break;if(Date.now()>=deadline)throw Error('Suite time budget exhausted');assertFrozen(dir,m);await waitGpu();if(cancelled)break;
      const profile=m.profiles.find(p=>p.id===c.model)!;m.active=c.id;m.status='loading';emit(dir,m);
      const offset=readFileSync(engineLog,'utf8').length;
@@ -151,7 +162,11 @@ export async function runMatrix(dir:string){
        if(loaded.digest!==m.modelDigests![profile.id])throw Error('Loaded model digest changed');
        const log=readFileSync(engineLog,'utf8').slice(offset),gpus=new Set([...log.matchAll(/(CUDA\d+)\s+model buffer/g)].map(x=>x[1])).size;
        if(gpus<1||gpus>2)throw Error('No supported CUDA allocation');assertEngineLog(log,gpus);c.layout=layout;
-     }catch(error){c.status='complete';c.error=`Engine layout failure: ${String(error)}`;c.finishedAt=new Date().toISOString();emit(dir,m);await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});continue;}
+     }catch(error){if(cancelled)throw error;c.status='complete';c.error=`Engine layout failure: ${String(error)}`;c.finishedAt=new Date().toISOString();emit(dir,m);control.complete(c);control.assertMayStart();await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});continue;}
+     // Cancellation can arrive while awaiting model load/placement. Never spawn
+     // another benchmark child after the stop was already acknowledged.
+     if(cancelled)break;
+     control.assertMayStart();
      c.slug='matrix-'+randomUUID();c.status='running';c.startedAt=new Date().toISOString();m.status='running';emit(dir,m);
      const snapshot=join(dir,'snapshots/current'),runDir=join(dir,'runs',c.id,c.slug);mkdirSync(runDir,{recursive:true});
      const common=join(dir,'common');const cleanEnv=Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('SDLC_')));
@@ -171,11 +186,21 @@ export async function runMatrix(dir:string){
      if(timedOut)c.error='Coordinator wall-clock timeout';c.status=cancelled?'interrupted':'complete';
      for(const [file,name]of [[resultPath,'result.json'],[preflightPath,'preflight.json'],[join(snapshot,'bench/traces',c.slug),'traces']] as const)if(existsSync(file))cpSync(file,join(runDir,name),{recursive:true});
      saveJson(join(runDir,'assessment.json'),c);emit(dir,m);console.log(`DONE ${c.id} ${c.outcome.status}`);
+     control.complete(c);control.assertMayStart();
      await request('/api/generate',{model:profile.model,keep_alive:0},30000);assertFrozen(dir,m);
    }
    m.status=cancelled?'interrupted':'complete';
  }catch(error){m.status=cancelled?'interrupted':'stopped';m.error=String(error);process.exitCode=1;}
- finally{if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}if(engine?.pid&&engine.exitCode===null)try{killTree(engine.pid);}catch(error){m.error=(m.error??'')+' Cleanup: '+String(error);}delete m.active;m.finishedAt=new Date().toISOString();emit(dir,m);rmSync(lock,{force:true});process.removeListener('SIGINT',cancel);process.removeListener('SIGTERM',cancel);}
+ finally{
+   if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}
+   if(engine?.pid&&engine.exitCode===null)try{killTree(engine.pid);}catch(error){m.error=(m.error??'')+' Cleanup: '+String(error);}
+   delete m.active;m.finishedAt=new Date().toISOString();
+   try{emit(dir,m);}finally{
+     try{releaseProcessLock(lock,lease);}finally{
+       process.removeListener('SIGINT',cancel);process.removeListener('SIGTERM',cancel);options.signal?.removeEventListener('abort',cancel);
+     }
+   }
+ }
 }
 async function main(){const [command,...args]=process.argv.slice(2);const value=(key:string)=>{const i=args.indexOf(key);return i<0?undefined:args[i+1];};
  const output=value('--output');if(!output)throw Error('--output required');const dir=resolve(root,output),rel=relative(root,dir);if(!rel||rel.startsWith('..')||rel.includes(':'))throw Error('Output must be inside workspace');

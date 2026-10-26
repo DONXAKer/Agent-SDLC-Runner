@@ -122,6 +122,7 @@ import type {
   StageResult,
 } from '../exec/StageExecutor.ts';
 import { REVIEWER_AGENTS } from '../exec/StageExecutor.ts';
+import { WorkBudget, WorkBudgetExhausted, workPhaseForStage } from '../exec/workBudget.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { gateKey } from '../gates/gatesFile.ts';
@@ -513,6 +514,29 @@ export class Run {
    */
   private currentAbortHandoff = false;
 
+  private workBudget(): WorkBudget | null {
+    if (this.workBudgetState !== undefined) return this.workBudgetState;
+    const config = this.config.runner.limits.workBudget;
+    this.workBudgetState = readGuided(this.paths)?.engineVersion === 5 && config !== undefined
+      ? new WorkBudget(this.paths, config)
+      : null;
+    return this.workBudgetState;
+  }
+
+  private providerOptions(route: ResolvedRoute, stage: StageId) {
+    const workBudget = this.workBudget();
+    return { reasoningFallback: route.reasoningFallback,
+      ...(workBudget === null ? {} : { workBudget, workPhase: workPhaseForStage(stage) }) };
+  }
+
+  private workBudgetFailure(stage: StageId, error: WorkBudgetExhausted): StageResult {
+    const units = (readGuided(this.paths)?.items ?? []).flatMap(item => item.status === 'checked' ? []
+      : [{ id: item.id, stage: 'chunk' as const, status: item.status, claims: item.claims }]);
+    return { ok: false, finalText: '', usage: emptyUsage(), note: error.message, stopCause: 'work-budget',
+      incomplete: { cause: error.cause, detail: error.message,
+        units: units.length > 0 ? units : [{ id: `stage:${stage}`, stage, status: 'unverified' }] } };
+  }
+
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
   private get host(): StageHost {
     return {
@@ -533,6 +557,7 @@ export class Run {
       policyContext: (stage) => this.policyContext(stage),
       trace: (stage, mode) => this.trace(stage, mode),
       accountOffPathUsage: (stage, usage, currency) => this.accountOffPathUsage(stage, usage, currency),
+      workBudget: () => this.workBudget(),
       syntheticRequestId: (prefix) => `${prefix}-${this.salvageSeq++}`,
       requestApproval: async (req) => {
         this.flow().record('tool_request', { requestId: req.requestId, toolName: req.toolName, rawInput: req.rawInput, call: req.call }, 'Рантайм', 'Политика', req.stage);
@@ -685,6 +710,7 @@ export class Run {
   private readonly redByCause = new Map<RedCauseKind, number>();
   /** Чей расход копится в бюджет (`RunOptions.budgetStages`). `null` — все этапы. */
   private readonly budgetStages: ReadonlySet<StageId> | null;
+  private workBudgetState: WorkBudget | null | undefined;
 
   constructor(o: RunOptions) {
     this.config = o.config;
@@ -1732,7 +1758,7 @@ export class Run {
     });
 
     const fill = await new FormFillExecutor({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
       maxResultBytes: localResultBytes(limits),
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
@@ -2058,18 +2084,18 @@ export class Run {
       throw new Error('guidedImprovements требует guided v4; эксперимент не применён');
     if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route, this.profile.chunkSelection, this.profile.guidedImprovements);
     if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
-      provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop')),
+      provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop'), this.providerOptions(route, stage)),
       params: route.params, contextWindow: route.contextWindow ?? 16384 });
     if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null && this.profile.planSelection && this.profile.planSelection.candidates !== 1) {
       const selection = this.profile.planSelection;
       return new PlanSelectionExecutor({ paths: this.paths, slug: this.slug, candidates: selection.candidates === 2 ? 2 : 3,
-        generator: { provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+        generator: { provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
           params: route.params, contextWindow: route.contextWindow ?? 16384 },
-        judge: { provider: createProvider(selection.judge.provider, selection.judge.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'planJudge')),
+        judge: { provider: createProvider(selection.judge.provider, selection.judge.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'planJudge'), this.providerOptions(selection.judge, stage)),
           model: selection.judge.model, params: selection.judge.params, contextWindow: selection.judge.contextWindow ?? 16384 } });
     }
     if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null) return new GuidedPlanExecutor({
-      paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+      paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
       params: route.params, contextWindow: route.contextWindow ?? 16384 });
     if (route.flow === 'sdk') {
       // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
@@ -2107,7 +2133,7 @@ export class Run {
     // а не выводится из входов; chunk/verify — тем более.
     if (this.usesFormFill(stage, route, preparationForms) || (['verify', 'handoff'].includes(stage) && readGuided(this.paths) !== null)) {
       return new FormFillExecutor({
-        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
         maxResultBytes: localResultBytes(limits),
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
@@ -2140,7 +2166,7 @@ export class Run {
     if (stage === 'chunk' && route.stepFill && !isPreparationV2(this.paths)) return stepFillExecutor(this.host, route);
 
     return new LoopExecutor({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop')),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop'), this.providerOptions(route, stage)),
       // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
       // `Read` по нему забирал почти весь контекст 16K — измерено на прогоне.
       maxResultBytes: localResultBytes(limits),
@@ -2565,7 +2591,7 @@ export class Run {
       opts = { ...opts, preparationVersion: 3 };
       if ([...Object.values(this.profile.routes), ...Object.values(this.profile.ensemble).flat()].some(r =>
         !guidedRouteMatches(this.profile, r, guided.modelId))) throw new Error('Локальная модель guided-задачи изменена');
-      if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: guidedBudgetReason(guided) };
+      if (guided.activeMs >= guided.budgetMs && this.workBudget() === null) return { ok: false, finalText: '', usage: emptyUsage(), note: guidedBudgetReason(guided) };
       for (const r of [this.profile.routes.verify, ...this.profile.ensemble.verify]) {
         r.reviewFill = true;
         r.claimFill = true;
@@ -2688,7 +2714,7 @@ export class Run {
     let guidedTick = Date.now();
     const chargeGuided = (): void => {
       const now = Date.now();
-      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running')) this.aborter?.abort(new Error(guidedBudgetReason(readGuided(this.paths) ?? guided)));
+      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running') && this.workBudget() === null) this.aborter?.abort(new Error(guidedBudgetReason(readGuided(this.paths) ?? guided)));
       guidedTick = now;
     };
     const guidedTimer = guided ? setInterval(() => {
@@ -3153,7 +3179,7 @@ export class Run {
         checked = await checkStageDecision({ cwd: this.project.projectRoot, model: route.model,
           prompt, allowedTools: checkpointTools, signal: decisionSignal,
           maxTurns: this.maxTurnsFor(stage), maxBudgetUsd: this.project.maxBudgetUsd }, hooks, {
-          stage, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'decisionCheck')),
+          stage, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'decisionCheck'), this.providerOptions(route, stage)),
           params: route.params ?? null, contextWindow: route.contextWindow ?? 16384,
           lookupPolicy: { ...ctx, allowedTools: checkpointTools },
           spent: () => this.spent.spent(route.providerDef.currency ?? 'USD'),
@@ -3344,7 +3370,8 @@ export class Run {
         const note = this.cancelRequested ? this.cancelNote
           : `этап прерван рантаймом: ${reason instanceof Error ? reason.message : String(reason ?? 'причина не указана')}`;
         this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note });
-        return { ...result, ok: false, note, ...(this.cancelRequested ? { stopCause: this.cancelOrigin } : {}) };
+        const cancelledResult: StageResult = { ...result, ok: false, note, ...(this.cancelRequested ? { stopCause: this.cancelOrigin } : {}) };
+        return guided?.engineVersion === 5 ? observeDecisions(this.paths, stage, stageStartedAt, cancelledResult) : cancelledResult;
       }
 
       // Вердикт этапа (verify) — сразу после хода, по только что записанному отчёту.
@@ -3388,7 +3415,22 @@ export class Run {
         this.gate.cancelRun(this.id, this.cancelNote);
         this.askGate.cancelRun(this.id);
         this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: this.cancelNote });
-        return { ok: false, finalText: '', usage: emptyUsage(), note: this.cancelNote, stopCause: this.cancelOrigin };
+        const cancelledResult: StageResult = { ok: false, finalText: '', usage: emptyUsage(), note: this.cancelNote, stopCause: this.cancelOrigin };
+        return guided?.engineVersion === 5 ? observeDecisions(this.paths, stage, stageStartedAt, cancelledResult) : cancelledResult;
+      }
+      if (e instanceof WorkBudgetExhausted) {
+        const result = this.workBudgetFailure(stage, e);
+        try {
+          await inv.evidence?.();
+          await inv.verdict?.();
+        } catch (finalizationError) {
+          result.note += `; финализация: ${(finalizationError as Error).message}`;
+          result.incomplete!.detail = result.note;
+        }
+        this.reportArtifacts(stage);
+        this.status = 'failed';
+        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: result.note, incomplete: result.incomplete! });
+        return guided?.engineVersion === 5 ? observeDecisions(this.paths, stage, stageStartedAt, result) : result;
       }
       this.status = 'failed';
       this.gate.cancelRun(this.id, `этап оборван: ${message}`);

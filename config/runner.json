@@ -31,6 +31,16 @@
     "exploreRequestTimeoutMs": 120000,
 
     "// localHistoryBudgetBytes": "Флоу loop: суммарный объём результатов инструментов в истории хода. Сверх него старые результаты заменяются заглушками (server/src/exec/history.ts) — иначе на окне 16k локальный сервер молча вытесняет системный промпт (r33: 31 вызов, 367k входных токенов).",
-    "localHistoryBudgetBytes": 40000
+    "localHistoryBudgetBytes": 40000,
+
+    "// workBudget": "Guided v5: общий бюджет всех модельных вызовов витка. Резерв доступен только Verify/Handoff; runtime gates им не отменяются. Старые движки и SDK не затрагиваются.",
+    "workBudget": {
+      "wallClockMs": 3600000,
+      "requests": 280,
+      "outputTokens": 1000000,
+      "reserveWallClockMs": 600000,
+      "reserveRequests": 70,
+      "reserveOutputTokens": 200000
+    }
   }
 }

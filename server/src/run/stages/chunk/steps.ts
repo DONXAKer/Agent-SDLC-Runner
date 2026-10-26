@@ -169,7 +169,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
   const testsRow = gates?.rows.find((r) => gateKey(r.name) === gateKey('Тесты') && r.enabled);
   const checkLabel = [buildRow?.name, testsRow?.name].filter((n): n is string => n !== undefined).join(' + ');
   return new StepExecutor({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'step')),
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'step'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'work' }),
     maxResultBytes: localResultBytes(limits),
     readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
     bashTimeoutMs: limits.gateTimeoutMs,

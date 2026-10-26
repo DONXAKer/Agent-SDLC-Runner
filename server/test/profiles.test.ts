@@ -46,6 +46,32 @@ it('guided improvement flags are opt-in, validated and preserved in ad hoc profi
   throws(() => resolveProfile(p, models, 'p'), /guidedImprovements/);
 });
 
+it('validates and resolves the explicit reasoning fallback at runtime', () => {
+  const p = project('ollama:small', 'ollama:small');
+  strictEqual(resolveProfile(p, models, 'p').routes.chunk.reasoningFallback, undefined);
+  const enabled: ModelsConfig = {
+    ...models,
+    models: models.models.map((model) => model.id === 'ollama:small'
+      ? { ...model, reasoningFallback: 'omit-params' }
+      : model),
+  };
+  strictEqual(resolveProfile(p, enabled, 'p').routes.chunk.reasoningFallback, 'omit-params');
+  const invalid = {
+    ...models,
+    models: models.models.map((model) => model.id === 'ollama:small'
+      ? { ...model, reasoningFallback: 'drop-everything' }
+      : model),
+  } as unknown as ModelsConfig;
+  throws(
+    () => resolveProfile(p, invalid, 'p'),
+    (error: unknown) => {
+      ok(error instanceof ProfileError);
+      ok(error.problems.some((problem) => problem.includes('reasoningFallback')));
+      return true;
+    },
+  );
+});
+
 it('resolves opt-in plan selection and rejects unknown or SDK judges', () => {
   const p = project('ollama:small', 'ollama:small');
   p.profiles.p!.planSelection = { candidates: 3 };

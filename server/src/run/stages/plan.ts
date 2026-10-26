@@ -54,6 +54,7 @@ import { explorationPathsExist } from './explore.ts';
 import { claimsMinimum, hasOpenQuestions, intentFilled, intentSectionsIntact, isSmallContour, relOf } from './preconditions.ts';
 import { ensureIntentSnapshot } from './intent.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
+import type { Plan, PlanStep } from '../../artifacts/guidedIr.ts';
 
 /**
  * `files_to_touch` плана пуст — та же находка, что уже ловит `Run.blockers()` на входе в
@@ -89,11 +90,16 @@ export function extractIntentImplementationPaths(intentText: string): string[] {
   // Intent often names read-only evidence in phrases such as "на основе анализа
   // src/foo.ts". Require paths attached to implementation verbs, not every
   // path mentioned in the prose; the approved plan still guards actual writes.
-  const required = [...implementation.matchAll(/(?:реализ\w*|реализац\w*|созда\w*|добав\w*|измен\w*|экспорт\w*|обнов\w*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
+  const required = [...implementation.matchAll(/(?<![\p{L}_])(?:реализ\w*|реализац\w*|разраб\w*|созда\w*|добав\w*|измен\w*|экспорт\w*|обнов\w*|нов\w*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
     .map((match) => (match[1] ?? '').replace(/\\/gu, '/'));
   return [...new Set(required.filter((path) =>
     path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..'),
   ))];
+}
+
+export function extractRequestImplementationPaths(request: string): string[] {
+  const expected = section(request, 'Что должно получиться');
+  return extractIntentImplementationPaths(`## Что делаем\n${expected || request}`);
 }
 
 /** Explicit public-export paths in the original request are implementation targets too. */
@@ -107,7 +113,7 @@ export function extractExplicitExportPaths(requests: readonly string[]): string[
   ))];
 }
 
-export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = [], planText = ''): string | null {
+export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = [], planText: string | readonly string[] = ''): string | null {
   const requestText = originalRequests.join('\n');
   const existingTestsForbidden = /(?:не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:существующ\p{L}*.{0,20})?(?:тест|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*))/iu
     .test(section(intentText, 'Чего не делаем') + '\n' + requestText) ||
@@ -129,15 +135,20 @@ export function intentNewTestPath(intentText: string, projectRoot: string, origi
   const intentTest = extractIntentImplementationPaths(intentText).find(safeNewTest);
   if (intentTest !== undefined) return intentTest;
   const examples = readTree(projectRoot).files.filter((file) => file.kind === 'test').map((file) => file.path.replace(/\\/gu, '/'));
-  const planned = extractFilesToTouch(planText).map(path => path.replace(/\\/gu, '/')).find(path => safeNewTest(path) &&
+  const plannedPaths = typeof planText === 'string' ? extractFilesToTouch(planText) : planText;
+  const planned = plannedPaths.map(path => path.replace(/\\/gu, '/')).find(path => safeNewTest(path) &&
     examples.some(example => example.slice(0, example.lastIndexOf('/') + 1) === path.slice(0, path.lastIndexOf('/') + 1)));
   if (planned !== undefined) return planned;
   const implementation = section(intentText, 'Что делаем');
   const functionName = /(?:функц(?:ия|ию|ии|ией|иею)|function)\s+[`']?([A-Za-z_$][\w$]*)/iu;
+  const implementationTargets = [...extractIntentImplementationPaths(intentText),
+    ...originalRequests.flatMap(extractRequestImplementationPaths)];
+  const moduleTarget = implementationTargets.find(path => !testName.test(path) && !/(?:^|\/)index\.[^/]+$/iu.test(path) && !existsSync(join(projectRoot, path)));
+  const moduleSymbol = moduleTarget?.split('/').pop()?.replace(/\.[^.]+$/u, '');
   // Prefer the positive implementation scope. Excluded functions are not test targets.
   const symbol = functionName.exec(implementation)?.[1] ??
     functionName.exec(requestText)?.[1] ??
-    functionName.exec(section(intentText, 'Приёмочный лист'))?.[1];
+    functionName.exec(section(intentText, 'Приёмочный лист'))?.[1] ?? moduleSymbol;
   if (symbol === undefined) return null;
   // Infer the new test target from this project's existing test naming pattern.
   // If the repository offers no recognizable convention, let the plan author
@@ -345,6 +356,112 @@ export function preparePlanImplementationCards(
     }
   }
   return { text, paths: missing };
+}
+
+/** Materialize task-mandated targets directly in the typed plan graph. */
+export function materializeGuidedPlanImplementation(
+  plan: Plan,
+  intentText: string,
+  projectRoot: string,
+  additionalRequiredPaths: readonly string[] = [],
+  originalRequests: readonly string[] = [],
+  acceptance?: readonly { id: string; behavior: string; procedure: string; expected: string }[],
+): { plan: Plan; paths: string[]; testPath: string | null; changed: boolean } {
+  const implementation = `${section(intentText, 'Что делаем')}\n${originalRequests.join('\n')}`;
+  const intentPaths = extractIntentImplementationPaths(intentText);
+  const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1];
+  const checks = acceptance ?? acceptanceChecksFromIntent(intentText);
+  const testableChecks = checks.filter(check =>
+    !/выбор.{0,35}(?:метод|способ)|зафиксир.{0,30}план/iu.test(`${check.behavior} ${check.procedure}`));
+  const normalizePath = (path: string): string => path.replace(/\\/gu, '/');
+  let steps = plan.steps.map(step => ({ ...step, claims: [...step.claims], dependsOn: [...step.dependsOn] }));
+  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, steps.map(step => step.file));
+  const boundaries = section(intentText, 'Чего не делаем');
+  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaries);
+  const removed = new Set<number>();
+  const removedClaims = new Set<string>();
+  if (testPath !== null && existingTestsForbidden) {
+    for (const step of steps) {
+      const file = normalizePath(step.file);
+      if (!/^tests?\//iu.test(file) || file === testPath || !existsSync(join(projectRoot, file))) continue;
+      removed.add(step.id);
+      step.claims.forEach(claim => removedClaims.add(claim));
+    }
+    steps = steps.filter(step => !removed.has(step.id));
+  }
+  const mandatory = [...new Set([...intentPaths, ...additionalRequiredPaths, ...(testPath === null ? [] : [testPath])])];
+  const addedPaths: string[] = [];
+  let nextId = Math.max(0, ...plan.steps.map(step => step.id)) + 1;
+  for (const path of mandatory) {
+    if (steps.some(step => normalizePath(step.file) === normalizePath(path))) continue;
+    const pathAt = implementation.indexOf(path);
+    const exportTarget = pathAt >= 0 && /экспорт\p{L}*|export/iu.test(implementation.slice(Math.max(0, pathAt - 100), pathAt));
+    const source = exportTarget
+      ? intentPaths.find(candidate => candidate !== path && implementation.indexOf(candidate) >= 0 && implementation.indexOf(candidate) < pathAt)
+      : undefined;
+    const related = checks.filter(check =>
+      `${check.behavior} ${check.procedure} ${check.expected}`.toLowerCase().includes(path.toLowerCase()));
+    const isTest = path === testPath;
+    const claimRows = isTest ? testableChecks : related;
+    const claimIds = [...new Set([...claimRows.map(check => check.id), ...(isTest ? removedClaims : [])])];
+    const basename = path.split('/').pop()?.replace(/\.[^.]+$/u, '').replace(/[^A-Za-z0-9_$]/gu, '_') ?? '';
+    const fallbackSymbol = /^[A-Za-z_$][\w$]*$/u.test(basename) ? basename : 'module';
+    const dependency = source === undefined ? undefined : steps.find(step => normalizePath(step.file) === normalizePath(source))?.id;
+    const testDependencies = isTest ? steps.filter(step => !/^tests?\//iu.test(normalizePath(step.file))).map(step => step.id) : [];
+    const step: PlanStep = {
+      id: nextId++,
+      file: path,
+      isNew: !existsSync(join(projectRoot, path)),
+      symbol: isTest ? 'тест' : `новый: ${symbol ?? fallbackSymbol}`,
+      action: isTest
+        ? `Добавить поведенческие тесты${claimIds.length ? ` для ${claimIds.join(', ')}` : ' из приёмочного листа'}; использовать полные процедуры и ожидаемые результаты.`
+        : exportTarget
+          ? `Экспортировать ${symbol ?? fallbackSymbol} из ${source ?? 'модуля реализации'} через публичный вход ${path}; сохранить существующие экспорты.`
+          : `Реализовать требования приёмочного листа в ${path}; сохранить поведение вне явной области изменения.`,
+      claims: claimIds,
+      check: isTest
+        ? `Прогнать тестовую команду проекта и все сценарии ${claimIds.join(', ') || 'приёмочного листа'}`
+        : claimRows.length
+          ? claimRows.map(check => check.procedure).join('; ')
+          : exportTarget
+            ? `Импортировать ${symbol ?? fallbackSymbol} из публичного входа ${path}`
+            : `Выполнить проверки требований, связанных с ${path}`,
+      expected: isTest
+        ? `Все сценарии ${claimIds.join(', ') || 'приёмочного листа'} проходят; существующие тесты остаются зелёными`
+        : claimRows.length
+          ? claimRows.map(check => check.expected).join('; ')
+          : exportTarget
+            ? `Публичный экспорт ${symbol ?? fallbackSymbol} доступен; прежние экспорты сохранены`
+            : 'Связанные требования выполняются без изменений вне области плана',
+      contract: isTest
+        ? 'н/п — тестовый файл проверяет согласованные требования и не меняет публичный интерфейс.'
+        : exportTarget
+          ? `Добавить публичный экспорт ${symbol ?? fallbackSymbol} из ${source ?? 'модуля реализации'} в ${path}; прежние экспорты остаются доступны.`
+          : 'н/п — публичный контракт сохраняется, если задача явно не требует его изменения.',
+      dependsOn: [...new Set(dependency === undefined ? testDependencies : [dependency])],
+    };
+    steps.push(step);
+    addedPaths.push(path);
+  }
+  if (testPath !== null && removedClaims.size > 0) {
+    steps = steps.map(step => normalizePath(step.file) === testPath
+      ? { ...step, claims: [...new Set([...step.claims, ...removedClaims])] }
+      : step);
+  }
+  if (removed.size === 0 && addedPaths.length === 0) return { plan, paths: [], testPath, changed: false };
+  const testStep = testPath === null ? undefined : steps.find(step => normalizePath(step.file) === testPath);
+  const dependencyOwner = (id: number): number => removed.has(id) && testStep !== undefined ? testStep.id : id;
+  const ids = new Map(steps.map((step, index) => [step.id, index + 1]));
+  const renumbered = steps.map(step => ({
+    ...step,
+    id: ids.get(step.id)!,
+    dependsOn: [...new Set(step.dependsOn.map(dependencyOwner).filter(id => id !== step.id).map(id => {
+      const mapped = ids.get(id);
+      if (mapped === undefined) throw new Error(`шаг ${step.id}: зависимость ${id} ссылается на отсутствующую карточку`);
+      return mapped;
+    }))],
+  }));
+  return { plan: { ...plan, steps: renumbered }, paths: addedPaths, testPath, changed: true };
 }
 
 /** Reapply a task-mandated new test-file target if the model replaces it with an existing test. */
@@ -758,7 +875,7 @@ export async function topUpAxes(host: StageHost, route: ResolvedRoute, system: s
   // комбинированный; оба отдают один `PlanAxisFillResult` и пишутся одним путём ниже.
   const fill = route.planAxisFill === 'combined' ? fillPlanAxes : fillPlanAxesStepwise;
   const { answers, envFailure } = await fill({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('plan', 'planAxisFill')),
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('plan', 'planAxisFill'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'work' }),
     model: route.model,
     params: route.params,
     system,

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, openSync, closeSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { guidedAcceptance } from '../bench/src/guidedAcceptance.ts';
+import { assessGuidedValidation } from '../bench/src/guidedValidation.ts';
 import { requireTaskFiles } from '../bench/src/tasks.ts';
 
 const root=resolve('.'); const args=process.argv.slice(2);
@@ -54,10 +55,13 @@ for(const [index,entry] of cases.entries()) {
   const result=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):null;
   run.finishedAt=new Date().toISOString();run.seconds=(Date.parse(run.finishedAt)-Date.parse(run.startedAt))/1000;
   const options=result?.run?.guidedImprovements;
+  const assessment=assessGuidedValidation(result,{slug,model,task:entry.task,startedAt:run.startedAt,finishedAt:run.finishedAt,guidedEngineVersion:4},run.exitCode??null);
   const comparable=result?.run?.model===model && result?.guided?.engineVersion===4 &&
     Boolean(options?.consumerContext)===(entry.mode==='consumer-context') && Boolean(options?.evidenceRepair)===(entry.mode==='evidence-repair') && fingerprint()===manifest.codeHash;
-  run.success=comparable && guidedAcceptance(result,'guided').success;
-  run.status=result?(!comparable?'incomparable':run.success?'success':'failed'):'no-result';
+  run.success=comparable && assessment.success && guidedAcceptance(result,'guided').success;
+  run.status=assessment.status==='no-current-result'||!result?'no-result':!comparable?'incomparable':run.success?'success':assessment.status==='environment-failure'?'environment-failure':'failed';
+  run.outcomeKind=assessment.outcomeKind;run.evidenceLevel=assessment.evidenceLevel;run.modelTaskEvaluated=assessment.modelTaskEvaluated;
+  run.operationalSuccess=comparable&&assessment.operationalSuccess;run.environmentFailure=assessment.environmentFailure;
   run.stopped=result?.driver?.stopped??null;run.workload=result?.guided?.workload??null;
   run.reachedChunk=result?.driver?.stages?.some(stage=>stage.stage==='chunk' && !stage.skipped)??false;
   run.execution=result?.execution??null;
@@ -68,6 +72,7 @@ for(const [index,entry] of cases.entries()) {
   save();console.log(`DONE ${index+1}/${cases.length}: ${run.status} ${run.stopped}`);
 }
 manifest.status='complete';save();
-const rows=modes.map(mode=>{const runs=manifest.runs.filter(r=>r.mode===mode);return `| ${mode} | ${runs.filter(r=>r.success).length}/${runs.length} | ${runs.filter(r=>r.reachedChunk).length} | ${runs.filter(r=>r.falseSuccess===true).length}/${runs.filter(r=>r.falseSuccess!==null).length} | ${runs.filter(r=>r.status==='no-result').length} | ${(runs.reduce((n,r)=>n+r.seconds,0)/runs.length).toFixed(1)} |`;});
-writeFileSync(join(dir,'report.md'),`# Guided improvements comparison\n\n| Mode | Acceptance | Reached Chunk | False success / evaluated green verdicts | Missing results | Mean seconds |\n|---|---:|---:|---:|---:|---:|\n${rows.join('\n')}\n\nFixed eight tasks, two repeats, identical budgets. Small exploratory series, not statistical proof. Early-stage failures do not measure Chunk improvements. Missing results are infrastructure gaps, not model-quality evidence. Detailed execution metrics and usage by purpose are preserved per run in suite.json. Experiment flags remain off by default.\n`);
+const rows=modes.map(mode=>{const runs=manifest.runs.filter(r=>r.mode===mode);const evaluated=runs.filter(r=>r.modelTaskEvaluated).length;
+  return `| ${mode} | ${runs.filter(r=>r.success).length}/${evaluated} | ${runs.filter(r=>r.operationalSuccess).length}/${runs.length} | ${runs.filter(r=>r.environmentFailure).length} | ${runs.filter(r=>r.reachedChunk).length} | ${runs.filter(r=>r.falseSuccess===true).length}/${runs.filter(r=>r.falseSuccess!==null).length} | ${runs.filter(r=>r.status==='no-result').length} | ${(runs.reduce((n,r)=>n+r.seconds,0)/runs.length).toFixed(1)} |`;});
+writeFileSync(join(dir,'report.md'),`# Guided improvements comparison\n\n| Mode | Model full-flow success / evaluated | Operational success / all runs | Environment failures | Reached Chunk | False success / evaluated green verdicts | Missing results | Mean seconds |\n|---|---:|---:|---:|---:|---:|---:|---:|\n${rows.join('\n')}\n\nFixed eight tasks, two repeats, identical budgets. Small exploratory series, not statistical proof. Early-stage failures do not measure Chunk improvements. Environment failures stay in operational reliability but are excluded from the model-quality denominator. Missing results are infrastructure gaps, not model-quality evidence. Detailed execution metrics and usage by purpose are preserved per run in suite.json. Experiment flags remain off by default.\n`);
 console.log(dir);

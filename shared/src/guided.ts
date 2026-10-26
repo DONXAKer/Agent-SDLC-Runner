@@ -19,6 +19,11 @@ export interface GuidedWorkload {
   unclassifiedUsageEvents: number;
   firstMutation: { at: string; elapsedMs: number; requests: number; inputTokens: number; outputTokens: number; unclassifiedUsageEvents: number } | null;
 }
+export interface WorkIncomplete {
+  cause: 'wall-clock' | 'requests' | 'output-tokens' | 'cost';
+  detail: string;
+  units: { id: string; stage: StageId; status: 'pending' | 'running' | 'failed' | 'blocked' | 'unverified'; claims?: string[] }[];
+}
 export interface GuidedFailure {
   kind: 'contract' | 'plan' | 'operation' | 'checks' | 'format' | 'environment';
   origin: StageId;

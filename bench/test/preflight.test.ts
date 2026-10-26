@@ -35,6 +35,8 @@ const greenProbe: PreflightDeps['probe'] = async ({ cases }) => ({
 function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
   return {
     probe: greenProbe,
+    guidedProbe: async () => ({ ok: true, env: false, detail: 'ready=true' }),
+    capabilities: async (provider, model) => ({ provider, model, source: 'ollama-show', tools: 'supported', reasoning: 'supported', reasoningOptions: null, reasoningDefault: null, detail: 'supported' }),
     // Прогрев и перезагрузка — внешние вызовы (chat, lms); в герметичном тесте — заглушки.
     warmup: async () => {},
     reloadEngine: async () => ({ kind: 'reloaded', detail: 'заглушка' }),
@@ -722,6 +724,77 @@ describe('runPreflight: лимит ходов против штатного', ()
     const turns = report.checks.find((c) => c.name === 'стенд: лимит ходов');
     strictEqual(turns?.ok, true);
     ok(turns?.detail.includes('⚠') && turns.detail.includes('verify 60'), turns?.detail);
+  });
+});
+
+describe('runPreflight: guided capabilities', () => {
+  const unsupportedReasoning: PreflightDeps['capabilities'] = async (provider, model) => ({
+    provider, model, source: 'ollama-show', tools: 'supported', reasoning: 'unsupported',
+    reasoningOptions: null, reasoningDefault: null, detail: 'capabilities: completion, tools',
+  });
+
+  it('guided получает реальную structured-output пробу и capability hash', async () => {
+    let guidedCalls = 0;
+    let toolProbeCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions']),
+      greenDeps({
+        guidedProbe: async () => { guidedCalls++; return { ok: true, env: false, detail: 'ready=true' }; },
+        probe: async args => { toolProbeCalls++; return greenProbe(args); },
+      }),
+    );
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter(check => !check.ok)));
+    strictEqual(guidedCalls, 1);
+    strictEqual(toolProbeCalls, 0);
+    strictEqual(report.capabilityHash?.length, 64);
+    ok(formatPreflight(report).includes(report.capabilityHash!));
+  });
+
+  it('явный reasoning при фактическом unsupported блокирует запуск до warmup', async () => {
+    let warmupCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', 'ollama:gpt-oss-20b-effort-low-rf', '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions']),
+      greenDeps({ capabilities: unsupportedReasoning, warmup: async () => { warmupCalls++; } }),
+    );
+    strictEqual(report.envBlocked, true);
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(warmupCalls, 0);
+    ok(report.checks.some(check => check.name.includes('capabilities') && check.detail.includes('reasoningFallback')));
+  });
+
+  it('разрешённый fallback виден в паспорте, а неизвестные capabilities не дают ложный красный', async () => {
+    const withFallback = () => {
+      const config = loadConfig();
+      return { ...config, models: { ...config.models, models: config.models.models.map(model =>
+        model.id === 'ollama:gpt-oss-20b-effort-low-rf' ? { ...model, reasoningFallback: 'omit-params' as const } : model) } };
+    };
+    const allowed = await runPreflight(
+      opts(['--model', 'ollama:gpt-oss-20b-effort-low-rf', '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions']),
+      greenDeps({ capabilities: unsupportedReasoning, loadConfig: withFallback }),
+    );
+    strictEqual(allowed.passed, true, JSON.stringify(allowed.checks.filter(check => !check.ok)));
+    ok(allowed.checks.some(check => check.detail.includes('явно разрешён fallback omit-params')));
+    const unknown = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({ capabilities: async (provider, model) => ({ provider, model, source: 'unavailable', tools: 'unknown', reasoning: 'unknown', reasoningOptions: null, reasoningDefault: null, detail: 'старый сервер' }) }),
+    );
+    strictEqual(unknown.passed, true, JSON.stringify(unknown.checks.filter(check => !check.ok)));
+  });
+
+  it('reviewFill не требует tools у рецензента, но chunk по-прежнему требует', async () => {
+    const noTools: PreflightDeps['capabilities'] = async (provider, model) => ({
+      provider, model, source: 'ollama-show', tools: 'unsupported', reasoning: 'supported',
+      reasoningOptions: null, reasoningDefault: null, detail: 'capabilities: completion',
+    });
+    const reviewer = await runPreflight(
+      opts(['--model', 'ollama:qwen3-coder-30b-reviewfill-skipturn', '--stage', 'verify', '--control-chunk', MODEL]),
+      greenDeps({ capabilities: noTools }),
+    );
+    strictEqual(reviewer.passed, true, JSON.stringify(reviewer.checks.filter(check => !check.ok)));
+    const chunk = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ capabilities: noTools }));
+    strictEqual(chunk.passed, false);
+    strictEqual(chunk.envBlocked, false);
+    strictEqual(preflightExitCode(chunk), 1);
   });
 });
 

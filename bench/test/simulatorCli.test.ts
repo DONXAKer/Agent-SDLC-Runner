@@ -22,8 +22,12 @@ test('CLI сохраняет отчёт, не использует состоя�
   const original = readFileSync(join(output, 'report.json'), 'utf8');
   const report = JSON.parse(original);
   assert.equal(report.passed, true);
+  assert.equal(report.evidenceLevel, 'simulated-protocol');
+  assert.equal(report.liveModelQuality, 'not-evaluated');
   assert.equal(report.cases.length, 4);
+  assert.ok(report.cases.every((c: { outcomeKind: string }) => c.outcomeKind === 'component-expectation'));
   assert.match(report.sourceHash, /^[a-f0-9]{64}$/);
+  assert.match(readFileSync(join(output, 'report.md'), 'utf8'), /simulated-protocol/);
   assert.ok(report.cases.every((c: { traceFile: string }) => JSON.parse(readFileSync(join(output, c.traceFile), 'utf8')).length > 0));
   assert.deepEqual(readdirSync(state), ['sentinel']);
   assert.equal(readFileSync(join(state, 'sentinel'), 'utf8'), 'не менять');

@@ -16,6 +16,8 @@ import { extractFilesToTouch, forbiddenCodePaths } from './planFiles.ts';
 import { extractExplicitSteps } from './planSteps.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
 import type { PreparationSummary, StageId } from '@sdlc-runner/shared';
+import { IntentIr, PreparationIr, type PlanIr, type QuestionsIr, type SourceReference } from './guidedIr.ts';
+import { compileIntent } from './guidedArtifactCompiler.ts';
 
 export interface PreparationReview {
   sourceHashes?: Record<string, string>;
@@ -54,6 +56,7 @@ export interface PreparationState {
   structuredTablesRequired?: boolean;
   structuredTablesRendered?: boolean;
   canonical?: PreparationCanonicalV3;
+  ir?: { version: 1; intent?: IntentIr; questions?: QuestionsIr; plan?: PlanIr };
   checkedImplementation?: { revision: number; requestsHash: string; requirementsHash: string; planHash: string; sourceHashes: Record<string, string> };
   planCandidates?: { raw: string; parsed?: unknown; normalized?: string; error?: string }[];
   questionJournal?: {
@@ -63,6 +66,7 @@ export interface PreparationState {
       status: 'source' | 'engineering' | 'context' | 'human' | 'protocol' | 'answered' | 'deferred';
       answer: string; reason: string; options: string[];
       sourceHashes: Record<string, string>; citations: { source: string; quote: string }[];
+      evidence?: SourceReference[] | undefined;
     }[];
   };
   revisions: { revision: number; requestsHash: string; requirementsHash: string; planHash: string; intent: string; clarifications: string; plan: string; approvedBy: string; approvedAt: string }[];
@@ -79,6 +83,10 @@ export function preparation(paths: WitokPaths): PreparationState | null {
   const state = JSON.parse(readFileSync(path, 'utf8')) as PreparationState;
   if ((state.version !== 2 && state.version !== 3) || !Array.isArray(state.requests) || !Array.isArray(state.revisions)) {
     throw new Error('неподдерживаемая или повреждённая версия проработки');
+  }
+  if (state.ir !== undefined) {
+    try { PreparationIr.parse(state.ir); }
+    catch { throw new Error('повреждены типизированные данные проработки'); }
   }
   if (state.questionJournal !== undefined) {
     const journal = state.questionJournal;
@@ -272,26 +280,48 @@ export function initializePreparation(paths: WitokPaths, request?: string, versi
   savePreparation(paths, state);
 }
 
+function intentIrFromArtifact(intent: string): IntentIr | null {
+  const payload = (kind: 'acceptance' | 'basis'): string | null =>
+    new RegExp(`<!--\\s*sdlc-json:${kind}:start\\s*-->([\\s\\S]*?)<!--\\s*sdlc-json:${kind}:end\\s*-->`, 'u').exec(intent)?.[1]?.trim() ?? null;
+  const acceptanceText = payload('acceptance'), basisText = payload('basis');
+  if (acceptanceText === null || basisText === null || acceptanceText.includes('‹') || basisText.includes('‹')) return null;
+  const acceptance = JSON.parse(acceptanceText) as unknown;
+  const basisRows = JSON.parse(basisText) as unknown;
+  if (!Array.isArray(acceptance) || !Array.isArray(basisRows)) throw new Error('Структурированные требования должны быть массивами');
+  const basis = basisRows.map(row => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('Неверная запись основания');
+    const value = row as Record<string, unknown>;
+    if (typeof value.basis !== 'string') return row;
+    const match = /^(.+):L(\d+)-L(\d+)(?:\s+«[\s\S]*»)?$/u.exec(value.basis.trim());
+    if (!match) throw new Error('Основание не содержит типизированной ссылки на исходный запрос');
+    return { ...value, basis: { source: match[1], lines: [Number(match[2]), Number(match[3])] } };
+  });
+  return IntentIr.parse({ version: 1, acceptance, basis });
+}
+
 /** Refresh v3's machine-readable source data from the validated rendered documents. */
 export function syncCanonicalPreparation(paths: WitokPaths): void {
   const state = preparation(paths);
   if (state?.version !== 3) return;
   const intent = readArtifact(paths.intent);
   const plan = readArtifact(paths.plan);
+  const intentIr = intentIrFromArtifact(intent.text);
+  const compiled = intentIr === null ? null : compileIntent(intentIr,
+    Object.fromEntries(state.requests.map((request, index) => [`request-${index + 1}`, request])));
   const acceptanceTable = parseTables(section(intent.text, 'Приёмочный лист'))[0];
   const basisTable = parseTables(section(intent.text, 'Основания и сценарии'))[0];
-  const acceptance = acceptanceTable === undefined ? [] : acceptanceTable.rows.map((row) => ({
+  const acceptance = compiled?.requirements.acceptance ?? (acceptanceTable === undefined ? [] : acceptanceTable.rows.map((row) => ({
     id: (row[columnIndex(acceptanceTable.header, 'id')] ?? '').replace(/`/gu, '').trim(),
     behavior: row[columnIndex(acceptanceTable.header, 'Пункт')] ?? '',
     procedure: ((row[columnIndex(acceptanceTable.header, 'Как проверить (процедура + критерий)')] ?? '').match(/Процедура:\s*(.*?)(?:\.\s*Ожидаемо:|$)/iu)?.[1] ?? '').trim(),
     expected: ((row[columnIndex(acceptanceTable.header, 'Как проверить (процедура + критерий)')] ?? '').match(/Ожидаемо:\s*(.*)$/iu)?.[1] ?? '').trim(),
-  }));
-  const basis = basisTable === undefined ? [] : basisTable.rows.map((row) => ({
+  })));
+  const basis = compiled?.requirements.basis ?? (basisTable === undefined ? [] : basisTable.rows.map((row) => ({
     basis: row[columnIndex(basisTable.header, 'Основание')] ?? '',
     scenario: row[columnIndex(basisTable.header, 'Сценарий')] ?? '',
     counterexample: row[columnIndex(basisTable.header, 'Контрпример')] ?? '',
     id: (row[columnIndex(basisTable.header, 'ID')] ?? '').replace(/`/gu, '').trim(),
-  }));
+  })));
   const inScope = sectionItems(intent.text, 'Что делаем');
   const outOfScope = sectionItems(intent.text, 'Чего не делаем');
   const invariants = sectionItems(intent.text, 'Инварианты');
@@ -330,8 +360,11 @@ export function syncCanonicalPreparation(paths: WitokPaths): void {
       },
     } : {}),
   };
-  if (JSON.stringify(state.canonical ?? {}) !== JSON.stringify(canonical)) {
+  const remainingIr = Object.fromEntries(Object.entries(state.ir ?? {}).filter(([key]) => key !== 'intent'));
+  const ir = { ...remainingIr, version: 1 as const, ...(compiled === null ? {} : { intent: compiled.ir }) };
+  if (JSON.stringify(state.canonical ?? {}) !== JSON.stringify(canonical) || JSON.stringify(state.ir ?? {}) !== JSON.stringify(ir)) {
     state.canonical = canonical;
+    state.ir = ir;
     savePreparation(paths, state);
   }
 }

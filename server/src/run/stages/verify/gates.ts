@@ -136,7 +136,7 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
     const reviewer = host.reviewScan().route;
     approvedUntouched = await reviewNoChanges({ paths: host.paths,
     planned: host.planFilesFor('verify') ?? [], changed: await changedPaths(host.projectRoot, signal),
-    provider: createProvider(reviewer.provider, reviewer.providerDef, host.limits().chatTimeoutMs, host.trace('verify', 'claimFill')),
+    provider: createProvider(reviewer.provider, reviewer.providerDef, host.limits().chatTimeoutMs, host.trace('verify', 'claimFill'), { reasoningFallback: reviewer.reasoningFallback, workBudget: host.workBudget(), workPhase: 'finalization' }),
     model: reviewer.model, params: reviewer.params, contextWindow: reviewer.contextWindow ?? 16384,
     signal: signal ?? host.signal(), onUsage: usage => host.accountOffPathUsage('verify', usage, reviewer.providerDef.currency) });
   }

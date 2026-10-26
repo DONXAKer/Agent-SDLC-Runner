@@ -300,9 +300,10 @@ export interface ExecRequest {
 }
 
 export interface StageResult {
-  decisionStats?: { decisions: number; requests: number; repairs: number; complete: boolean };
+  decisionStats?: { decisions: number; requests: number; repairs: number; complete: boolean; replays: number; repeatedRejections: number; failures: Record<string, number> };
   diagnostic?: { category: import('./decisionEngine.ts').DecisionFailure | 'implementation' | 'semantic' | 'unassessed'; decisionId?: string };
-  stopCause?: 'operator' | 'stage-deadline' | 'request-timeout' | 'token-limit' | 'schema' | 'no-progress';
+  stopCause?: 'operator' | 'stage-deadline' | 'request-timeout' | 'token-limit' | 'schema' | 'no-progress' | 'work-budget';
+  incomplete?: import('@sdlc-runner/shared').WorkIncomplete;
   failure?: import('@sdlc-runner/shared').GuidedFailure;
   ok: boolean;
   /** Последний текст ассистента — то, чем этап отчитался. */

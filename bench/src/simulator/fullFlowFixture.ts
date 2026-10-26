@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { RunEvent, StageId } from '@sdlc-runner/shared';
+import type { WorkBudgetConfig } from '../../../server/src/exec/workBudget.ts';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import { AskGate } from '../../../server/src/approval/askGate.ts';
 import { ApprovalGate } from '../../../server/src/approval/gate.ts';
@@ -164,7 +165,7 @@ function makeRun(
   events: RunEvent[],
   routeOver: Partial<ResolvedRoute> = {},
   ensembleOver: readonly Partial<ResolvedRoute>[] = [],
-  runOptions: { guided?: boolean; engineVersion?: 4 | 5 } = {},
+  runOptions: { guided?: boolean; engineVersion?: 4 | 5; workBudget?: WorkBudgetConfig } = {},
 ): Run {
   const guidedProvider = 'simulator_guided';
   const route = (stage: StageId): ResolvedRoute => ({
@@ -211,6 +212,7 @@ function makeRun(
         gateTimeoutMs: 10_000,
         progressClosenessWarn: 0.9,
         chatTimeoutMs: 10_000,
+        ...(runOptions.workBudget === undefined ? {} : { workBudget: runOptions.workBudget }),
       },
     },
     models: runOptions.guided ? { providers: { [guidedProvider]: { flow: 'loop', kind: 'openai-compat', baseUrl } },

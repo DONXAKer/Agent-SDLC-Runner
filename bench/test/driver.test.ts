@@ -75,6 +75,34 @@ it('guided v4 never proceeds beyond a timed-out Intent with merely unblocked art
   strictEqual(origin, 'stage-deadline');
 });
 
+it('work-budget incomplete runs only finalization and never becomes success from a green verdict', async () => {
+  const calls: string[] = [];
+  let abortHandoff = false;
+  const incomplete = { cause: 'requests' as const, detail: 'request cap', units: [{ id: 'stage:intent', stage: 'intent' as const, status: 'unverified' as const }] };
+  let currentVerdict: Verdict | null = null;
+  const fake = {
+    chunk: 1, attempt: 1, get lastVerdict() { return currentVerdict; },
+    blockerDetails: () => [], cancel: () => {},
+    runStage: async (stage: string, options: { abortHandoff?: boolean }): Promise<StageResult> => {
+      calls.push(stage);
+      if (stage === 'intent') return { ok: false, finalText: '', usage: emptyUsage(), note: 'budget', stopCause: 'work-budget', incomplete };
+      if (stage === 'verify') {
+        currentVerdict = { passed: true, action: 'continue', reasons: [] };
+        return { ok: true, finalText: 'verified', usage: emptyUsage(), note: 'verified' };
+      }
+      abortHandoff = options.abortHandoff === true;
+      return { ok: true, finalText: 'aborted handoff', usage: emptyUsage(), note: 'aborted handoff' };
+    },
+  } as unknown as Run;
+  const result = await runBench({ run: fake, guidedEngineVersion: 5, executionMode: 'guided', stageTimeoutMs: 1000, runTimeoutMs: 5000, attempts: 1 });
+  deepStrictEqual(calls, ['intent', 'verify', 'handoff']);
+  strictEqual(abortHandoff, true);
+  strictEqual(result.stopped, 'incomplete');
+  strictEqual(result.incomplete, incomplete);
+  strictEqual(result.finalVerdict?.passed, true);
+  deepStrictEqual(result.stages.map(stage => stage.stage), ['intent', 'verify', 'handoff']);
+});
+
 describe('decideAfterStageFailure', () => {
   it('обычный провал (без envFailure) — сразу blocked, повтора нет', () => {
     deepStrictEqual(

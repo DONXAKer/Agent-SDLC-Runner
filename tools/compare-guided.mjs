@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guidedSuiteSuccess } from './guided-suite-success.ts';
+import { assessGuidedValidation } from '../bench/src/guidedValidation.ts';
 import { seriesCases, selectV4HoldoutModels } from './guided-series.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,10 +126,17 @@ for (const [index, entry] of manifest.cases.entries()) {
   run.minutes = (Date.parse(run.finishedAt) - Date.parse(run.startedAt)) / 60000;
   let result = null;
   try { result = JSON.parse(readFileSync(join(root, 'bench/results', `${slug}.json`), 'utf8')); } catch { /* report absence explicitly */ }
+  const assessment = assessGuidedValidation(result, { slug, model: entry.model, task: entry.task,
+    startedAt: run.startedAt, finishedAt: run.finishedAt, guidedEngineVersion: entry.version }, run.exitCode ?? null);
   const comparable = result?.run.executionMode === 'guided' && result?.run.preparationVersion === 3 &&
     result?.run.strictQuestions === true && result?.guided?.engineVersion === entry.version && hash() === manifest.codeHash;
-  run.success = comparable && guidedSuiteSuccess(result);
-  run.status = !result ? 'no-result' : !comparable ? 'incomparable' : run.success ? 'success' : 'failed';
+  run.success = comparable && assessment.success;
+  run.status = assessment.status === 'no-current-result' || !result ? 'no-result' : !comparable ? 'incomparable' : run.success ? 'success' : assessment.status === 'environment-failure' ? 'environment-failure' : 'failed';
+  run.outcomeKind = assessment.outcomeKind;
+  run.evidenceLevel = assessment.evidenceLevel;
+  run.modelTaskEvaluated = assessment.modelTaskEvaluated;
+  run.operationalSuccess = comparable && assessment.operationalSuccess;
+  run.environmentFailure = assessment.environmentFailure;
   run.stopped = result?.driver?.stopped ?? null;
   run.falseSuccess = result?.finalVerdict?.passed === true && (result?.hidden?.fail > 0 || result?.honesty?.some(c => c.ok === false));
   run.scopeFailure = result?.honesty?.some(c => c.method === 'destructiveOrPolicyDenied' && c.ok === false) ?? false;

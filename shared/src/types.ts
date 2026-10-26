@@ -880,7 +880,7 @@ export type RunEvent =
     }
   | { type: 'gate_result'; runId: string; stage: StageId; gate: GateRunResult }
   | { type: 'verdict'; runId: string; stage: StageId; verdict: Verdict }
-  | { type: 'stage_done'; runId: string; stage: StageId; ok: boolean; note: string }
+  | { type: 'stage_done'; runId: string; stage: StageId; ok: boolean; note: string; incomplete?: import('./guided.ts').WorkIncomplete }
   | { type: 'run_finished'; runId: string; ok: boolean; note: string }
   | { type: 'warning'; runId: string; stage: StageId | null; message: string }
   | { type: 'error'; runId: string; stage: StageId | null; message: string };

@@ -82,7 +82,8 @@ test('restart cannot reset the model-run budget and unknown crash duration is ch
 });
 test('reports preserve unavailable outcomes, Verify failures, timeout and environment reasons', () => {
   const m = manifest(); m.status = 'environment-failure'; m.error = 'engine unavailable';
-  m.cells[0]!.status = 'complete'; m.cells[0]!.outcome = { status: 'no-current-result', success: false, reason: 'No current result', exitCode: null, diagnosis: 'unassessed' };
+  m.cells[0]!.status = 'complete'; m.cells[0]!.outcome = { status: 'no-current-result', success: false, reason: 'No current result', exitCode: null, diagnosis: 'unassessed',
+    outcomeKind: 'incomplete', evidenceLevel: 'none', modelQualitySuccess: false, modelTaskEvaluated: false, operationalSuccess: false, environmentFailure: false };
   m.cells[1]!.error = 'Wall-clock run timeout';
   const text = report(m); assert.match(text, /неизвестно/u); assert.match(text, /engine unavailable/u); assert.match(text, /No current result/u); assert.match(text, /Wall-clock run timeout/u);
   assert.equal(lessonStatus(m), 'candidate');

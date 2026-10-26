@@ -86,12 +86,10 @@ export interface OpenAiCompatOptions {
   retryDelayMs?: number;
   retryDelaysMs?: readonly number[];
   /**
-   * Канал предупреждений оператора (лента прогона — `Run.emit('warning')` на боевых
-   * маршрутах). Сюда уходит, например, факт снятия reasoning/thinking-параметров после
-   * отказа сервера «does not support thinking» — адаптация под модель обязана быть
+   * Канал предупреждений оператора. Сюда уходит факт снятия reasoning/thinking-параметров
+   * после отказа сервера «does not support thinking» — адаптация под модель обязана быть
    * видимой, молчаливая подмена параметра замера недопустима. Не задан —
-   * `process.emitWarning`: предупреждение не пропадает и у потребителей без ленты
-   * (проба модели, тесты).
+   * `process.emitWarning`.
    */
   onWarn?: (message: string) => void;
   /**
@@ -100,6 +98,7 @@ export interface OpenAiCompatOptions {
    * перекрывает и то, и другое.
    */
   maxTokens?: number;
+  reasoningFallback?: 'omit-params';
 }
 
 /**
@@ -477,7 +476,7 @@ export class OpenAiCompatProvider implements ChatProvider {
 
   async chat(req: ChatRequest): Promise<ChatTurn> {
     const started = Date.now();
-    const body: Record<string, unknown> = {
+    let body: Record<string, unknown> = {
       model: req.model,
       messages: req.messages.map((m) => {
         switch (m.role) {
@@ -546,6 +545,8 @@ export class OpenAiCompatProvider implements ChatProvider {
     let status = 0;
     let text = '';
     let requestId = '';
+    let reasoningFallbackUsed = false;
+    req.onRequest?.();
     for (let attempt = 1; ; attempt++) {
       // Собственный таймаут поверх переданного сигнала: локальный сервер, ушедший в своп,
       // не закрывает соединение — этап висел бы до отмены оператором. Свежий на каждую
@@ -591,6 +592,22 @@ export class OpenAiCompatProvider implements ChatProvider {
           throw new Error(`${this.name}: запрос отменён во время паузы повтора (после сетевого сбоя ${code})`);
         }
         continue;
+      }
+      if (status === 400 && this.o.reasoningFallback === 'omit-params' && !reasoningFallbackUsed) {
+        const reason = thinkingUnsupportedReason(text);
+        if (reason !== null) {
+          const retryBody = { ...body };
+          const removed = stripReasoningParams(retryBody);
+          if (removed.length > 0) {
+            reasoningFallbackUsed = true;
+            body = retryBody;
+            payload = JSON.stringify(body);
+            const warning = `${this.name}: ${reason}; повтор без reasoning-параметров: ${removed.join(', ')}`;
+            if (this.o.onWarn) this.o.onWarn(warning);
+            else process.emitWarning(warning);
+            continue;
+          }
+        }
       }
       const transient = status === 429 || status >= 500;
       if (!transient || attempt > CHAT_RETRIES) break;

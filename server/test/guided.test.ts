@@ -51,8 +51,18 @@ const request = (root: string): ExecRequest => ({ cwd: root, model: 'test', allo
   finishGuard: null, salvageFromText: null });
 function provider(replies: unknown[]): ChatProvider {
   let i = 0;
-  return { name: 'test', chat: async () => ({ text: JSON.stringify(replies[Math.min(i++, replies.length - 1)]), toolCalls: [],
-    finishReason: 'end_turn', usage: emptyUsage() }) } as ChatProvider;
+  return { name: 'test', chat: async request => {
+    const reply = { ...replies[Math.min(i++, replies.length - 1)] as Record<string, unknown> };
+    if (reply.kind === 'source' || reply.kind === 'engineering') {
+      const packet = JSON.parse(request.messages[1]!.content);
+      const source = String(reply.source);
+      const lineNumber = (reply.lines as number[])[0]!;
+      const numbered = String(packet.sources[source]);
+      reply.evidenceId = numbered.split('\n').find((line: string) => line.includes(` | ${lineNumber} | `))?.split(' | ')[0] ?? 'unknown-evidence';
+      delete reply.source; delete reply.lines;
+    }
+    return { text: JSON.stringify(reply), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } } as ChatProvider;
 }
 
 test('durable chunk recovery stops after four malformed proposals and survives restart', async t => {
@@ -368,6 +378,14 @@ test('mandatory implementation paths do not promote read-only exploration depend
   assert.deepEqual(paths,['src/new.ts','src/index.ts']);
 });
 
+test('mandatory implementation paths survive Intent omitting a module named in the original request', t => {
+  const { root } = fixture(t);
+  const paths = guidedRequiredImplementationPaths('## Что делаем\nРеализовать функцию validateCustomer и экспортировать её.\n', [
+    'Реализовать src/validate.ts и экспортировать validateCustomer из src/index.ts. Анализировать src/customer.ts.',
+  ], root);
+  assert.deepEqual(paths, ['src/validate.ts', 'src/index.ts']);
+});
+
 test('star re-export resolves only a uniquely planned new source declaration', t => {
   const { root } = fixture(t);
   mkdirSync(join(root, 'src'));
@@ -641,15 +659,15 @@ test('format repair requests a fresh compact proposal without echoing a truncate
   assert.equal(result.ok, true);
 });
 
-test('question schema couples source names with bounded line-range citations', () => {
+test('question schema limits citations to evidence IDs from the shown source', () => {
   const source = '1. Use `value` as-is.\n   Keep punctuation.\n\nSecond paragraph.';
   const format = guidedAskResponseFormat({ 'request-1': source }) as any;
   const branches = format.json_schema.schema.anyOf.filter((v: any) => v.properties.kind.enum[0] === 'source');
   assert.equal(branches.length, 1);
-  assert.equal(branches[0].properties.source.const, 'request-1');
-  const lines = branches[0].properties.lines;
-  assert.deepEqual([lines.minItems, lines.maxItems], [2, 2]);
-  assert.equal(lines.items.maximum, source.split('\n').length);
+  assert.equal(branches[0].properties.evidenceId.enum.length, source.split('\n').length);
+  assert.ok(branches[0].properties.evidenceId.enum.every((id: string) => /^evidence-[a-f0-9]{24}$/u.test(id)));
+  assert.equal(branches[0].properties.source, undefined);
+  assert.equal(branches[0].properties.lines, undefined);
   assert.equal(branches[0].properties.quote, undefined);
 });
 
@@ -1033,7 +1051,9 @@ test('guided v4 questions persist literal human facts and close only answered qu
   };
   const result = await new GuidedAskExecutor(host).run({ ...request(root), guidedEngineVersion: 4 }, h);
   assert.equal(result.ok, false); assert.equal(result.modelRequests, 0);
-  assert.equal(extractHumanFacts(readFileSync(paths.clarificationReport, 'utf8'))[0]?.answer, '5000');
+  const firstFact = extractHumanFacts(readFileSync(paths.clarificationReport, 'utf8'))[0];
+  assert.equal(firstFact?.answer, '5000');
+  assert.equal(firstFact?.changed, '5000');
   assert.ok(readFileSync(paths.intent, 'utf8').includes('[x] [блокирующий] Порог?'));
   assert.ok(readFileSync(paths.explorationReport, 'utf8').includes('[ ] [блокирующий] Валюта?'));
   h.onAskHuman = async () => ({ 'guided-question-0': ['рубли'] });
@@ -1176,6 +1196,31 @@ test('repair renumbers deleted cards and dependency references together', () => 
   assert.deepEqual(result.steps.map(s => [s.id, s.dependsOn]), [[1, []], [2, [1]], [3, [2]]]);
   assert.throws(() => renumberGuidedPlan({ ...plan, steps: [step, { ...step, id: 5, dependsOn: [4] }] }), /отсутствующую/);
   assert.throws(() => renumberGuidedPlan({ ...plan, steps: [step, step] }), /Повтор/);
+});
+
+test('a rejected repair cannot erase coverage when a new card aliases an existing path', () => {
+  const step = { id: 1, file: 'lib/options.ts', isNew: false, symbol: 'options', action: 'implement options', claims: ['requirement-a'],
+    check: 'npm test', expected: 'pass', contract: 'options contract', dependsOn: [] };
+  const plan = parseGuidedPlan({ approach: 'implement', steps: [step, { ...step, id: 2, file: 'spec/options.spec.ts', claims: ['requirement-b'], dependsOn: [1] }],
+    excluded: [], axes: [], changes: 'none' });
+  const repair = { steps: [{ ...step, id: 0, claims: ['requirement-b'] }], removeSteps: [2], approach: null, axes: null, excluded: null, changes: null };
+  assert.throws(() => applyGuidedPlanRepair(plan, repair, [], undefined,
+    { requiredClaims: new Set(['requirement-a', 'requirement-b']), invariantClaims: new Set() }), /requirement-a/);
+  assert.deepEqual(plan.steps[0]?.claims, ['requirement-a']);
+  const replacement = applyGuidedPlanRepair(plan, { ...repair, steps: [{ ...step, id: 0, file: 'spec/new.spec.ts', claims: ['requirement-b'] }] });
+  assert.deepEqual(replacement.steps.map(card => card.claims), [['requirement-a'], ['requirement-b']]);
+});
+
+test('repair can remove invented claims and claims covered by runtime invariants', () => {
+  const step = { id: 1, file: 'lib/limits.ts', isNew: false, symbol: 'limit', action: 'adjust limit', claims: ['claim-1', 'claim-99'],
+    check: 'npm test', expected: 'pass', contract: 'limits', dependsOn: [] };
+  const plan = parseGuidedPlan({ approach: 'adjust', steps: [step], excluded: [], axes: [], changes: 'none' });
+  const repair = { steps: [{ ...step, claims: ['claim-1'] }], removeSteps: [], approach: null, axes: null, excluded: null, changes: null };
+  const coverage = { requiredClaims: new Set(['claim-1']), invariantClaims: new Set<string>() };
+  assert.deepEqual(applyGuidedPlanRepair(plan, repair, [], undefined, coverage).steps[0]?.claims, ['claim-1']);
+  assert.throws(() => applyGuidedPlanRepair(plan, { ...repair, steps: [], removeSteps: [1] }, [], undefined, coverage), /claim-1/);
+  assert.deepEqual(applyGuidedPlanRepair(plan, { ...repair, steps: [], removeSteps: [1] }, [], undefined,
+    { ...coverage, invariantClaims: new Set(['claim-1']) }).steps, []);
 });
 
 test('runtime derives file creation from the filesystem and rejects outside paths', t => {

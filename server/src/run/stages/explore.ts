@@ -382,7 +382,7 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
     ...(readGuided(host.paths) ? { guidedData: { sections: Object.fromEntries(Object.entries(sections).map(([name, text]) => [name, documentFacts(text)])),
       index: built.ranked.map(r => r.file.path), sources: built.ranked.map(r => ({ path: r.file.path,
         content: r.file.text.slice(0, perCard), partial: r.file.text.length > perCard })) } } : {}),
-    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace('explore', 'claimsBlind')),
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace('explore', 'claimsBlind'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'work' }),
     model: route.model,
     params: route.params,
     system: def.prompt,
@@ -433,7 +433,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
   const Executor = readGuided(host.paths) ? GuidedExploreExecutor : ExploreExecutor;
   return new Executor({
     originalRequests: preparation(host.paths)?.requests ?? [],
-    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace(stage, 'explore')),
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace(stage, 'explore'), { reasoningFallback: route.reasoningFallback, workBudget: host.workBudget(), workPhase: 'work' }),
     params: route.params,
     currency: route.providerDef.currency ?? 'USD',
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),

@@ -71,6 +71,14 @@ export interface ChatRequest {
    * их подмена ломала бы разбор ответа, а не поведение модели.
    */
   params?: Record<string, unknown> | null;
+  /** Semantic validation belongs to the same structured decision and its recovery journal. */
+  validate?: (value: unknown) => unknown;
+  /** Optional ceiling for one bounded retry after a truncated structured decision. */
+  maxTokensLimit?: number;
+  /** Maximum real provider calls, including schema and semantic repairs. */
+  requestLimit?: number;
+  /** Called immediately before each real provider request made by a decision adapter. */
+  onRequest?: () => void;
 }
 
 export interface ChatProvider {

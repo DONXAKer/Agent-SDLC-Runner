@@ -30,5 +30,42 @@ test('current red preflight is reported independently and overrides a stale posi
   const assessed = assessGuidedValidation(result, identity, 2, preflight);
   assert.equal(assessed.status, 'preflight-failed');
   assert.equal(assessed.success, false);
+  assert.equal(assessed.environmentFailure, true);
   assert.equal(assessGuidedValidation(null, identity, 2, { ...preflight, startedAt: '2025-01-01T00:00:00Z' }).status, 'no-current-result');
+});
+
+test('live outcome separates model quality from operational and environment results', () => {
+  const success = assessGuidedValidation(result, identity, 0);
+  assert.equal(success.outcomeKind, 'full-flow-success');
+  assert.equal(success.evidenceLevel, 'live-full-flow');
+  assert.equal(success.modelQualitySuccess, true);
+  assert.equal(success.operationalSuccess, true);
+
+  const environment = assessGuidedValidation({ ...result, driver: { ...result.driver,
+    stages: [{ stage: 'intent', ok: true, modelRequests: 2, envFailure: 'provider timeout' }] } }, identity, 2);
+  assert.equal(environment.success, false);
+  assert.equal(environment.outcomeKind, 'environment-failure');
+  assert.equal(environment.modelTaskEvaluated, false);
+  assert.equal(environment.environmentFailure, true);
+  assert.equal(environment.operationalSuccess, false);
+
+  const failed = assessGuidedValidation({ ...result, hidden: { ...result.hidden, pass: 1, fail: 1 } }, identity, 1);
+  assert.equal(failed.outcomeKind, 'model-task-failure');
+  assert.equal(failed.modelTaskEvaluated, true);
+  assert.equal(failed.environmentFailure, false);
+  assert.equal(failed.evidenceLevel, 'live-partial');
+
+  const exitTwo = assessGuidedValidation(result, identity, 2);
+  assert.equal(exitTwo.outcomeKind, 'environment-failure');
+  assert.equal(exitTwo.modelTaskEvaluated, false);
+  for (const stopped of ['stage-timeout', 'run-timeout']) {
+    const timeout = assessGuidedValidation({ ...result, driver: { ...result.driver, stopped } }, identity, 1);
+    assert.equal(timeout.outcomeKind, 'environment-failure');
+    assert.equal(timeout.modelTaskEvaluated, false);
+  }
+  const incomplete = assessGuidedValidation(result, identity, null);
+  assert.equal(incomplete.status, 'no-current-result');
+  assert.equal(incomplete.outcomeKind, 'incomplete');
+  assert.equal(incomplete.modelTaskEvaluated, false);
+  assert.equal(incomplete.environmentFailure, false);
 });

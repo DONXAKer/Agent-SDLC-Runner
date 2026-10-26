@@ -25,7 +25,15 @@ async function resolve(t: TestContext, task: string, question: string, replies: 
   const provider: ChatProvider = { name: 'script', async chat(req) {
     inputs.push(JSON.parse(req.messages[1]!.content));
     assert.ok(inputs.length <= replies.length, 'unexpected extra model request');
-    return { text: JSON.stringify(replies[inputs.length - 1]), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+    const reply = { ...replies[inputs.length - 1] as Record<string, unknown> };
+    if (reply.kind === 'source' || reply.kind === 'engineering') {
+      const source = String(reply.source);
+      const lineNumber = (reply.lines as number[])[0]!;
+      const numbered = String((inputs.at(-1) as any).sources[source]);
+      reply.evidenceId = numbered.split('\n').find(line => line.includes(` | ${lineNumber} | `))!.split(' | ')[0]!;
+      delete reply.source; delete reply.lines;
+    }
+    return { text: JSON.stringify(reply), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
   } };
   const host = { paths, slug: 'case', writeAutofilled: (path: string, text: string) => writeArtifact(path, text) } as unknown as StageHost;
   const req = { cwd: root, model: 'script', guidedEngineVersion: 4, maxTurns: 8, signal: new AbortController().signal,

@@ -16,12 +16,16 @@
  * инструмента, и Write/Edit измеряют способности исполнителя chunk, не рецензента
  * (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`) —
  * `qwen3.6-27b-iq4` (2026-09-27) прошла старый набор и провалила настоящий `reviewFill`.
+ * Guided вместо tool-кейсов получает реальный structured-output вызов. До него фактические
+ * capabilities сверяются с явными reasoning/tool-требованиями маршрутов и сохраняются в
+ * паспорте вместе с capabilityHash; неизвестные возможности старого сервера не считаются отказом.
  *
  * Коды исхода — как у всего бенчмарка: 0 — пройдено, 1 — модель не прошла,
  * 2 — измерение не состоялось (среда/конфиг). Логика кодов живёт здесь одна
  * (`preflightExitCode`), чтобы режим `--preflight` и автогейт не разъехались.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +38,9 @@ import { stageById } from '../../server/src/run/stages.ts';
 import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import type { ProbeCase } from '../../server/src/probe.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
+import { capabilitiesFor } from '../../server/src/provider/capabilities.ts';
+import type { ModelCapabilities } from '../../server/src/provider/capabilities.ts';
+import { ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import type { ContextProblem } from '../../server/src/provider/contextCheck.ts';
 import { layoutProblemFor } from '../../server/src/provider/layoutCheck.ts';
@@ -68,6 +75,8 @@ export interface PreflightReport {
   checks: PreflightCheck[];
   passed: boolean;
   envBlocked: boolean;
+  capabilities?: ModelCapabilities[];
+  capabilityHash?: string;
 }
 
 /** Единственное место, решающее код возврата преполёта — режим и автогейт делят его. */
@@ -80,6 +89,7 @@ export function preflightExitCode(report: PreflightReport): number {
 export function formatPreflight(report: PreflightReport): string {
   const lines = [
     `Преполётный тест: ${report.model} · задача ${report.task}`,
+    ...(report.capabilityHash === undefined ? [] : [`  Capability hash: ${report.capabilityHash}`]),
     ...report.checks.map(
       (c) => `  ${c.ok ? '✅' : c.env ? '⛔' : '❌'} ${c.name} — ${c.detail} (${(c.durationMs / 1000).toFixed(1)} с)`,
     ),
@@ -92,9 +102,13 @@ export function formatPreflight(report: PreflightReport): string {
   return lines.join('\n');
 }
 
+export interface GuidedProbeResult { ok: boolean; env: boolean; detail: string }
+
 /** Точка подмены для тестов: сеть, дочерние процессы и конфиг машины подменяются. */
 export interface PreflightDeps {
   probe: typeof probeModel;
+  guidedProbe: (config: LoadedConfig, model: string) => Promise<GuidedProbeResult>;
+  capabilities: typeof capabilitiesFor;
   /** Прогрев движка одним дешёвым запросом (`engine.ts`) — до замеряемых проб. */
   warmup: typeof warmupEngine;
   /** Перезагрузка модели при средовом сбое движка — только за `--engine-reload`. */
@@ -113,6 +127,8 @@ export interface PreflightDeps {
 function defaultDeps(): PreflightDeps {
   return {
     probe: probeModel,
+    guidedProbe: probeGuidedStructuredOutput,
+    capabilities: capabilitiesFor,
     warmup: warmupEngine,
     reloadEngine,
     contextProblem: contextProblemFor,
@@ -517,7 +533,8 @@ async function checkWarmup(
   }
   const { def, providerDef } = target;
   if (!isLocalEngine(def.provider, providerDef)) return { check: null, reloaded: false };
-  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs, undefined,
+    ...(def.reasoningFallback === undefined ? [] : [{ reasoningFallback: def.reasoningFallback }]));
   const args = { provider, model: def.model, params: def.params ?? null };
   const noReload = (check: PreflightCheck) => ({ check, reloaded: false });
 
@@ -638,7 +655,8 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
     return [bad('модель: конфиг', true, target.error)];
   }
   const { def, providerDef } = target;
-  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs, undefined,
+    ...(def.reasoningFallback === undefined ? [] : [{ reasoningFallback: def.reasoningFallback }]));
   // Роль решает набор кейсов — см. докстринг `REVIEWER_PROBE_CASES` (`probe.ts`) и
   // критерий 3 квалификации рецензента (`docs/proposals/reviewer-qualification.md`).
   // `--all` verify не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
@@ -705,6 +723,80 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
   return checks;
 }
 
+const REASONING_PARAMS = ['reasoning_effort', 'reasoning', 'think', 'thinking'] as const;
+
+async function checkCapabilities(
+  deps: PreflightDeps,
+  ctx: PreflightContext,
+  opts: BenchOptions,
+): Promise<{ checks: PreflightCheck[]; capabilities: ModelCapabilities[]; capabilityHash: string }> {
+  const checks: PreflightCheck[] = [];
+  const capabilities: ModelCapabilities[] = [];
+  const effectiveRoutes: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  for (const stage of ctx.built.measured) {
+    const route = ctx.built.profile.routes[stage];
+    if (seen.has(route.modelId)) continue;
+    seen.add(route.modelId);
+    effectiveRoutes.push({ modelId: route.modelId, provider: route.provider, model: route.model, params: route.params, reasoningFallback: route.reasoningFallback ?? null });
+    const started = Date.now();
+    const actual = await deps.capabilities(route.provider, route.model, route.providerDef.baseUrl);
+    const ms = Date.now() - started;
+    if (actual === null) continue;
+    capabilities.push(actual);
+    const name = `модель: capabilities ${route.modelId}`;
+    const explicitReasoning = REASONING_PARAMS.filter(key => route.params?.[key] !== undefined);
+    const toolsRequired = opts.executionMode !== 'guided' && ctx.built.measured.some(stage => {
+      const candidate = ctx.built.profile.routes[stage];
+      return candidate.modelId === route.modelId && candidate.flow === 'loop' && (stage !== 'verify' || !candidate.reviewFill);
+    });
+    if (actual.reasoning === 'unsupported' && explicitReasoning.length > 0) {
+      checks.push(route.reasoningFallback === 'omit-params'
+        ? ok(name, true, `⚠ reasoning не поддержан; явно разрешён fallback omit-params для ${explicitReasoning.join(', ')}; ${actual.detail}`, ms)
+        : bad(name, true, `модель не поддерживает reasoning, а маршрут задаёт ${explicitReasoning.join(', ')}; убери параметры или явно разреши reasoningFallback: "omit-params"`, ms));
+    } else if (actual.tools === 'unsupported' && toolsRequired) {
+      checks.push(bad(name, false, `сервер сообщает, что модель не поддерживает tools, а выбранный режим требует tool-calling; ${actual.detail}`, ms));
+    } else {
+      checks.push(ok(name, true, actual.detail, ms));
+    }
+  }
+  const capabilityHash = createHash('sha256').update(JSON.stringify({ routes: effectiveRoutes, capabilities })).digest('hex');
+  return { checks, capabilities, capabilityHash };
+}
+
+async function probeGuidedStructuredOutput(config: LoadedConfig, model: string): Promise<GuidedProbeResult> {
+  const target = resolveProbeTarget(config.models, model);
+  if ('error' in target) return { ok: false, env: !target.error.includes('флоу'), detail: target.error };
+  const { def, providerDef } = target;
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs, undefined,
+    ...(def.reasoningFallback === undefined ? [] : [{ reasoningFallback: def.reasoningFallback }]));
+  const signal = AbortSignal.timeout(PROBE_CASE_TIMEOUT_MS);
+  try {
+    const response = await provider.chat({
+      model: def.model,
+      messages: [
+        { role: 'system', content: 'Проверка протокола. Верни только JSON по схеме.' },
+        { role: 'user', content: 'Подтверди готовность значением ready=true.' },
+      ],
+      tools: [], temperature: null, signal,
+      params: {
+        ...(def.params ?? {}), max_tokens: 1024,
+        response_format: { type: 'json_schema', json_schema: { name: 'preflight_readiness', strict: true,
+          schema: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } } },
+      },
+    });
+    if (response.finishReason === 'max_tokens') return { ok: false, env: false, detail: 'structured-output ответ обрезан лимитом длины' };
+    const parsed: unknown = JSON.parse(response.text);
+    const ready = (parsed as { ready?: unknown }).ready;
+    return ready === true
+      ? { ok: true, env: false, detail: 'реальный guided JSON-вызов разобран, ready=true' }
+      : { ok: false, env: false, detail: 'guided JSON разобран, но обязательное ready=true не получено' };
+  } catch (error) {
+    const env = signal.aborted ? false : error instanceof ProviderEnvError || error instanceof ProviderHttpError;
+    return { ok: false, env, detail: (error as Error).message.slice(0, 500) };
+  }
+}
+
 /**
  * Полный преполёт: средовые проверки (без вызовов модели), затем — только если среда
  * зелёная — модельные (окно + расширенная проба). Дергать модель при красной среде
@@ -720,11 +812,19 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
   if (snap !== null) checks.push(snap);
 
   const ctx = loaded.ctx;
+  let capabilities: ModelCapabilities[] = [];
+  let capabilityHash: string | undefined;
   if (ctx !== null && checks.every((c) => c.ok)) {
     checks.push(checkTurnLimit(ctx.config, opts));
     const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
     checks.push(...(await checkContextWindowsWithReload(d, ctx, opts)));
+    if (checks.every((c) => c.ok)) {
+      const admission = await checkCapabilities(d, ctx, opts);
+      capabilities = admission.capabilities;
+      capabilityHash = admission.capabilityHash;
+      checks.push(...admission.checks);
+    }
     if (checks.every((c) => c.ok)) {
       const warm = await checkWarmup(d, ctx.config, opts);
       if (warm.check !== null) checks.push(warm.check);
@@ -739,7 +839,13 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
       const layout = await checkLayout(d, ctx.config, opts);
       if (layout !== null) checks.push(layout);
     }
-    if (checks.every((c) => c.ok) && opts.executionMode !== 'guided') {
+    if (checks.every((c) => c.ok) && opts.executionMode === 'guided') {
+      const started = Date.now();
+      const probed = await d.guidedProbe(ctx.config, opts.model);
+      checks.push(probed.ok
+        ? ok('модель: guided structured output', probed.env, probed.detail, Date.now() - started)
+        : bad('модель: guided structured output', probed.env, probed.detail, Date.now() - started));
+    } else if (checks.every((c) => c.ok)) {
       checks.push(...(await checkModel(d, ctx.config, opts)));
     }
   }
@@ -750,5 +856,6 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     checks,
     passed: checks.every((c) => c.ok),
     envBlocked: checks.some((c) => !c.ok && c.env),
+    ...(capabilityHash === undefined ? {} : { capabilities, capabilityHash }),
   };
 }

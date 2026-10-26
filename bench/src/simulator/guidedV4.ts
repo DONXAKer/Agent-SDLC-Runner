@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import type { RunEvent } from '@sdlc-runner/shared';
 import { runBench } from '../driver.ts';
+import { isUnknownIntentStop } from './intentStop.ts';
+import { simulatorDecisionQuestion } from './decisionPacket.ts';
 import { makeProject, makeRun, GATES } from './fullFlowFixture.ts';
 import type { SimulationCaseResult } from './taskLoop.ts';
+import type { WorkBudgetConfig } from '../../../server/src/exec/workBudget.ts';
 
 const requirement = `# Public revision
 Full preparation and investigation are required.
@@ -21,10 +24,24 @@ Full preparation and investigation are required.
 `;
 const claims = ['claim-1', 'claim-2', 'claim-3', 'claim-4', 'claim-5'];
 const testSource = "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {version,label} from '../src/app.js';\ntest('revision contract',()=>{assert.equal(version,2);assert.equal(label,'stable')});\n";
+const id = (name: string) => ({ kind: 'identifier', name });
+const literal = (value: string | number) => ({ kind: 'literal', value });
+const access = (object: string, property: string) => ({ kind: 'property_access', object: id(object), property: id(property), computed: false });
+const call = (callee: object, args: object[]) => ({ kind: 'call', callee, arguments: args });
+const expression = (value: object) => ({ kind: 'expression_statement', expression: value });
+const testModule = { version: 1, body: [
+  { kind: 'import', source: 'node:test', defaultImport: 'test' },
+  { kind: 'import', source: 'node:assert/strict', defaultImport: 'assert' },
+  { kind: 'import', source: '../src/app.js', names: [{ imported: 'version' }, { imported: 'label' }] },
+  expression(call(id('test'), [literal('revision contract'), { kind: 'arrow', params: [], body: { kind: 'block', body: [
+    expression(call(access('assert', 'equal'), [id('version'), literal(2)])),
+    expression(call(access('assert', 'equal'), [id('label'), literal('stable')])),
+  ] } }])),
+] };
 const fixtureDir = fileURLToPath(new URL('../../fixtures/guided-process/', import.meta.url));
-type Mode = 'happy' | 'repair' | 'wrong-code' | 'resume' | 'repeated-op' | 'manual-claim' | 'unfounded-rejection' | 'guided-protected' | 'guided-restart' | 'guided-stale' | 'guided-red-acceptance';
+type Mode = 'happy' | 'repair' | 'wrong-code' | 'resume' | 'repeated-op' | 'manual-claim' | 'unfounded-rejection' | 'guided-protected' | 'guided-restart' | 'guided-stale' | 'guided-red-acceptance' | 'intent-compatible-batch' | 'intent-unknown-batch' | 'intent-invalid-conflict' | 'work-budget';
 
-async function scenario(mode: Mode, image: string, engineVersion: 4 | 5 = 4): Promise<SimulationCaseResult> {
+async function scenario(mode: Mode, image: string, engineVersion: 4 | 5 = 4, workBudget?: WorkBudgetConfig): Promise<SimulationCaseResult> {
   const checks: string[] = [], errors: string[] = [], events: RunEvent[] = [];
   const trace: unknown[] = [{ kind: 'profile', preparationVersion: 3, executionMode: 'guided', guidedEngineVersion: engineVersion,
     contour: 'full', templates: JSON.parse(readFileSync(join(fixtureDir, 'templates.json'), 'utf8')) }];
@@ -49,20 +66,22 @@ test('new test',()=>assert.ok(fs.existsSync(root+'/test/revision.test.mjs')));
 test('executable test',()=>assert.match(fs.readFileSync(root+'/test/revision.test.mjs','utf8'),/node:test/));
 test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test.mjs','utf8'),${JSON.stringify(protectedTest)}));\n`);
   let calls = 0, injected = false, askCalls = 0, rejectedDrafts = 0, manualReplies = 0;
+  let contractReviews = 0, adjudicationBatches = 0;
   const answer = (request: any): unknown => {
     if (++calls > 120) throw new Error('Guided script request budget exhausted');
     const format = request.response_format?.json_schema;
     const schema = format?.schema;
     let user = request.messages.findLast((m: any) => m.role === 'user')?.content ?? '';
     let packet:any; try { packet=JSON.parse(user); } catch { packet={}; }
-    if (engineVersion === 5 && packet.decisionId) {
+    if (engineVersion === 5) {
       check(request.messages.length === 2 && request.messages.every((m:any)=>['system','user'].includes(m.role)), 'Every v5 model call has no conversation history');
-      const questions = packet.question;
-      user = typeof questions[0] === 'string' ? questions[0] : JSON.stringify(questions[0]);
+      const question = simulatorDecisionQuestion(packet, format?.name === 'guided_plan_card');
+      user = typeof question === 'string' ? question : JSON.stringify(question);
     }
     let input: any;
     try { input = JSON.parse(user); } catch { input = {}; }
     const name = format?.name;
+    const evidenceIds = (input.workingContext?.requirements ?? []).flatMap((requirement: any) => requirement.evidenceIds ?? []);
     if (mode === 'repair' && !injected && name === 'sdlc_form_fields') { injected = true; return '{broken'; }
     if (name === 'sdlc_form_fields') {
       const values: Record<string, string> = {};
@@ -82,11 +101,24 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
         ? { id, basis: { file: 'request-1', lines: [index + 4, index + 4] }, scenario: 'Check the requested contract', counterexample: 'A changed value or missing check fails' }
         : { id, procedure: 'Run node tools/check.cjs and inspect its exit status and contract assertions', expected: 'version is 2, label is stable, added tests execute successfully and existing tests are unchanged' });
     }
+    if (name === 'intent_contract_review' && mode.startsWith('intent-') && contractReviews++ === 0) return {
+      issues: [1, 2].map(() => ({ problem: 'Alleged conflict between changing the revision and preserving the label',
+        quotes: [{ section: 'Что делаем', lines: [1, 1] }], source: { file: 'request-1', lines: [4, 5] } })) };
     if (name === 'intent_claim_review' || name === 'intent_contract_review') return { issues: [] };
     if (name === 'preparation_review_scenarios') return { scenarios: [{ scenario: 'Read version and label; execute both test files', incorrectBehavior: 'version differs from 2, label changes, or a test is missing', basis: 'Numbered source requirements 1 through 5' }] };
     if (name === 'preparation_review_issues') return { issues: [] };
     if (name === 'guided_review') return { findings: [] };
     if (name === 'intent_issue_adjudication') return { relation: 'compatible', condition: 'Requested revision', explanation: 'The requirement explicitly changes version and preserves label.', witness: 'Changing version while leaving label stable satisfies both requirements.' };
+    if (name === 'intent_issue_batch') {
+      adjudicationBatches++;
+      if (mode === 'intent-invalid-conflict' && adjudicationBatches === 1) return { judgments: input.issues.map((issue: any) => ({
+        issue: issue.issue, relation: 'contradictory', condition: 'revision', explanation: 'unsupported inference', witness: 'different fields',
+        conflict: [{ assertion: 1, lines: [1, 1], subject: 'version', condition: 'revision', requiredResult: '2' },
+          { assertion: 2, lines: [1, 1], subject: 'label', condition: 'revision', requiredResult: 'stable' }],
+      })) };
+      return { judgments: input.issues.map((issue: any) => ({ issue: issue.issue, relation: mode === 'intent-unknown-batch' ? 'unknown' : 'compatible',
+        condition: 'Requested revision', explanation: 'The proposed implementation can change version and preserve label.', witness: 'Set version to 2 and keep label stable.', conflict: null })) };
+    }
     if (name === 'guided_claim') {
       if (mode === 'unfounded-rejection' && manualReplies++ === 0) return { status: '❌', evidence: 'src/app.js:version', fix: '' };
       if (mode === 'manual-claim' && manualReplies++ === 0) return { status: 'manual', evidence: 'src/app.js:version', fix: 'Inspect the exported value' };
@@ -97,8 +129,14 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
       impact: 'Update version and preserve label; add a separate executable test.',
       change: input.source.path === 'src/app.js' ? 'Update version to 2; keep label stable.' : null,
       reuse: null, risks: [], questions: input.source.path === 'src/app.js' ? [{ question: 'Какое значение version требуется в src/app.js?', blocking: true }] : [] };
-    if (name === 'guided_question_resolution') { askCalls++; return { kind: 'source', source: 'request-1', lines: [4, 4], answer: 'version в src/app.js должен быть числом 2.' }; }
-    if (name === 'guided_implementation_plan' || name === 'guided_compact_plan') return {
+    if (name === 'guided_question_resolution') {
+      askCalls++;
+      const numbered = String(packet.sources?.['request-1'] ?? input.sources?.['request-1']);
+      const evidenceId = numbered.split('\n').find((line: string) => line.includes(' | 4 | '))?.split(' | ')[0];
+      if (!evidenceId) throw new Error('The actual Ask packet does not expose the required evidence line');
+      return { kind: 'source', evidenceId, answer: 'version в src/app.js должен быть числом 2.' };
+    }
+    const plan = {
       approach: 'Изменить существующий version в src/app.js, сохранив label. test/existing.test.mjs показывает node:test; добавить отдельный test/revision.test.mjs.',
       steps: [{ file: 'src/app.js', symbol: 'version', action: 'Изменить version на 2, сохранить label', claims: ['claim-1', 'claim-2'], check: 'node tools/check.cjs', expected: 'version equals 2 and label is stable', contract: 'Изменяется значение version, label сохранён', dependsOn: [] },
         { file: 'test/revision.test.mjs', symbol: { isNew: true, name: 'revisionContract' }, action: 'Добавить тесты version и label через node:test', claims, check: 'node tools/check.cjs', expected: 'all contract checks pass and existing tests stay unchanged', contract: 'Новый тест; публичный API не меняется', dependsOn: [1] }],
@@ -106,18 +144,29 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
       axes: Array.from({ length: 6 }, (_, i) => ({ affected: i === 4, reason: 'Проверяется числовой экспорт и сохранение label', outcome: 'claim-1, claim-2, claim-3, claim-4, claim-5' })),
       changes: 'Требования сохранены', callers: (input.callerFacts ?? []).flatMap((f: any) => f.callers.map(() => ({ decision: 'Потребитель label сохраняет прежнее значение и не требует правки.' }))),
     };
+    if (name === 'guided_plan_outline') return { ...plan, steps: plan.steps.map(({ symbol: _symbol, action: _action, check: _check, expected: _expected, contract: _contract, ...step }) => step) };
+    if (name === 'guided_plan_card') {
+      const { file: _file, claims: _claims, dependsOn: _dependsOn, ...details } = plan.steps[input.card - 1]!;
+      return details;
+    }
+    if (name === 'guided_implementation_plan' || name === 'guided_compact_plan') return plan;
     if (input.questionId?.startsWith('chunk:')) {
-      if (input.targetFile === 'test/revision.test.mjs') return { action: 'patch', prediction: 'New executable contract test', ops: [{ op: 'create_file', body: testSource }] };
+      if (input.targetFile === 'test/revision.test.mjs') return { action: 'patch', prediction: 'New executable contract test', evidenceIds,
+        ops: [engineVersion === 5 ? { op: 'create_file_ir', module: testModule } : { op: 'create_file', body: testSource }] };
+      const file = engineVersion === 5 ? input.files.find((f: any) => f.path === 'src/app.js') : undefined;
+      const target = file?.targets.find((t: any) => t.symbol === 'version');
       if (mode === 'repeated-op' && rejectedDrafts < 2) {
         rejectedDrafts++;
         check(readFileSync(join(root, 'src/app.js'), 'utf8') === initialCode, 'Rejected drafts never reach the working tree');
-        return { action: 'patch', prediction: 'incorrect owner', ops: [{ op: 'replace_body', body: 'export function unrelated() { return 2; }' }] };
+        return { action: 'patch', prediction: 'incorrect owner', evidenceIds, ops: [engineVersion === 5 ? {
+          op: 'replace_declaration_ir', symbol: 'version', expectedHash: file.hash, targetId: target.targetId,
+          declaration: { kind: 'function_declaration', name: 'unrelated', params: [], body: { kind: 'block', body: [{ kind: 'return', argument: literal(2) }] }, export: true },
+        } : { op: 'replace_body', body: 'export function unrelated() { return 2; }' }] };
       }
-      if (mode === 'repeated-op') check(engineVersion === 5 ? !!packet.recovery : /Адресный ремонт/u.test(input.feedback ?? ''), 'Repeated invalid operation receives a narrowed repair request');
+      if (mode === 'repeated-op') check(engineVersion === 5 ? !!packet.recovery || input.rejectedProposal?.diagnostic?.op === 'replace_declaration' : /Адресный ремонт/u.test(input.feedback ?? ''), 'Repeated invalid operation receives a narrowed repair request');
       if(engineVersion===5){
-        const file=input.files.find((f:any)=>f.path==='src/app.js');
-        const target=file.targets.find((t:any)=>t.symbol==='version');
-        return {action:'patch',prediction:'version equals the required value',ops:[{op:'replace_declaration',symbol:'version',expectedHash:file.hash,targetId:target.targetId,declaration:`export const version = ${mode === 'wrong-code' ? 3 : 2};`}]};
+        return {action:'patch',prediction:'version equals the required value',evidenceIds,ops:[{op:'replace_declaration_ir',symbol:'version',expectedHash:file.hash,targetId:target.targetId,
+          declaration:{kind:'variable_declaration',declarationKind:'const',name:'version',initializer:literal(mode === 'wrong-code' ? 3 : 2),export:true}}]};
       }
       return { action: 'patch', prediction: 'version equals the required value', ops: [{ op: 'replace_body', body: `export const version = ${mode === 'wrong-code' ? 3 : 2};` }] };
     }
@@ -140,7 +189,7 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const make = () => makeRun(root, url, events, { contextWindow: 32768 }, [], { guided: true, engineVersion });
+  const make = () => makeRun(root, url, events, { contextWindow: 32768 }, [], { guided: true, engineVersion, ...(workBudget === undefined ? {} : { workBudget }) });
   let run = make(); let actual = 'not started';
   const base = { stageTimeoutMs: 30000, runTimeoutMs: 120000, attempts: 1, preparationVersion: 3 as const, executionMode: 'guided' as const, guidedEngineVersion: engineVersion, requirement };
   try {
@@ -148,6 +197,25 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
     if (!protectedGuided && engineVersion === 4) run.enableStateFirst();
     const planned = await runBench({ ...base, run, stopAfterStage: 'plan' });
     trace.push({ phase: 'preparation', result: planned });
+    if (mode === 'work-budget') {
+      actual = planned.stopped;
+      check(planned.stopped === 'incomplete', 'Exhausted work budget produces typed incomplete instead of a stage success');
+      check(planned.incomplete?.cause === 'requests' && planned.incomplete.units.length > 0, 'Incomplete preserves cause and unfinished units');
+      check(calls === 1, 'Every nested model call shares the same request budget');
+      check(planned.stages.every(stage => !stage.ok), 'Partial preparation never becomes a green stage');
+      const persisted = JSON.parse(readFileSync(join(run.paths.runnerDir, 'work-budget.json'), 'utf8'));
+      check(persisted.requests === 1, 'Work budget usage is durable');
+      return { id: `guided-v${engineVersion}-${mode}`, expected: 'Budget exhaustion preserves incomplete work and durable usage', actual, checks, errors, passed: errors.length === 0, trace };
+    }
+    if (mode === 'intent-unknown-batch') {
+      actual = planned.stopped;
+      check(isUnknownIntentStop(planned), 'Unknown adjudication produces human-required at Intent, without timeout or later-stage failure');
+      check(adjudicationBatches === 1, 'All allegations use one bounded adjudication packet');
+      check(readFileSync(join(root, 'src/app.js'), 'utf8') === initialCode, 'Unknown semantics never authorize implementation');
+      return { id: `guided-v${engineVersion}-${mode}`, expected: 'Unknown contract relation blocks before implementation', actual, checks, errors, passed: errors.length === 0, trace };
+    }
+    if (mode === 'intent-compatible-batch') check(adjudicationBatches === 2, 'Compatible allegations are examined separately without contract repairs');
+    if (mode === 'intent-invalid-conflict') check(adjudicationBatches === 3, 'Different-field contradiction proof is rejected before both allegations are resolved');
     check(planned.stopped === 'snapshot-point', 'Current guided v4 preparation completes through approved Plan');
     if (planned.stopped !== 'snapshot-point') throw new Error(JSON.stringify(planned.stages));
     if (protectedGuided) {
@@ -208,9 +276,18 @@ test('preserved test',()=>assert.equal(fs.readFileSync(root+'/test/existing.test
   return { id: `guided-v${engineVersion}-${mode}`, expected: mode === 'wrong-code' ? 'Incorrect code rejected' : `Full guided v${engineVersion} reaches trusted handoff`, actual, checks, errors, passed: errors.length === 0, trace };
 }
 
-export async function runGuidedV4Scenarios(image: string, modes: readonly Mode[] = ['happy', 'repair', 'wrong-code', 'resume', 'repeated-op', 'manual-claim', 'unfounded-rejection', 'guided-protected', 'guided-restart', 'guided-stale', 'guided-red-acceptance'], engineVersion: 4 | 5 = 4): Promise<SimulationCaseResult[]> {
+export async function runGuidedV4Scenarios(image: string, modes: readonly Mode[] | undefined = undefined, engineVersion: 4 | 5 = 4, workBudget?: WorkBudgetConfig): Promise<SimulationCaseResult[]> {
   if (!image) throw new Error('guided-v4-full-flow requires an explicit local Docker image');
   const results: SimulationCaseResult[] = [];
-  for (const mode of modes) results.push(await scenario(mode, image, engineVersion));
+  const selection = modes ?? defaultModes(engineVersion);
+  for (const mode of selection) results.push(await scenario(mode, image, engineVersion, workBudget));
   return results;
+}
+
+function defaultModes(engineVersion: 4 | 5): readonly Mode[] {
+  return ['happy', 'repair', 'wrong-code', 'resume', 'repeated-op', 'manual-claim', 'unfounded-rejection', 'guided-protected', 'guided-restart', 'guided-stale', 'guided-red-acceptance',
+    ...(engineVersion === 5 ? ['intent-compatible-batch', 'intent-unknown-batch', 'intent-invalid-conflict'] as const : [])];
+}
+export function guidedScenarioIds(engineVersion: 4 | 5): string[] {
+  return defaultModes(engineVersion).map(mode => `guided-v${engineVersion}-${mode}`);
 }

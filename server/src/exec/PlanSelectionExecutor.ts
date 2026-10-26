@@ -14,6 +14,7 @@ import { parseSelectionJudgment as parsePlanJudgment } from './selectionJudgment
 export { parseSelectionJudgment as parsePlanJudgment } from './selectionJudgment.ts';
 import { GuidedPlanExecutor } from './GuidedPlanExecutor.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+import { WorkBudgetExhausted } from './workBudget.ts';
 
 export interface PlanModel {
   provider: ChatProvider;
@@ -64,7 +65,8 @@ export class PlanSelectionExecutor implements StageExecutor {
       hooks.onUsage(value, duration, work);
     } };
     // Two order-swapped judgments and one turn reserved for final revalidation.
-    const perCandidate = Math.min(4, Math.floor((req.maxTurns - 3) / this.o.candidates));
+    // Outline-first needs one outline plus one request per card; the shared cap remains authoritative.
+    const perCandidate = Math.min(25, Math.floor((req.maxTurns - 3) / this.o.candidates));
     if (perCandidate < 1) return fail(`Для выбора плана нужно не менее ${this.o.candidates + 3} ходов`);
     const candidates: Candidate[] = [];
     try {
@@ -136,7 +138,7 @@ export class PlanSelectionExecutor implements StageExecutor {
       return { ...result, usage, modelRequests: calls };
     } catch (error) {
       persist(req.signal.aborted ? 'cancelled' : 'failed');
-      if (req.signal.aborted || error instanceof ProviderEnvError) throw error;
+      if (req.signal.aborted || error instanceof WorkBudgetExhausted || error instanceof ProviderEnvError) throw error;
       return fail(error instanceof Error ? error.message : String(error));
     }
   }

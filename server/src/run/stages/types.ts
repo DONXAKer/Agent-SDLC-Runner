@@ -65,6 +65,7 @@ export interface StageHost {
   trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel;
   /** Расход вызовов модели мимо исполнителя этапа — в метрики и бюджет (`Run.accountOffPathUsage`). */
   accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void;
+  workBudget(): import('../../exec/workBudget.ts').WorkBudget | null;
   /**
    * Идентификатор синтетического вызова рантайма (`salvage-N`, `records-N`, `axis-fill-N`).
    * Счётчик один на виток: разнесённые по модулям счётчики сдвинули бы id событий шины.

@@ -1,6 +1,8 @@
 import { hasGuidedContracts } from '@sdlc-runner/shared';
-import { INTENT_ADJUDICATION_SYSTEM, intentIssueAdjudicationFormat, parseIntentIssueAdjudication } from './intentIssueAdjudication.ts';
+import { INTENT_ADJUDICATION_SYSTEM, intentIssueBatchFormat, parseIntentIssueBatch } from './intentIssueAdjudication.ts';
+import { numberQuestionSourceLines } from './guidedQuestions.ts';
 import { DecisionError } from './decisionEngine.ts';
+import { WorkBudgetExhausted } from './workBudget.ts';
 import { fieldSystem } from './fieldPrompt.ts';
 import { contractDependencies, sourceScopeIssues, intentClaimSetProblem } from './guidedContract.ts';
 import { documentFacts, plainQuestion } from './guidedProtocol.ts';
@@ -981,6 +983,7 @@ export class FormFillExecutor implements StageExecutor {
     messages: ChatMessage[],
     hooks: ExecHooks,
     params?: Record<string, unknown>,
+    validate?: (value: unknown) => unknown,
   ): ReturnType<ChatProvider['chat']> {
     const startedAt = Date.now();
     let requestCount = 1;
@@ -992,6 +995,7 @@ export class FormFillExecutor implements StageExecutor {
       signal: req.signal,
       temperature: null,
       params: requestParams,
+      ...(validate === undefined ? {} : { validate }),
     });
     if (this.o.compact && answer.finishReason === 'max_tokens' && typeof requestParams?.['max_tokens'] === 'number') {
       const raised = Math.min(8192, Number(requestParams['max_tokens']) * 2);
@@ -1004,6 +1008,7 @@ export class FormFillExecutor implements StageExecutor {
         const retryParams = this.paramsFor(messages, hooks, { ...(params ?? {}), max_tokens: raised });
         const retry = await this.o.provider.chat({
           model: req.model, messages, tools: [], signal: req.signal, temperature: null, params: retryParams,
+          ...(validate === undefined ? {} : { validate }),
         });
         requestCount++;
         answer = { ...retry, usage: addUsage(answer.usage, retry.usage) };
@@ -1178,7 +1183,15 @@ export class FormFillExecutor implements StageExecutor {
     let lastRejectionReason: string | null = null;
     let rejectionStreak = 0;
     let systematicFailure: string | null = null;
+    let deferredBudgetFailure: WorkBudgetExhausted | null = null;
+    const deferBudgetFailure = (reason: unknown): void => {
+      if (reason instanceof WorkBudgetExhausted && deferredBudgetFailure === null) deferredBudgetFailure = reason;
+    };
     const trackRejection = (reason: unknown): string | null => {
+      if (reason instanceof WorkBudgetExhausted) {
+        deferBudgetFailure(reason);
+        return null;
+      }
       const text = ((reason as Error | undefined)?.message ?? String(reason)).slice(0, 300);
       rejectionStreak = text === lastRejectionReason ? rejectionStreak + 1 : 1;
       lastRejectionReason = text;
@@ -1513,7 +1526,7 @@ export class FormFillExecutor implements StageExecutor {
           messages = [{ role: 'system', content: system }, { role: 'user', content: packed.question }];
           fieldMaxTokens = Math.min(fieldMaxTokens, packed.available);
         } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
           const reason = error instanceof Error ? error.message : String(error);
           hooks.onHarnessEvent?.({ kind: 'context-overflow' });
           fieldProgress?.reject(compactFieldKey(field), reason);
@@ -1526,8 +1539,16 @@ export class FormFillExecutor implements StageExecutor {
         packet.data.feedback = '';
         const cached = fieldProgress?.begin(compactFieldKey(field), { packet, format, model: req.model, params: this.o.params }) ?? null;
         if (cached) { callsSpent--; hooks.onText(`Переиспользовано значение ${field.id}; содержательные проверки и гейт выполняются заново.\n`); }
+        const validateStructured = structuredClaims === null ? undefined : (candidate: unknown): unknown => {
+          const canonical = canonicalStructuredClaimJson(JSON.stringify(candidate));
+          if (canonical === null) throw new Error(`поле ${field.id}: нужен JSON-массив claims`);
+          const merged = mergeAcceptanceSeedAnswer(acceptanceSeeds, canonical) ?? canonical;
+          const problem = structuredClaimJsonProblem(field, merged, currentArtifactText, this.o.intentRequests ?? [req.prompt.user]);
+          if (problem !== null) throw new Error(`поле ${field.id}: ${problem}`);
+          return candidate;
+        };
         const result = cached ?? await this.ask(req, messages, hooks, { response_format: format,
-          max_tokens: fieldMaxTokens });
+          max_tokens: fieldMaxTokens }, validateStructured);
         fieldProgress?.proposed(compactFieldKey(field), result);
         if (structuredClaims !== null) {
           try {
@@ -1545,7 +1566,7 @@ export class FormFillExecutor implements StageExecutor {
             });
             return { ...result, text: merged };
           } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
             const reason = error instanceof Error ? error.message : 'Невалидный JSON';
             fieldProgress?.reject(compactFieldKey(field), reason);
             hooks.onWarn(`Проверка JSON ${field.id}: ${reason}`);
@@ -1575,7 +1596,7 @@ export class FormFillExecutor implements StageExecutor {
           hooks.onQuestionValidated?.({ questionId: field.id, accepted: true, reason: 'JSON соответствует схеме списка; оформление записей выполнено рантаймом' });
           return { ...result, text: rendered };
         } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
           fieldProgress?.reject(compactFieldKey(field), String(error));
           hooks.onWarn(`Проверка JSON ${field.id}: ${String(error)}`); hooks.onFriction('badJson');
           hooks.onQuestionValidated?.({ questionId: field.id, accepted: false, reason: String(error) });
@@ -1801,7 +1822,7 @@ export class FormFillExecutor implements StageExecutor {
     const sweepArtifactCompact = async (
       path: string,
       startText: string,
-    ): Promise<{ stop: StageResult | null; changed: boolean; text: string }> => {
+    ): Promise<{ stop: StageResult | null; changed: boolean; text: string; budgetFailure?: WorkBudgetExhausted }> => {
       let text = startText;
       let changed = false;
       const fields = this.compactFields(text, path);
@@ -1837,6 +1858,7 @@ export class FormFillExecutor implements StageExecutor {
       });
 
       for (let batchStart = 0; batchStart < groups.length;) {
+        if (deferredBudgetFailure !== null) return { stop: null, changed, text, budgetFailure: deferredBudgetFailure };
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
 
         const allowed = Math.min(FIELD_PARALLEL, fillBudget - callsSpent);
@@ -1957,7 +1979,7 @@ export class FormFillExecutor implements StageExecutor {
               usage = addUsage(usage, audit.usage);
               problems = intentClaimReviewProblems(audit.text, draft.map(claim => claim.id));
             } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
               noteEnvFailure(error);
               problems = [`Проверка приёмки не завершена: ${(error as Error).message}`];
             }
@@ -2069,6 +2091,7 @@ export class FormFillExecutor implements StageExecutor {
                 notes.push(`добор ${field.id} не удался: ответ снова пуст`);
               }
             } catch (e) {
+                deferBudgetFailure(e);
               const why = e instanceof Error ? e.message : String(e);
               noteEnvFailure(e);
               notes.push(`добор ${field.id} не удался: ${why.slice(0, 160)}`);
@@ -2118,6 +2141,7 @@ export class FormFillExecutor implements StageExecutor {
                 if (fresh.trim() !== '') answerText = `${answerText}\n${fresh}`;
                 notes.push(`добор поля ${field.id} (попытка ${attempt + 1}): запрошен и добавлен`);
               } catch (e) {
+                deferBudgetFailure(e);
                 const why = e instanceof Error ? e.message : String(e);
                 noteEnvFailure(e);
                 notes.push(`добор поля ${field.id} не удался: ${why.slice(0, 160)}`);
@@ -2176,6 +2200,7 @@ export class FormFillExecutor implements StageExecutor {
           changed = true;
         }
 
+        if (deferredBudgetFailure !== null) return { stop: null, changed, text, budgetFailure: deferredBudgetFailure };
         const over = budgetHit();
         if (over !== null) return { stop: { ok: false, finalText: '', usage, note: over }, changed, text };
       }
@@ -2227,6 +2252,7 @@ export class FormFillExecutor implements StageExecutor {
           // принцип, что у некомпактного пути ниже: флаш ПЕРЕД возвратом `stop`, иначе
           // накопленный `outcome.text` теряется вместе с уже оплаченными полями.
           if (outcome.changed) await flushArtifact(path, outcome.text);
+          if (outcome.budgetFailure !== undefined) throw outcome.budgetFailure;
           if (outcome.stop !== null) return outcome.stop;
           continue;
         }
@@ -2332,6 +2358,7 @@ export class FormFillExecutor implements StageExecutor {
                   notes.push('добор files_to_touch не удался: список снова пуст');
                 }
               } catch (e) {
+                deferBudgetFailure(e);
                 const why = e instanceof Error ? e.message : String(e);
                 noteEnvFailure(e);
                 notes.push(`добор files_to_touch не удался: ${why.slice(0, 160)}`);
@@ -2428,6 +2455,7 @@ export class FormFillExecutor implements StageExecutor {
                       `пунктов ${now.rows}, [edge] ${now.edges}`,
                   );
                 } catch (e) {
+                deferBudgetFailure(e);
                   const why = e instanceof Error ? e.message : String(e);
                   notes.push(`добор листа приёмки не удался: ${why.slice(0, 160)}`);
                   break;
@@ -2478,6 +2506,10 @@ export class FormFillExecutor implements StageExecutor {
             changed = true;
           }
 
+          if (deferredBudgetFailure !== null) {
+            if (changed) await flushArtifact(path, text);
+            throw deferredBudgetFailure;
+          }
           // Бюджет проверяется после пачки: цена известна только по факту, а пачка — это
           // и есть один «ход» режима. Собранный текст ПЕРЕД обрывом записывается через
           // гейт: оплаченные ответы не выбрасываются.
@@ -2582,8 +2614,10 @@ export class FormFillExecutor implements StageExecutor {
       const intentPath = artifacts.find(path => /(?:^|[\\/])intent\.md$/u.test(path));
       try {
         if (!intentPath) throw new Error('Нет intent.md для проверки контракта');
-        if (requestBudget - callsSpent < 3) {
-          throw new Error('Бюджет запросов исчерпан до проверки контракта Intent; сократи доборы полей или подними лимит');
+        if (requestBudget - callsSpent < (req.guidedEngineVersion === 5 ? 1 : 3)) {
+          const reason = 'Бюджет запросов исчерпан до проверки контракта Intent; сократи доборы полей или подними лимит';
+          if (req.guidedEngineVersion === 5) throw new DecisionError('budget', reason, 'intent:contract');
+          throw new Error(reason);
         }
         // Рецензент адресует строки источников ссылками request-N + lines (тот же приём,
         // что у basis): дословные цитаты материализует рантайм, байтового совпадения не требуется.
@@ -2592,7 +2626,11 @@ export class FormFillExecutor implements StageExecutor {
         const askContract = async (system: string, data: unknown, format: Record<string, unknown>, validate: (text: string) => unknown = parseGuidedJson) => {
           const ask = async (feedback = '', effectiveFormat = format, fields: readonly string[] = []) => {
           req.signal.throwIfAborted();
-          if (callsSpent >= requestBudget) throw new Error('Бюджет запросов исчерпан до завершения проверки контракта Intent');
+          if (callsSpent >= requestBudget) {
+            const reason = 'Бюджет запросов исчерпан до завершения проверки контракта Intent';
+            if (req.guidedEngineVersion === 5) throw new DecisionError('budget', reason, String((data as { questionId?: string }).questionId ?? 'intent:contract'));
+            throw new Error(reason);
+          }
           const over = budgetHit(); if (over !== null) throw new Error(over);
           callsSpent++;
           const answer = await this.ask(req, [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) },
@@ -2634,7 +2672,7 @@ export class FormFillExecutor implements StageExecutor {
               intentContractReviewFormat(requests, intentContractSections(intent)),
               answer => parseIntentContractReview(answer, intent, requests, strictIntent || req.prompt.guidedProtocol === true));
           } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
             // Исчерпанный бюджет — не «битый JSON»: три ретрая только жгут warn (mellum 5×5).
             if (/бюджет запросов исчерпан/iu.test((error as Error).message)) throw error;
             parseFailStreak++;
@@ -2646,7 +2684,7 @@ export class FormFillExecutor implements StageExecutor {
           try {
             issues = parseIntentContractReview(reviewText, intent, requests, strictIntent || req.prompt.guidedProtocol === true);
           } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
             if (/бюджет запросов исчерпан/iu.test((error as Error).message)) throw error;
             parseFailStreak++;
             hooks.onWarn(`Разбор рецензии контракта отклонён (бюджет ремонта не тратится): ${(error as Error).message}`);
@@ -2655,19 +2693,26 @@ export class FormFillExecutor implements StageExecutor {
           }
           parseFailStreak = 0;
           if (req.guidedEngineVersion === 5 && issues.length) {
-            const confirmed: typeof issues = [];
+            // An allegation is an independent decision. Do not duplicate all
+            // citations in one unbounded packet; keep every source constraint.
             for (const [index, issue] of issues.entries()) {
+            const allegation = renderIntentContractIssue(issue, intent, requests);
+            const assertions = [[allegation.sourceQuote, ...allegation.quotes.map(quote => quote.quote)]];
               const answer = await askContract(INTENT_ADJUDICATION_SYSTEM,
-                { questionId: `intent:adjudicate:${round}:${index}`, question: 'Могут ли оба адресованных требования выполняться одновременно?',
-                  allegedIssue: renderIntentContractIssue(issue, intent, requests), relatedSections: sectionFacts,
+                { questionId: `intent:adjudicate:${round}:${index}`, question: 'Могут ли адресованные требования выполняться одновременно?',
+                  issues: [{ issue: 1, problem: allegation.problem, assertions: assertions[0]!.map(numberQuestionSourceLines) }], relatedSections: sectionFacts,
                   requests: sources.map(source => ({ file: source.file, lines: sourceLineFacts(source.text) })) },
-                intentIssueAdjudicationFormat, parseIntentIssueAdjudication);
-              const judgment = parseIntentIssueAdjudication(answer);
+                intentIssueBatchFormat(1), answer => parseIntentIssueBatch(answer, 1, assertions));
+            for (const judgment of parseIntentIssueBatch(answer, 1, assertions)) {
               hooks.onText(`Проверка основания замечания: ${judgment.relation}; ${judgment.explanation}\n`);
-              if (judgment.relation === 'unknown') throw new DecisionError('human-required', `Основание противоречия не установлено: ${judgment.explanation}`, `intent:${round}:${index}`);
-              if (judgment.relation === 'contradictory') confirmed.push(issue);
+              // Only a proven contradiction may stop for a human. Unproven/unknown
+              // allegations (including rewritten model labels and broken citations)
+              // cannot authorize repair and must not block Intent.
+              if (judgment.relation === 'compatible' || judgment.relation === 'unknown') continue;
+              throw new DecisionError('human-required', `Основание противоречия не установлено: ${judgment.explanation}`, `intent:${round}:${index}`);
             }
-            issues = confirmed;
+            }
+            issues = [];
           }
           if (readArtifact(intentPath).text !== intent) throw new Error('Intent изменился во время проверки контракта; повтори этап');
           if (strictIntent) issues = [...sourceScopeIssues(intent, requests), ...issues];
@@ -2709,7 +2754,7 @@ export class FormFillExecutor implements StageExecutor {
                   hooks.onQuestionValidated?.({ questionId: `intent:repair:${writtenRepairs}:${section}`, accepted: true,
                     reason: 'JSON ремонта проверен: обязательные поля и ID сохранены, ссылки проверены; изменён только адресованный раздел. Запись ещё не выполнена' });
                 } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
                   hooks.onQuestionValidated?.({ questionId: `intent:repair:${writtenRepairs}:${section}`, accepted: false,
                     reason: `JSON ремонта отклонён до записи: ${(error as Error).message}` });
                   throw error;
@@ -2739,7 +2784,7 @@ export class FormFillExecutor implements StageExecutor {
             writtenRepairs++;
             repairFailStreak = 0;
           } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
             // Битый JSON / отказ записи — writtenRepairs не растёт; серия отказов ремонта всё же конечна.
             hooks.onWarn(`Ремонт контракта отклонён (счётчик записанных ремонтов не увеличивается): ${(error as Error).message}`);
             // A later empty review must not erase a rejected write or malformed repair.
@@ -2752,7 +2797,7 @@ export class FormFillExecutor implements StageExecutor {
         if (!completed) throw new Error('Проверка контракта Intent не завершена');
         const over = budgetHit(); if (over !== null) throw new Error(over);
       } catch (error) {
-          if (error instanceof DecisionError) throw error;
+          if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
         noteEnvFailure(error);
         return withSpent({ ok: false, finalText: '', usage, note: (error as Error).message,
           ...(strictIntent ? { failure: { kind: 'contract' as const, origin: 'intent' as const, retryStage: /требуется уточнение/u.test((error as Error).message) ? 'ask' as const : 'intent' as const,

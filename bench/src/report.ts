@@ -721,7 +721,7 @@ export function buildReport(input: ReportInput): Report {
   let exitCode: 0 | 1 | 2;
   if (
     (result.diagnostics !== undefined && result.diagnostics.state !== 'finished') ||
-    ['cancelled', 'exception', 'stage-timeout', 'run-timeout'].includes(result.driver.stopped) ||
+    ['cancelled', 'exception', 'stage-timeout', 'run-timeout', 'incomplete'].includes(result.driver.stopped) ||
     !measuredAtAll ||
     envFailure !== undefined ||
     (seed !== null && (seed.measured !== true || seed.reviewRequired === true))
