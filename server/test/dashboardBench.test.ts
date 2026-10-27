@@ -11,7 +11,7 @@ import { after, describe, it } from 'node:test';
 
 import { BenchIndex, benchCard, benchStatus, parseBenchResult } from '../src/dashboard/bench.ts';
 import { benchDetail } from '../src/dashboard/detail.ts';
-import { dashboardArtifact, dashboardDetail, dashboardList } from '../src/dashboard/index.ts';
+import { dashboardArtifact, dashboardDetail, dashboardFlow, dashboardList } from '../src/dashboard/index.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-dash-bench-test-')));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -85,6 +85,47 @@ describe('BenchIndex', () => {
     // Повторы chunk↔verify: судит последняя запись verify — зелёная.
     strictEqual(c.stages.find((s) => s.id === 'verify')?.state, 'done');
     strictEqual(c.stages.find((s) => s.id === 'plan')?.note, 'из снимка');
+  });
+
+  it('служебные JSON не считаются битыми; UTF-8 BOM и UTF-16 читаются как результаты', () => {
+    const dir = join(root, 'encoded');
+    mkdirSync(join(dir, 'results'), { recursive: true });
+    const write = (name: string, content: string | Buffer): void => writeFileSync(join(dir, 'results', `${name}.json`), content);
+    write('series', JSON.stringify({ version: 1, cases: [] }));
+    write('broken', '{ не json');
+    write('bom', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(result('bom')))]));
+    write('utf16le', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify(result('utf16le')), 'utf16le')]));
+    const bigEndian = Buffer.from(JSON.stringify(result('utf16be')), 'utf16le');
+    bigEndian.swap16();
+    write('utf16be', Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]));
+
+    const encoded = new BenchIndex(dir);
+    const listed = encoded.list();
+    deepStrictEqual(listed.cards.map((card) => card.ref.slug).sort(), ['bom', 'utf16be', 'utf16le']);
+    strictEqual(listed.skipped, 1);
+    strictEqual(encoded.has('series'), false);
+    strictEqual(encoded.load('bom')?.run.slug, 'bom');
+    strictEqual(encoded.load('utf16le')?.run.slug, 'utf16le');
+    strictEqual(encoded.load('utf16be')?.run.slug, 'utf16be');
+  });
+
+  it('результат внутри серии попадает в список, детали, артефакты и сохранённую схему', () => {
+    const dir = join(root, 'nested-series');
+    const runDir = join(dir, 'results', 'series', 'runs', '1-1', 'matrix-1');
+    mkdirSync(join(runDir, 'traces'), { recursive: true });
+    writeFileSync(join(runDir, 'result.json'), JSON.stringify(result('matrix-1')));
+    writeFileSync(join(runDir, 'report.md'), '# отчёт серии\n');
+    writeFileSync(join(runDir, 'traces', 'events.ndjson'), JSON.stringify({ type: 'stage_done', runId: 'series-run', stage: 'chunk', ok: true, note: 'готово' }) + '\n');
+    writeFileSync(join(runDir, 'traces', 'progress.log'), 'ход прогона\n');
+    writeFileSync(join(runDir, 'traces', 'flow.html'), '<html>flow серии</html>');
+
+    const nested = new BenchIndex(dir);
+    deepStrictEqual(nested.list().cards.map((card) => card.ref.slug), ['matrix-1']);
+    strictEqual(nested.card('matrix-1')?.updatedAt, '2026-09-20T10:30:00.000Z');
+    const detail = benchDetail(nested, 'matrix-1');
+    deepStrictEqual(detail?.artifacts.map((artifact) => artifact.name), ['result.json', 'report.md', 'events.ndjson', 'progress.log']);
+    const flow = dashboardFlow('bench', 'results', 'matrix-1', [], [nested]);
+    ok('ok' in flow && flow.ok === '<html>flow серии</html>');
   });
 
   it('неизменный файл не пересобирается; изменённый — да', () => {

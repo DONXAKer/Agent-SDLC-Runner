@@ -8,6 +8,7 @@ import { fmtCost, fmtTokens } from '../../lib/format.ts';
 import { stageProblems } from '../../lib/flowTimeline.ts';
 import { historyStatusLabel, historyStatusTone } from '../../lib/historyStatus.ts';
 import { verdictTextTone } from '../../lib/tones.ts';
+import { MarkdownOrSource } from '../Markdown.tsx';
 import { Modal } from '../Modal.tsx';
 import { CollapsibleSection } from '../run/CollapsibleSection.tsx';
 import { ArtifactChips } from './ArtifactChips.tsx';
@@ -54,8 +55,19 @@ export function RunDetailDialog({
 
         {gone ? <div className="rounded border border-amber-900 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">Карточки больше нет в списке — показано последнее известное состояние.</div> : null}
 
+        {card.requirement !== undefined ? (
+          <section className="rounded border border-neutral-800">
+            <h3 className="px-3 pt-2 text-xs font-medium text-neutral-400">Сообщение пользователя</h3>
+            <MarkdownOrSource
+              text={card.requirement}
+              topLevel={false}
+              maxHeight="max-h-72"
+              source={<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-sans text-sm leading-relaxed text-neutral-300">{card.requirement}</pre>}
+            />
+          </section>
+        ) : null}
+
         <section className="space-y-2 text-xs text-neutral-400">
-          {card.requirement !== undefined ? <div className="text-sm text-neutral-200">{card.requirement}</div> : null}
           {card.bench !== null ? <div>задача <span className="font-mono text-neutral-300">{card.bench.task}</span> · модель <span className="font-mono text-neutral-300">{card.bench.model}</span> · режим {card.bench.mode.kind === 'all' ? 'весь виток' : `этап ${titles[card.bench.mode.stage] ?? card.bench.mode.stage}`} · стоп: {card.bench.stopped}</div> : null}
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             <span>chunk {card.chunk} · попытка {card.attempt}</span>

@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { BENCH_RUN_STATE_FILE, DASHBOARD_BENCH_PROJECT, STAGE_ORDER } from '@sdlc-runner/shared';
 import type { DashboardCard, HistoryStatus, RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
@@ -52,6 +52,21 @@ export interface BenchResultLite {
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+function parseJsonBuffer(buffer: Buffer): unknown {
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return JSON.parse(buffer.subarray(3).toString('utf8'));
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return JSON.parse(buffer.subarray(2).toString('utf16le'));
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    const littleEndian = Buffer.from(buffer.subarray(2));
+    littleEndian.swap16();
+    return JSON.parse(littleEndian.toString('utf16le'));
+  }
+  return JSON.parse(buffer.toString('utf8'));
+}
 
 function strRecord(v: unknown): Partial<Record<StageId, string>> {
   const o = obj(v);
@@ -124,6 +139,21 @@ export function parseBenchResult(v: unknown): BenchResultLite | null {
     },
     metrics: normalizeMetrics(o['metrics']),
   };
+}
+
+interface BenchFileOutcome {
+  result: BenchResultLite | null;
+  /** Валидный JSON другого назначения, а не повреждённый результат прогона. */
+  auxiliary: boolean;
+}
+
+function readBenchFile(path: string): BenchFileOutcome {
+  try {
+    const result = parseBenchResult(parseJsonBuffer(readFileSync(path)));
+    return { result, auxiliary: result === null };
+  } catch {
+    return { result: null, auxiliary: false };
+  }
 }
 
 /**
@@ -205,7 +235,7 @@ const REFRESH_MS = 3000;
 const FULL_SCAN_MS = 30_000;
 
 export class BenchIndex {
-  private readonly entries = new Map<string, { mtimeMs: number; size: number; card: DashboardCard | null }>();
+  private readonly entries = new Map<string, { path: string; mtimeMs: number; size: number; card: DashboardCard | null; auxiliary: boolean }>();
   private refreshedAt = 0;
   private readonly progressRuns = new Map<string, ProgressRun>();
   /** Что лежит в каталоге трассы: ничего, законченный прогон (с временем его результата) или прогон без результата. */
@@ -238,47 +268,85 @@ export class BenchIndex {
   }
 
   resultPath(slug: string): string {
-    return join(this.resultsDir, `${slug}.json`);
+    return this.entries.get(slug)?.path ?? join(this.resultsDir, `${slug}.json`);
   }
 
-  reportPath(slug: string): string {
-    return join(this.resultsDir, `${slug}.report.md`);
+  reportPath(slug: string, path = this.resultPath(slug)): string {
+    return path === join(this.resultsDir, `${slug}.json`) ? join(this.resultsDir, `${slug}.report.md`) : join(dirname(path), 'report.md');
   }
 
-  tracePath(slug: string): string {
-    return join(this.dir, 'traces', slug, 'events.ndjson');
+  tracePath(slug: string, path = this.resultPath(slug)): string {
+    return path === join(this.resultsDir, `${slug}.json`) ? join(this.dir, 'traces', slug, 'events.ndjson') : join(dirname(path), 'traces', 'events.ndjson');
   }
 
-  progressPath(slug: string): string {
-    return join(this.dir, 'traces', slug, 'progress.log');
+  progressPath(slug: string, path = this.resultPath(slug)): string {
+    return path === join(this.resultsDir, `${slug}.json`) ? join(this.dir, 'traces', slug, 'progress.log') : join(dirname(path), 'traces', 'progress.log');
   }
 
-  private statResult(slug: string): void {
+  private statResult(slug: string, path: string): void {
     let st: { mtimeMs: number; size: number };
     try {
-      st = statSync(this.resultPath(slug));
+      st = statSync(path);
     } catch {
       this.entries.delete(slug);
       return;
     }
     const hit = this.entries.get(slug);
-    if (hit !== undefined && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return;
-    const r = this.load(slug);
+    if (hit !== undefined && hit.path === path && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return;
+    const { result, auxiliary } = readBenchFile(path);
     const card =
-      r === null
+      result === null
         ? null
         : benchCard(
-            // Слаг адреса — имя файла, а не поле внутри: переименованный файл иначе
-            // открывался бы по имени, которого в каталоге нет.
-            { ...r, run: { ...r.run, slug } },
+            // Слаг адреса — имя файла/каталога, а не поле внутри: копия результата адресуется по месту в индексе.
+            { ...result, run: { ...result.run, slug } },
             {
               mtimeMs: st.mtimeMs,
-              hasTrace: existsSync(this.tracePath(slug)),
-              hasReport: existsSync(this.reportPath(slug)),
+              hasTrace: existsSync(this.tracePath(slug, path)),
+              hasReport: existsSync(this.reportPath(slug, path)),
               project: this.project,
             },
           );
-    this.entries.set(slug, { mtimeMs: st.mtimeMs, size: st.size, card });
+    this.entries.set(slug, { path, mtimeMs: st.mtimeMs, size: st.size, card, auxiliary });
+  }
+
+  /** Плоские результаты и копии отдельных прогонов внутри серий `results/<серия>/runs/...`. */
+  private resultFiles(): { slug: string; path: string }[] {
+    const out: { slug: string; path: string }[] = [];
+    let series;
+    try {
+      series = readdirSync(this.resultsDir, { withFileTypes: true });
+    } catch {
+      return out;
+    }
+    for (const entry of series) {
+      if (entry.isFile()) {
+        if (entry.name.endsWith('.json')) out.push({ slug: entry.name.slice(0, -'.json'.length), path: join(this.resultsDir, entry.name) });
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
+      let cells;
+      try {
+        cells = readdirSync(join(this.resultsDir, entry.name, 'runs'), { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const cell of cells) {
+        if (!cell.isDirectory()) continue;
+        let invocations;
+        try {
+          invocations = readdirSync(join(this.resultsDir, entry.name, 'runs', cell.name), { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const invocation of invocations) {
+          if (!invocation.isDirectory()) continue;
+          const path = join(this.resultsDir, entry.name, 'runs', cell.name, invocation.name, 'result.json');
+          if (existsSync(path)) out.push({ slug: invocation.name, path });
+        }
+      }
+    }
+    return out;
   }
 
   /**
@@ -297,21 +365,12 @@ export class BenchIndex {
     const dirMtime = mtimeOrZero(this.resultsDir);
     const resultsChanged = dirMtime !== this.resultsDirMtime;
     this.resultsDirMtime = dirMtime;
-    let files: string[] = [];
-    try {
-      files = readdirSync(this.resultsDir);
-    } catch {
-      files = [];
-    }
     const seen = new Set<string>();
-    for (const f of files) {
-      // Только `<slug>.json`: рядом лежат `<slug>.report.md` и логи серий.
-      if (!f.endsWith('.json')) continue;
-      const slug = f.slice(0, -'.json'.length);
+    for (const { slug, path } of this.resultFiles()) {
       seen.add(slug);
       // Результат перезапущенного слага переписывается на месте — его ловит прогон без
       // результата, который отслеживается на каждом проходе.
-      if (full || resultsChanged || !this.entries.has(slug) || this.progressRuns.has(slug)) this.statResult(slug);
+      if (full || resultsChanged || !this.entries.has(slug) || this.progressRuns.has(slug)) this.statResult(slug, path);
     }
     for (const slug of [...this.entries.keys()]) if (!seen.has(slug)) this.entries.delete(slug);
     // Прогоны без результата пересматриваются и при пустом/отсутствующем `results/`: первый
@@ -403,9 +462,9 @@ export class BenchIndex {
     const cards: DashboardCard[] = [];
     let skipped = 0;
     for (const [slug, e] of this.entries) {
-      if (e.card === null) skipped += 1;
+      if (e.card === null && !e.auxiliary) skipped += 1;
       // Слаг перезапущен и идёт заново — старый результат уступает карточку идущему.
-      else if (!this.progressRuns.has(slug)) cards.push(e.card);
+      else if (e.card !== null && !this.progressRuns.has(slug)) cards.push(e.card);
     }
     return { cards, skipped, available: true };
   }
@@ -423,10 +482,6 @@ export class BenchIndex {
 
   /** Полный результат прогона — заново с диска (в индексе держится только карточка). */
   load(slug: string): BenchResultLite | null {
-    try {
-      return parseBenchResult(JSON.parse(readFileSync(this.resultPath(slug), 'utf8')));
-    } catch {
-      return null;
-    }
+    return readBenchFile(this.resultPath(slug)).result;
   }
 }

@@ -11,7 +11,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { symlinkEscape } from '../approval/symlink.ts';
 import { parseEventsFile } from '../eventLog.ts';
 import { flowFromEvents, renderRunFlow } from '../run/runFlow.ts';
@@ -174,7 +174,7 @@ export function dashboardFlow(source: string, projectKey: string, slug: string,
   if (source === 'bench') {
     const bench = benchFor(benches, projectKey);
     if (!bench || !bench.has(slug)) return { error: 'Прогон стенда не найден', code: 404 };
-    root = bench.dir; html = join(root, 'traces', slug, 'flow.html'); events = join(root, 'traces', slug, 'events.ndjson');
+    root = bench.dir; events = bench.tracePath(slug); html = join(dirname(events), 'flow.html');
   } else if (source === 'ui' || source === 'terminal') {
     const project = projectByKey(projects, projectKey);
     if (!project) return { error: 'Проект не найден', code: 404 };
