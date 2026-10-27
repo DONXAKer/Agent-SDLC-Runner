@@ -2,7 +2,7 @@ import { DASHBOARD_BENCH_ARCHIVE, DASHBOARD_SOURCES } from '@sdlc-runner/shared'
 import type { DashboardSource } from '@sdlc-runner/shared';
 
 import { SOURCE_LABEL } from '../../lib/dashboardStatus.ts';
-import { EMPTY_FILTER, STATUS_FILTERS, STATUS_FILTER_LABEL, isFilterEmpty } from '../../lib/dashboardFilter.ts';
+import { DASHBOARD_PERIODS, DASHBOARD_PERIOD_LABEL, EMPTY_FILTER, STATUS_FILTERS, STATUS_FILTER_LABEL, isFilterEmpty } from '../../lib/dashboardFilter.ts';
 import type { DashboardFilter, StatusFilter } from '../../lib/dashboardFilter.ts';
 
 const FIELD = 'rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200';
@@ -29,6 +29,14 @@ export function DashboardFilters({
         placeholder="поиск: slug, задача, модель"
         className={`${FIELD} w-60`}
       />
+      <select
+        aria-label="Период списка"
+        value={filter.period}
+        onChange={(e) => onChange({ ...filter, period: DASHBOARD_PERIODS.find((period) => period === e.target.value) ?? EMPTY_FILTER.period })}
+        className={FIELD}
+      >
+        {DASHBOARD_PERIODS.map((period) => <option key={period} value={period}>{DASHBOARD_PERIOD_LABEL[period]}</option>)}
+      </select>
       <select
         value={filter.project ?? ''}
         onChange={(e) => onChange({ ...filter, project: e.target.value === '' ? null : e.target.value })}

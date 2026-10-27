@@ -20,14 +20,25 @@ export const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
   aborted: 'оборваны',
 };
 
+export const DASHBOARD_PERIODS = ['2d', '7d', '30d', 'all'] as const;
+export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
+
+export const DASHBOARD_PERIOD_LABEL: Record<DashboardPeriod, string> = {
+  '2d': 'за 2 дня',
+  '7d': 'за 7 дней',
+  '30d': 'за 30 дней',
+  all: 'за всё время',
+};
+
 export interface DashboardFilter {
   project: string | null;
   source: DashboardSource | null;
   status: StatusFilter | null;
+  period: DashboardPeriod;
   query: string;
 }
 
-export const EMPTY_FILTER: DashboardFilter = { project: null, source: null, status: null, query: '' };
+export const EMPTY_FILTER: DashboardFilter = { project: null, source: null, status: null, period: '2d', query: '' };
 
 /** Совпадение поиска: slug, текст задачи, проект, задача и модель стенда — без регистра. */
 export function matchesQuery(c: DashboardCard, q: string): boolean {
@@ -50,12 +61,20 @@ export function isArchived(c: DashboardCard): boolean {
   return c.ref.source === 'bench' && c.ref.project === DASHBOARD_BENCH_ARCHIVE;
 }
 
-export function applyFilter(cards: readonly DashboardCard[], f: DashboardFilter): DashboardCard[] {
+export function matchesPeriod(c: Pick<DashboardCard, 'updatedAt'>, period: DashboardPeriod, nowMs: number): boolean {
+  if (period === 'all') return true;
+  const days = period === '2d' ? 2 : period === '7d' ? 7 : 30;
+  const updatedAt = Date.parse(c.updatedAt);
+  return Number.isFinite(updatedAt) && updatedAt >= nowMs - days * 24 * 60 * 60 * 1000;
+}
+
+export function applyFilter(cards: readonly DashboardCard[], f: DashboardFilter, nowMs = Date.now()): DashboardCard[] {
   return cards.filter(
     (c) =>
       (f.project === null ? !isArchived(c) : c.ref.project === f.project) &&
       (f.source === null || c.ref.source === f.source) &&
       (f.status === null || matchesStatus(c, f.status)) &&
+      matchesPeriod(c, f.period, nowMs) &&
       matchesQuery(c, f.query),
   );
 }
@@ -66,23 +85,22 @@ export function projectOptions(cards: readonly DashboardCard[]): string[] {
 }
 
 export function isFilterEmpty(f: DashboardFilter): boolean {
-  return f.project === null && f.source === null && f.status === null && f.query.trim() === '';
+  return f.project === null && f.source === null && f.status === null && f.period === EMPTY_FILTER.period && f.query.trim() === '';
 }
 
-/**
- * Фильтр из localStorage. Битое или устаревшее значение — нейтральный фильтр: чужое
- * значение источника не должно прятать все карточки без видимой причины.
- */
+/** Битое значение возвращает фильтр по умолчанию; у старого сохранения период — 2 дня. */
 export function parseFilter(raw: string | null): DashboardFilter {
   if (raw === null) return EMPTY_FILTER;
   try {
     const p = JSON.parse(raw) as Partial<Record<keyof DashboardFilter, unknown>>;
     const source = DASHBOARD_SOURCES.find((s) => s === p.source) ?? null;
     const status = STATUS_FILTERS.find((s) => s === p.status) ?? null;
+    const period = DASHBOARD_PERIODS.find((value) => value === p.period) ?? EMPTY_FILTER.period;
     return {
       project: typeof p.project === 'string' && p.project !== '' ? p.project : null,
       source,
       status,
+      period,
       query: typeof p.query === 'string' ? p.query : '',
     };
   } catch {

@@ -89,14 +89,26 @@ describe('фильтры', () => {
     card('term-1', { ref: { source: 'terminal', project: 'WarCard', slug: 'term-1' }, status: 'done' }),
     card('live-1', { live: live({ waiting: 1 }) }),
   ];
+  const ALL_FILTER = { ...EMPTY_FILTER, period: 'all' as const };
+  const FILTER_NOW = Date.parse('2026-09-25T12:00:00.000Z');
 
-  it('пустой фильтр пропускает всё; каждый критерий сужает', () => {
-    strictEqual(applyFilter(cards, EMPTY_FILTER).length, 4);
-    deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, source: 'bench' }).map((c) => c.ref.slug), ['bench-1']);
-    deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, project: 'WarCard' }).map((c) => c.ref.slug), ['term-1']);
-    deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'done' }).map((c) => c.ref.slug), ['term-1']);
-    deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'waiting' }).map((c) => c.ref.slug), ['live-1']);
-    deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'live' }).map((c) => c.ref.slug), ['live-1']);
+  it('остальные критерии сужают список независимо от периода', () => {
+    strictEqual(applyFilter(cards, ALL_FILTER).length, 4);
+    deepStrictEqual(applyFilter(cards, { ...ALL_FILTER, source: 'bench' }).map((c) => c.ref.slug), ['bench-1']);
+    deepStrictEqual(applyFilter(cards, { ...ALL_FILTER, project: 'WarCard' }).map((c) => c.ref.slug), ['term-1']);
+    deepStrictEqual(applyFilter(cards, { ...ALL_FILTER, status: 'done' }).map((c) => c.ref.slug), ['term-1']);
+    deepStrictEqual(applyFilter(cards, { ...ALL_FILTER, status: 'waiting' }).map((c) => c.ref.slug), ['live-1']);
+    deepStrictEqual(applyFilter(cards, { ...ALL_FILTER, status: 'live' }).map((c) => c.ref.slug), ['live-1']);
+  });
+
+  it('по умолчанию показывает два дня, включая точную границу; можно выбрать весь период', () => {
+    const recent = card('recent', { updatedAt: '2026-09-24T12:00:00.000Z' });
+    const boundary = card('boundary', { updatedAt: '2026-09-23T12:00:00.000Z' });
+    const invalid = card('invalid', { updatedAt: 'не дата' });
+    const all = [...cards, recent, boundary, invalid];
+    deepStrictEqual(applyFilter(all, EMPTY_FILTER, FILTER_NOW).map((c) => c.ref.slug), ['recent', 'boundary']);
+    strictEqual(applyFilter(all, { ...EMPTY_FILTER, period: '7d' }, FILTER_NOW).length, 6);
+    strictEqual(applyFilter(all, ALL_FILTER, FILTER_NOW).length, 7);
   });
 
   it('«идёт сейчас» — живой виток или стенд с живым процессом, одно правило с фильтром', () => {
@@ -106,15 +118,15 @@ describe('фильтры', () => {
     ok(isRunningNow(bench(true)));
     ok(!isRunningNow(bench(false)));
     ok(!isRunningNow(card('x')));
-    deepStrictEqual(applyFilter([bench(true), bench(false)], { ...EMPTY_FILTER, status: 'live' }).length, 1);
+    deepStrictEqual(applyFilter([bench(true), bench(false)], { ...ALL_FILTER, status: 'live' }).length, 1);
   });
 
   it('архив стенда скрыт, пока его не выбрали проектом', () => {
     const old = card('old-1', { ref: { source: 'bench', project: 'archive', slug: 'old-1' } });
     const all = [...cards, old];
-    ok(!applyFilter(all, EMPTY_FILTER).includes(old));
-    ok(!applyFilter(all, { ...EMPTY_FILTER, source: 'bench' }).includes(old));
-    deepStrictEqual(applyFilter(all, { ...EMPTY_FILTER, project: 'archive' }), [old]);
+    ok(!applyFilter(all, ALL_FILTER).includes(old));
+    ok(!applyFilter(all, { ...ALL_FILTER, source: 'bench' }).includes(old));
+    deepStrictEqual(applyFilter(all, { ...ALL_FILTER, project: 'archive' }), [old]);
   });
 
   it('поиск: кириллица в задаче, модель и задача стенда, пробелы — не фильтр', () => {
@@ -129,14 +141,16 @@ describe('фильтры', () => {
     deepStrictEqual(projectOptions(cards), ['proj', 'results', 'WarCard'].sort((a, b) => a.localeCompare(b)));
   });
 
-  it('localStorage: туда и обратно; мусор и чужие значения — нейтральный фильтр', () => {
-    const f = { project: 'p', source: 'terminal' as const, status: 'aborted' as const, query: 'x' };
+  it('localStorage: период сохраняется, у старого фильтра по умолчанию два дня', () => {
+    const f = { project: 'p', source: 'terminal' as const, status: 'aborted' as const, period: '30d' as const, query: 'x' };
     deepStrictEqual(parseFilter(serializeFilter(f)), f);
+    deepStrictEqual(parseFilter(JSON.stringify({ query: 'x' })), { ...EMPTY_FILTER, query: 'x' });
     deepStrictEqual(parseFilter('{ битое'), EMPTY_FILTER);
     deepStrictEqual(parseFilter(null), EMPTY_FILTER);
-    deepStrictEqual(parseFilter(JSON.stringify({ source: 'cli', status: 'что-то' })), EMPTY_FILTER);
+    deepStrictEqual(parseFilter(JSON.stringify({ source: 'cli', status: 'что-то', period: 'year' })), EMPTY_FILTER);
     ok(isFilterEmpty(EMPTY_FILTER));
     ok(!isFilterEmpty({ ...EMPTY_FILTER, query: 'a' }));
+    ok(!isFilterEmpty(ALL_FILTER));
   });
 });
 

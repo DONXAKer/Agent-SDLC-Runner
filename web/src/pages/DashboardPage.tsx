@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentProps } from 'react';
 
 import type { DashboardCard, DashboardCardRef, DashboardDetail, DashboardResponse, StageId } from '@sdlc-runner/shared';
 
-import { BoardView } from '../components/dashboard/BoardView.tsx';
 import { DashboardFilters } from '../components/dashboard/DashboardFilters.tsx';
+import { FlowTimeline } from '../components/dashboard/FlowTimeline.tsx';
 import { NowRunning } from '../components/dashboard/NowRunning.tsx';
-import { RunCard } from '../components/dashboard/RunCard.tsx';
-import { RunDetailPanel } from '../components/dashboard/RunDetailPanel.tsx';
+import { RunDetailDialog } from '../components/dashboard/RunDetailDialog.tsx';
+import { Modal } from '../components/Modal.tsx';
+import { NewRunWizard } from '../components/start/NewRunWizard.tsx';
 import { api } from '../lib/api.ts';
-import { parseView } from '../lib/dashboardBoard.ts';
-import type { DashboardView } from '../lib/dashboardBoard.ts';
 import { applyFilter, parseFilter, projectOptions, serializeFilter } from '../lib/dashboardFilter.ts';
 import type { DashboardFilter } from '../lib/dashboardFilter.ts';
 import { cardKey, reuseCards, sameCard, sortCards } from '../lib/dashboardSort.ts';
 import { detailFreshnessKey } from '../lib/dashboardStages.ts';
+import { flowCounts } from '../lib/flowTimeline.ts';
 import { readLS, writeLS } from '../lib/persist.ts';
 import { BTN_SECONDARY } from '../lib/tones.ts';
 import { useVisiblePoll } from '../lib/useVisiblePoll.ts';
@@ -25,32 +26,35 @@ const NOW_STEP_MS = 15_000;
 /** Карточек за раз: сотни прогонов стенда разом — это тысячи узлов на каждый тик. */
 const PAGE = 60;
 const FILTER_KEY = 'dashboardFilter';
-const VIEW_KEY = 'dashboardView';
 
-/**
- * Дашборд запусков: витки всех проектов (из интерфейса и из терминальных скиллов) и
- * прогоны стенда — карточками со статусом по этапам и по файлам витка. Только чтение:
- * управлять живым витком — на его странице.
- */
+type NewRunProps = Omit<ComponentProps<typeof NewRunWizard>, 'onStart' | 'onCancel'>;
+
+/** Единый экран создания и наблюдения за всеми запусками. */
 export function DashboardPage({
   card: openRef,
   stageTitles,
+  error: appError,
+  newRun,
+  onStart,
   onOpenCard,
   onCloseCard,
   onOpenLive,
   onOpenArchive,
-  onExit,
 }: {
   card: DashboardCardRef | null;
   stageTitles: Partial<Record<StageId, string>>;
+  error: string | null;
+  newRun: NewRunProps | null;
+  onStart: () => Promise<boolean>;
   onOpenCard: (ref: DashboardCardRef) => void;
   onCloseCard: () => void;
   onOpenLive: (runId: string) => void;
   onOpenArchive: (project: string, slug: string) => void;
-  onExit: () => void;
 }): JSX.Element {
   const [list, setList] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wizard, setWizard] = useState(false);
+  const [starting, setStarting] = useState(false);
   // «Сейчас» — по часам СЕРВЕРА и с шагом `NOW_STEP_MS`: подписи «N мин назад» и «нет
   // движения» сравнивают с `updatedAt` сервера, а сервер в docker или на другой машине живёт
   // по своим часам. Шаг — чтобы тик опроса без изменений не перерисовывал все карточки ради
@@ -66,8 +70,6 @@ export function DashboardPage({
   const [nowMs, setNowMs] = useState(stepNow);
   const [filter, setFilter] = useState<DashboardFilter>(() => parseFilter(readLS(FILTER_KEY)));
   const [limit, setLimit] = useState(PAGE);
-  const [view, setView] = useState<DashboardView>(() => parseView(readLS(VIEW_KEY)));
-  useEffect(() => writeLS(VIEW_KEY, view), [view]);
   const etag = useRef<string | null>(null);
 
   useEffect(() => writeLS(FILTER_KEY, serializeFilter(filter)), [filter]);
@@ -104,7 +106,7 @@ export function DashboardPage({
   useVisiblePoll(autoRefresh, POLL_MS);
 
   const cards = useMemo(() => (list === null ? [] : sortCards(list.cards)), [list]);
-  const filtered = useMemo(() => applyFilter(cards, filter), [cards, filter]);
+  const filtered = useMemo(() => applyFilter(cards, filter, nowMs), [cards, filter, nowMs]);
   const projects = useMemo(() => projectOptions(cards), [cards]);
 
   // ── детали ──────────────────────────────────────────────────────────────
@@ -168,104 +170,75 @@ export function DashboardPage({
   }, [fresh, openRef, fetchDetail]);
 
   const openCard = useCallback((c: DashboardCard) => onOpenCard(c.ref), [onOpenCard]);
-
-  if (openRef !== null) {
-    if (detail === null) {
-      return (
-        <div className="mx-auto max-w-4xl p-8 text-sm">
-          <button type="button" onClick={onCloseCard} className="mb-4 text-neutral-400 hover:text-neutral-200">
-            ← к карточкам
-          </button>
-          <div className={detailError === null ? 'text-neutral-500' : 'text-red-300'}>{detailError ?? 'Загрузка карточки…'}</div>
-        </div>
-      );
+  const startNew = async (): Promise<void> => {
+    if (starting) return;
+    setStarting(true);
+    try {
+      if (await onStart()) setWizard(false);
+    } finally {
+      setStarting(false);
     }
-    return (
-      <RunDetailPanel
-        key={openKey ?? ''}
-        detail={detail}
-        titles={stageTitles}
-        nowMs={nowMs}
-        gone={list !== null && listed === undefined}
-        onBack={onCloseCard}
-        onOpenLive={onOpenLive}
-        onOpenArchive={onOpenArchive}
-      />
-    );
-  }
+  };
 
   const shown = filtered.slice(0, limit);
+  const counts = flowCounts(cards);
   return (
-    <div className={`mx-auto p-6 ${view === 'board' ? 'max-w-none' : 'max-w-7xl'}`}>
+    <div className="mx-auto max-w-6xl p-6">
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={onExit} className="text-sm text-neutral-400 hover:text-neutral-200">
-          ← на старт
-        </button>
-        <h1 className="text-xl font-medium">Запуски</h1>
-        <span className="text-xs text-neutral-500">витки из интерфейса и терминала, прогоны стенда</span>
-        <div className="ml-auto flex overflow-hidden rounded border border-neutral-700 text-xs">
-          {(['board', 'grid'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={`px-2 py-0.5 ${view === v ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-900'}`}
-            >
-              {v === 'board' ? 'доска по этапам' : 'карточки'}
-            </button>
-          ))}
+        <div>
+          <h1 className="text-xl font-medium">Флоу запусков</h1>
+          <p className="mt-1 text-xs text-neutral-500">Все SDLC-витки и прогоны стенда в одной вертикальной ленте</p>
         </div>
-        <button type="button" onClick={() => load(true)} className={`${BTN_SECONDARY} px-2 py-0.5 text-xs`}>
-          обновить
-        </button>
+        <div className="ml-auto flex gap-2">
+          <button type="button" onClick={() => load(true)} className={`${BTN_SECONDARY} px-3 py-1.5 text-xs`}>Обновить</button>
+          <button type="button" onClick={() => setWizard(true)} disabled={newRun === null} className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500">+ Новый виток</button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded border border-neutral-800 px-3 py-2 text-xs text-neutral-400">Всего <span className="ml-1 text-lg text-neutral-100">{counts.total}</span></div>
+        <div className="rounded border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Работает <span className="ml-1 text-lg">{counts.running}</span></div>
+        <div className="rounded border border-amber-900 px-3 py-2 text-xs text-amber-300">Ждёт человека <span className="ml-1 text-lg">{counts.waiting}</span></div>
+        <div className="rounded border border-red-900 px-3 py-2 text-xs text-red-300">С ошибкой <span className="ml-1 text-lg">{counts.failed}</span></div>
       </div>
 
       {list !== null ? <NowRunning cards={cards} titles={stageTitles} nowMs={nowMs} onOpen={openCard} /> : null}
+      {appError !== null ? <div className="mt-3 whitespace-pre-wrap rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-300">{appError}</div> : null}
+      {error !== null ? <div className="mt-3 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 
-      {error !== null ? (
-        <div className="mb-3 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</div>
-      ) : null}
-
-      <DashboardFilters filter={filter} projects={projects} shown={filtered.length} total={cards.length} onChange={setFilter} />
-      {list !== null && !list.bench.available ? (
-        <div className="mt-2 text-xs text-neutral-500">каталога стенда на этой машине нет — прогоны bench не показываются</div>
-      ) : null}
-      {list !== null && list.bench.skipped > 0 ? (
-        <div className="mt-2 text-xs text-amber-400">файлов результата стенда не разобрано: {list.bench.skipped}</div>
-      ) : null}
+      <div className="mt-4"><DashboardFilters filter={filter} projects={projects} shown={filtered.length} total={cards.length} onChange={setFilter} /></div>
+      {list !== null && !list.bench.available ? <div className="mt-2 text-xs text-neutral-500">каталога стенда на этой машине нет — прогоны bench не показываются</div> : null}
+      {list !== null && list.bench.skipped > 0 ? <div className="mt-2 text-xs text-amber-400">файлов результата стенда не разобрано: {list.bench.skipped}</div> : null}
 
       {list === null ? (
         <div className="mt-6 text-sm text-neutral-500">{error === null ? 'Загрузка…' : ''}</div>
       ) : filtered.length === 0 ? (
-        <div className="mt-6 text-sm text-neutral-500">
-          {cards.length === 0 ? 'Запусков пока нет: ни витков в .sdlc/ проектов конфига, ни результатов стенда.' : 'Под фильтр не попало ни одной карточки.'}
+        <div className="mt-6 rounded border border-dashed border-neutral-800 p-6 text-sm text-neutral-500">
+          {cards.length === 0 ? 'Запусков пока нет. Нажмите «Новый виток», чтобы создать первый.' : 'Под фильтр не попало ни одного запуска.'}
         </div>
-      ) : view === 'board' ? (
-        <BoardView cards={filtered} titles={stageTitles} nowMs={nowMs} onOpen={openCard} />
       ) : (
         <>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {shown.map((c) => (
-              <RunCard
-                key={cardKey(c.ref)}
-                card={c}
-                titles={stageTitles}
-                nowMs={nowMs}
-                onOpen={openCard}
-                onOpenLive={onOpenLive}
-                onOpenArchive={onOpenArchive}
-              />
-            ))}
-          </div>
-          {filtered.length > shown.length ? (
-            <div className="mt-4 text-center">
-              <button type="button" onClick={() => setLimit((l) => l + PAGE)} className={`${BTN_SECONDARY} px-3 py-1 text-xs`}>
-                показать ещё {Math.min(PAGE, filtered.length - shown.length)} из {filtered.length - shown.length}
-              </button>
-            </div>
-          ) : null}
+          <FlowTimeline cards={shown} titles={stageTitles} nowMs={nowMs} onOpen={openCard} />
+          {filtered.length > shown.length ? <div className="mt-4 text-center"><button type="button" onClick={() => setLimit((value) => value + PAGE)} className={`${BTN_SECONDARY} px-3 py-1 text-xs`}>показать ещё {Math.min(PAGE, filtered.length - shown.length)} из {filtered.length - shown.length}</button></div> : null}
         </>
       )}
+
+      {wizard && newRun !== null ? (
+        <Modal title="Новый SDLC-виток" onClose={() => setWizard(false)} className="max-w-4xl">
+          <div className="p-4">
+            {appError !== null ? <div className="mb-3 whitespace-pre-wrap rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-300">{appError}</div> : null}
+            <NewRunWizard {...newRun} starting={starting} onStart={() => void startNew()} onCancel={() => setWizard(false)} />
+          </div>
+        </Modal>
+      ) : null}
+
+      {openRef !== null ? detail === null ? (
+        <Modal title={`${openRef.project} · ${openRef.slug}`} onClose={onCloseCard}>
+          <div className={`p-6 text-sm ${detailError === null ? 'text-neutral-500' : 'text-red-300'}`}>{detailError ?? 'Загрузка запуска…'}</div>
+        </Modal>
+      ) : (
+        <RunDetailDialog key={openKey ?? ''} detail={detail} titles={stageTitles} nowMs={nowMs} gone={list !== null && listed === undefined} onClose={onCloseCard} onOpenLive={onOpenLive} onOpenArchive={onOpenArchive} />
+      ) : null}
     </div>
   );
 }

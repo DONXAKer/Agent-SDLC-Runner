@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../lib/api.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
+import { Modal } from './Modal.tsx';
 import type { BrowseResult } from '@sdlc-runner/shared';
 
 interface Props {
@@ -35,15 +36,8 @@ export function DirectoryBrowser({ onPick, onClose }: Props): JSX.Element {
   useEffect(() => load(), []);
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-lg rounded border border-neutral-800 bg-neutral-950 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-medium">Выбор каталога проекта</span>
-          <button type="button" onClick={onClose} className="text-sm text-neutral-500 hover:text-neutral-300">
-            ✕
-          </button>
-        </div>
-
+    <Modal title="Выбор каталога проекта" onClose={onClose} className="max-w-lg">
+      <div className="p-4">
         {error !== null ? (
           <div className={`mb-3 rounded border p-2 text-xs text-red-200 ${PANEL_TONE.fail}`}>
             {error}
@@ -99,6 +93,6 @@ export function DirectoryBrowser({ onPick, onClose }: Props): JSX.Element {
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -46,6 +46,7 @@ export function NewRunWizard({
   onAddProject,
   onStart,
   onCancel,
+  starting = false,
 }: {
   config: ConfigInfo;
   project: ProjectInfo | null;
@@ -63,8 +64,9 @@ export function NewRunWizard({
   /** Завести проект по выбранному каталогу; возвращает заведённый, чтобы мастер его выбрал. */
   onAddProject: (name: string, path: string) => Promise<ProjectInfo | null>;
   onStart: () => void;
-  /** Уйти из мастера к спискам витков. `null` — уходить некуда (продолжать нечего). */
+  /** Закрыть мастер и вернуться к ленте запусков. */
   onCancel: (() => void) | null;
+  starting?: boolean;
 }): JSX.Element {
   const [step, setStep] = useState<WizardStep>(1);
   const [browsing, setBrowsing] = useState(false);
@@ -533,10 +535,10 @@ export function NewRunWizard({
           <button
             type="button"
             onClick={onStart}
-            disabled={!ready}
+            disabled={!ready || starting}
             className="ml-auto rounded bg-emerald-700 px-4 py-1.5 text-sm font-medium hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
           >
-            Начать виток
+            {starting ? 'Создаём…' : 'Начать виток'}
           </button>
         )}
       </div>

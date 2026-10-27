@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ArchivedRunView } from './pages/ArchivedRunView.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
 import { RunPage } from './pages/RunPage.tsx';
-import { StartPage } from './pages/StartPage.tsx';
 import { api } from './lib/api.ts';
 import { formatHash, parseHash } from './lib/hashRoute.ts';
 import type { Route } from './lib/hashRoute.ts';
 import { readLS, writeLS } from './lib/persist.ts';
-import type { ConfigInfo, DashboardCardRef, HistoryEntry, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
+import type { ConfigInfo, DashboardCardRef, HistoryEntry, ProjectInfo, StageId } from '@sdlc-runner/shared';
 
 /**
  * Черновик витка между перезагрузками страницы. Живёт в localStorage (`persist.ts`):
@@ -48,24 +47,18 @@ function readDraft(): RunDraft | null {
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);
-  /**
-   * Какой экран открыт — в адресе, а не только в памяти.
-   *
-   * Раньше это были два `useState` (`runId` и `archived`), и F5 посреди работающего витка
-   * возвращал на стартовый экран. `#/run/<id>` после перезапуска сервера мягко деградирует:
-   * прогонов в памяти нет, `RunPage` показывает «← к списку витков».
-   */
+  /** Адрес сохраняет открытый экран и карточку деталей между перезагрузками. */
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const [draft] = useState<RunDraft | null>(() => readDraft());
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [profile, setProfile] = useState('');
   const [slug, setSlug] = useState(() => draft?.slug ?? '');
-  /** Задача витка: набирается на старте, уходит на этап intent и правится уже там. */
+  /** Задача витка: набирается в мастере, уходит на этап intent и правится уже там. */
   const [requirement, setRequirement] = useState(() => draft?.requirement ?? '');
   const [error, setError] = useState<string | null>(null);
   /** Виток только что заведён: поля мастера чистятся следующим проходом. */
   const [started, setStarted] = useState(false);
-  const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const runRequirements = useRef(new Map<string, string>());
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   /** Правка моделей на один виток: на диск не сохраняется. */
   const [stageOverrides, setStageOverrides] = useState<Partial<Record<StageId, string>>>(
@@ -81,26 +74,17 @@ export default function App(): JSX.Element {
   }, []);
 
   const navigate = useCallback((next: Route): void => {
-    // Стейт ставится сразу, не дожидаясь `hashchange`: браузер не шлёт событие, если hash
-    // не изменился (например «на старт» со старта), и экран замер бы.
+    // Стейт ставится сразу, не дожидаясь `hashchange`: браузер не шлёт событие,
+    // если hash не изменился, и повторный переход на тот же экран не должен зависать.
     setRoute(next);
     window.location.hash = formatHash(next);
   }, []);
 
-  // Общий словарь заголовков этапов (архив и дашборд) и колбэки навигации дашборда —
-  // мемоизированы: `App` перерисовывается по причинам, с дашбордом не связанным (опрос
-  // `runs`/`history` на стартовом экране, правки черновика), и заново собранный объект/
-  // стрелка на каждый такой рендер каскадом гасили бы `memo` глубже по дереву — до
-  // `MiniCard` доски, чьё сравнение пропсов по значению (`miniCardPropsEqual`) годится
-  // только если сам `onOpen` стабилен (code-review-all, 2026-09-26).
   const stageTitles = useMemo(() => Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title])), [config?.stages]);
   const openDashboardCard = useCallback((card: DashboardCardRef) => navigate({ kind: 'dashboard', card }), [navigate]);
-  // И «закрыть открытую карточку» (назад к сетке), и «открыть дашборд» из другого экрана —
-  // один и тот же адрес: сетка дашборда без открытой карточки.
   const goToDashboard = useCallback(() => navigate({ kind: 'dashboard', card: null }), [navigate]);
   const openLiveRun = useCallback((runId: string) => navigate({ kind: 'run', runId, view: 'now' }), [navigate]);
   const openArchivedRun = useCallback((project: string, slug: string) => navigate({ kind: 'archive', project, slug }), [navigate]);
-  const exitToStart = useCallback(() => navigate({ kind: 'start' }), [navigate]);
 
   useEffect(() => {
     api
@@ -135,26 +119,16 @@ export default function App(): JSX.Element {
     writeLS(DRAFT_KEY, JSON.stringify(next));
   }, [config, project?.name, profile, slug, requirement, stageOverrides]);
 
-  // Старт состоялся — черновик исчерпан, но чистится он ОТДЕЛЬНЫМ проходом (см. `start`).
-  // Ошибка старта черновик не трогает: человек чинит причину и жмёт снова, перенабирать
-  // задачу не должен.
+  // Ошибка старта черновик не трогает. После успеха текст также сохранён по runId,
+  // поэтому мастер можно очистить, не теряя задачу до перехода в живое управление.
   useEffect(() => {
-    if (!started || route.kind !== 'run') return;
+    if (!started) return;
     setStarted(false);
     setSlug('');
     setRequirement('');
     setStageOverrides({});
-  }, [started, route]);
+  }, [started]);
 
-  const refreshRuns = useCallback(() => {
-    // Ошибку здесь НЕ гасим: слот один на всё окно, и успешный фоновый список затёр бы
-    // отказ загрузки конфигурации — экран остался бы «Загрузка конфигурации…» без причины.
-    // Гасит тот, кто начинает действие: см. `setError(null)` в обработчиках.
-    api.runs().then(setRuns).catch((e: Error) => setError(e.message));
-  }, []);
-
-  // История — с диска и per-project (в отличие от `runs`, общего списка живых прогонов
-  // сервера сразу по всем проектам), поэтому перезапрашивается и при смене проекта.
   const refreshHistory = useCallback(() => {
     if (project === null) {
       setHistory(null);
@@ -163,28 +137,9 @@ export default function App(): JSX.Element {
     api.history(project.name).then(setHistory).catch((e: Error) => setError(e.message));
   }, [project]);
 
-  // Перезапрашивается и при возврате из витка: выход со страницы прогона — единственный
-  // момент, когда список заведомо устарел, а раньше возвращаться было попросту некуда.
-  // Условие включает и архивный просмотр — иначе список фонового `fetch`ился бы, пока
-  // оператор читает read-only ленту `ArchivedRunView`, без всякой пользы для этого экрана.
   useEffect(() => {
-    if (route.kind === 'start') {
-      refreshRuns();
-      refreshHistory();
-    }
-  }, [route.kind, refreshRuns, refreshHistory]);
-
-  const forget = async (id: string): Promise<void> => {
-    setError(null);
-    try {
-      await api.forget(id);
-      refreshRuns();
-    } catch (e) {
-      // Сервер отказывает, пока этап выполняется, — причину показываем дословно, иначе
-      // кнопка выглядит сломанной.
-      setError((e as Error).message);
-    }
-  };
+    if (route.kind === 'dashboard') refreshHistory();
+  }, [route.kind, refreshHistory]);
 
   const addProject = async (name: string, path: string): Promise<ProjectInfo | null> => {
     setError(null);
@@ -201,20 +156,21 @@ export default function App(): JSX.Element {
     }
   };
 
-  const start = async (): Promise<void> => {
-    if (project === null || slug.trim() === '') return;
+  const start = async (): Promise<boolean> => {
+    if (project === null || slug.trim() === '') return false;
+    const startedProject = project.name;
+    const startedSlug = slug.trim();
+    const startedRequirement = requirement;
     setError(null);
     try {
-      const r = await api.createRun(project.name, slug.trim(), profile, stageOverrides);
-      // Поля мастера НЕ чистятся здесь: `RunPage` забирает текст задачи начальным
-      // значением своего стейта, и очистка в том же батче отдавала ему пустую строку —
-      // набранная задача пропадала безвозвратно, потому что черновик в localStorage тем
-      // же рендером тоже перезаписывался пустым (ревью). Чистит эффект ниже, после того
-      // как страница витка смонтирована и текст у неё уже есть.
+      const r = await api.createRun(startedProject, startedSlug, profile, stageOverrides);
+      runRequirements.current.set(r.runId, startedRequirement);
       setStarted(true);
-      navigate({ kind: 'run', runId: r.runId, view: 'now' });
+      navigate({ kind: 'dashboard', card: { source: 'ui', project: startedProject, slug: startedSlug } });
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   };
 
@@ -231,8 +187,8 @@ export default function App(): JSX.Element {
               : { kind: 'run', runId: route.runId, view: 'now' },
           )
         }
-        initialRequirement={requirement}
-        onExit={exitToStart}
+        initialRequirement={runRequirements.current.get(route.runId) ?? ''}
+        onExit={goToDashboard}
         onOpenDashboard={goToDashboard}
       />
     );
@@ -244,77 +200,37 @@ export default function App(): JSX.Element {
         project={route.project}
         slug={route.slug}
         stageTitles={stageTitles}
-        onExit={exitToStart}
+        onExit={goToDashboard}
         onOpenDashboard={goToDashboard}
       />
     );
   }
 
-  // Дашборд — до проверки конфигурации: он её не читает, кроме заголовков этапов.
-  if (route.kind === 'dashboard') {
-    return (
-      <DashboardPage
-        card={route.card}
-        stageTitles={stageTitles}
-        onOpenCard={openDashboardCard}
-        onCloseCard={goToDashboard}
-        onOpenLive={openLiveRun}
-        onOpenArchive={openArchivedRun}
-        onExit={exitToStart}
-      />
-    );
-  }
-
-  if (config === null) {
-    return (
-      <div className="mx-auto max-w-2xl p-8 text-sm text-neutral-500">
-        {error ?? 'Загрузка конфигурации…'}
-      </div>
-    );
-  }
-
   return (
-    <StartPage
-      config={config}
+    <DashboardPage
+      card={route.card}
+      stageTitles={stageTitles}
       error={error}
-      runs={runs}
-      history={history}
-      project={project}
-      profile={profile}
-      slug={slug}
-      requirement={requirement}
-      stageOverrides={stageOverrides}
-      onProjectChange={setProject}
-      onProfileChange={setProfile}
-      onSlugChange={setSlug}
-      onRequirementChange={setRequirement}
-      onStageOverridesChange={setStageOverrides}
-      onOpenRun={(runId) => navigate({ kind: 'run', runId, view: 'now' })}
-      onOpenHistory={(s) => {
-        // Живой виток открывается как раньше (`RunPage`, WS, полное управление); для всего
-        // остального (done/aborted/unfinished — и теперь тоже open, если почему-то разошёлся
-        // со списком `runs`) единственный источник — архивная лента с диска, read-only.
-        const r = runs?.find((x) => x.slug === s && x.project === project?.name);
-        if (r !== undefined) navigate({ kind: 'run', runId: r.runId, view: 'now' });
-        else if (project !== null) navigate({ kind: 'archive', project: project.name, slug: s });
+      newRun={config === null ? null : {
+        config,
+        project,
+        profile,
+        stageOverrides,
+        requirement,
+        slug,
+        history,
+        onProjectChange: setProject,
+        onProfileChange: setProfile,
+        onStageOverridesChange: setStageOverrides,
+        onRequirementChange: setRequirement,
+        onSlugChange: setSlug,
+        onAddProject: addProject,
       }}
-      onForget={(id) => void forget(id)}
-      onRefreshRuns={() => {
-        // Обновление по кнопке — действие человека, и оно вправе снять свою же прошлую
-        // ошибку (например отказ «Убрать» с кодом 409).
-        setError(null);
-        refreshRuns();
-      }}
-      // Фоновый тик ошибку НЕ гасит: иначе причина отказа исчезала бы через пять секунд
-      // после появления, и оператор видел бы только неработающую кнопку (ревью).
-      onAutoRefreshRuns={refreshRuns}
-      onRefreshHistory={() => {
-        setError(null);
-        refreshHistory();
-      }}
-      onAddProject={addProject}
-      onStart={() => void start()}
-      onOpenDashboard={goToDashboard}
+      onStart={start}
+      onOpenCard={openDashboardCard}
+      onCloseCard={goToDashboard}
+      onOpenLive={openLiveRun}
+      onOpenArchive={openArchivedRun}
     />
   );
 }

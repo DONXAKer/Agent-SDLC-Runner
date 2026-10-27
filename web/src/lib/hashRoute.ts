@@ -19,7 +19,6 @@ export const OBS_TABS = ['events', 'diff', 'metrics', 'context'] as const;
 export type ObsTab = (typeof OBS_TABS)[number];
 
 export type Route =
-  | { kind: 'start' }
   | { kind: 'run'; runId: string; view: 'now' }
   | { kind: 'run'; runId: string; view: 'obs'; tab: ObsTab }
   | { kind: 'archive'; project: string; slug: string }
@@ -29,17 +28,17 @@ export type Route =
    */
   | { kind: 'dashboard'; card: DashboardCardRef | null };
 
-const START: Route = { kind: 'start' };
+const HOME: Route = { kind: 'dashboard', card: null };
 
 /**
- * Разобрать hash. Всё непонятное — стартовый экран: чужая или устаревшая ссылка обязана
+ * Разобрать hash. Всё непонятное — общий флоу запусков: чужая или устаревшая ссылка обязана
  * открыть рабочий экран, а не пустоту с ошибкой. `#/run/<id>` без режима — «Сейчас»:
  * старые ссылки и кнопки «назад» обязаны открывать виток, а не ломаться.
  */
 /**
  * Раскодировать сегмент; битая `%`-последовательность — `null`. `decodeURIComponent` на ней
  * бросает `URIError`, а разбор адреса идёт в инициализаторе состояния приложения: обрезанная
- * ссылка роняла весь интерфейс в белый экран вместо обещанного «непонятное — стартовый экран».
+ * ссылка не должна ронять весь интерфейс в белый экран.
  */
 function dec(s: string | undefined): string | null {
   if (s === undefined || s === '') return null;
@@ -69,7 +68,7 @@ export function parseHash(hash: string): Route {
     if (project !== null && slug !== null) return { kind: 'archive', project, slug };
   }
   if (kind === 'dashboard') {
-    // Битая или неполная карточка — сетка дашборда, а не старт: человек шёл сюда.
+    // Битая или неполная карточка — лента дашборда: человек шёл сюда.
     const source = DASHBOARD_SOURCES.find((s) => s === a);
     const project = dec(b);
     const slug = dec(c);
@@ -78,7 +77,7 @@ export function parseHash(hash: string): Route {
     }
     return { kind: 'dashboard', card: null };
   }
-  return START;
+  return HOME;
 }
 
 /**
@@ -93,10 +92,7 @@ export function formatHash(route: Route): string {
   if (route.kind === 'archive') {
     return `#/archive/${encodeURIComponent(route.project)}/${encodeURIComponent(route.slug)}`;
   }
-  if (route.kind === 'dashboard') {
-    if (route.card === null) return '#/dashboard';
-    const { source, project, slug } = route.card;
-    return `#/dashboard/${source}/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`;
-  }
-  return '#/';
+  if (route.card === null) return '#/dashboard';
+  const { source, project, slug } = route.card;
+  return `#/dashboard/${source}/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`;
 }

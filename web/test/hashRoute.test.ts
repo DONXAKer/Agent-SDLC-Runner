@@ -11,7 +11,7 @@ import type { Route } from '../src/lib/hashRoute.ts';
 
 describe('разбор и сборка адреса', () => {
   const cases: Route[] = [
-    { kind: 'start' },
+    { kind: 'dashboard', card: null },
     { kind: 'run', runId: 'r-17c3f', view: 'now' },
     { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'events' },
     { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'diff' },
@@ -26,16 +26,16 @@ describe('разбор и сборка адреса', () => {
     deepStrictEqual(parseHash(formatHash(r)), r);
   });
 
-  it('битая карточка дашборда — сетка, а не старт', () => {
+  it('битая карточка дашборда — общая лента', () => {
     deepStrictEqual(parseHash('#/dashboard/чушь/p/s'), { kind: 'dashboard', card: null });
     deepStrictEqual(parseHash('#/dashboard/ui/onlyproject'), { kind: 'dashboard', card: null });
     deepStrictEqual(parseHash('#/dashboard'), { kind: 'dashboard', card: null });
   });
 
-  it('битая %-последовательность не бросает: карточка — сетка, виток и архив — старт', () => {
+  it('битая %-последовательность не бросает: любой некорректный адрес — общая лента', () => {
     deepStrictEqual(parseHash('#/dashboard/ui/%E0/x'), { kind: 'dashboard', card: null });
-    deepStrictEqual(parseHash('#/run/%E0%A4'), { kind: 'start' });
-    deepStrictEqual(parseHash('#/archive/p/%'), { kind: 'start' });
+    deepStrictEqual(parseHash('#/run/%E0%A4'), { kind: 'dashboard', card: null });
+    deepStrictEqual(parseHash('#/archive/p/%'), { kind: 'dashboard', card: null });
   });
 
   it('туда и обратно без потерь', () => {
@@ -80,10 +80,10 @@ describe('разбор и сборка адреса', () => {
   });
 });
 
-describe('битый адрес ведёт на стартовый экран, а не в пустоту', () => {
+describe('битый адрес ведёт в общий флоу, а не в пустоту', () => {
   it('пустой, мусорный и неполный hash', () => {
     for (const h of ['', '#', '#/', '#/чушь', '#/run', '#/run/', '#/archive/onlyproject']) {
-      strictEqual(parseHash(h).kind, 'start', h);
+      strictEqual(parseHash(h).kind, 'dashboard', h);
     }
   });
 });

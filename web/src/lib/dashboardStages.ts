@@ -15,7 +15,7 @@ export interface StageSummary {
  * идущий этап, иначе ПОСЛЕДНИЙ проваленный или заблокированный. При двух проваленных
  * этапах доска, подпись и открытая деталь прежде указывали на разные этапы.
  */
-export function focusStage(stages: readonly Pick<DashboardStage, 'id' | 'state'>[]): Pick<DashboardStage, 'id' | 'state'> | null {
+export function focusStage<T extends Pick<DashboardStage, 'id' | 'state'>>(stages: readonly T[]): T | null {
   const running = stages.find((s) => s.state === 'running');
   if (running !== undefined) return running;
   return [...stages].reverse().find((s) => s.state === 'failed' || s.state === 'blocked') ?? null;
