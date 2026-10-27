@@ -13,7 +13,7 @@ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts'
 import { contractLineFacts, sourceLineFacts, renderGuidedContractRepair } from '../src/exec/guidedIntentContract.ts';
 import { parseIntentContractReview } from '../src/exec/intentContractReview.ts';
 import { deriveClaimsBlind } from '../src/run/claimsBlind.ts';
-import { packGuidedPreparationReview, validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
+import { PREPARATION_REVIEW_PROMPT_SHARE, packGuidedPreparationReview, validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
 
 test('document conversion removes forms and multiline comments while preserving literal code', () => {
   const code = 'const token = `x`; // **literal**';
@@ -216,7 +216,7 @@ test('guided preparation review shrinks sources until the question fits a 16k wi
     '',
     16384,
   );
-  assert.ok(packed.available >= 512);
+  assert.ok(packed.available >= 2048);
   const payload = JSON.parse(packed.question) as { data: { facts: typeof facts } };
   const sources = payload.data.facts.sources;
   assert.ok(sources.length > 0);
@@ -239,4 +239,29 @@ test('guided preparation review shrinks sources until the question fits a 16k wi
     '',
     2048,
   ), /не помещаются в контекст/);
+});
+
+test('guided preparation review caps the prompt at a third of the window and drops unplanned sources first', () => {
+  const bulky = 'export const x = 1;\n'.repeat(900); // ~4,5k токенов на файл: трое не влезают в треть окна 32k
+  const facts = {
+    requests: ['Добавь валидатор'],
+    humanAnswers: [],
+    sources: [
+      { path: 'src/other.ts', content: bulky, partial: false },
+      { path: 'src/target.ts', content: bulky, partial: false },
+      { path: 'src/unrelated.ts', content: bulky, partial: false },
+    ],
+    coverage: { provided: 3, candidates: 3, skipped: 0 },
+    plan: { path: 'plan.md', sections: { steps: 'шаг' } },
+  };
+  const window = 32768;
+  const packed = packGuidedPreparationReview(
+    'plan:review:issues:initial', 'Есть ли пропуски?', 'Система.', facts, '', window, new Set(['src/target.ts']),
+  );
+  const promptTokens = window - packed.available - 1024;
+  assert.ok(promptTokens <= Math.floor(window * PREPARATION_REVIEW_PROMPT_SHARE), `промпт ${promptTokens} токенов больше трети окна`);
+  const sources = (JSON.parse(packed.question) as { data: { facts: { sources: { path: string; partial: boolean }[] } } }).data.facts.sources;
+  // Файл плана остаётся целым: сначала целиком ушли источники, которых план не трогает.
+  assert.ok(sources.some(source => source.path === 'src/target.ts' && !source.partial));
+  assert.ok(sources.length < 3);
 });

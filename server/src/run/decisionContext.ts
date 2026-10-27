@@ -9,13 +9,14 @@ import type { DecisionContext } from '../exec/decisionEngine.ts';
 import { createHash } from 'node:crypto';
 
 /** State and source identities are recaptured for every individual decision and before acceptance. */
-export function decisionOptions(paths: WitokPaths, stage: string, contextWindow: number, onValidation?: (result:{questionId:string;accepted:boolean;reason:string})=>void) {
+export function decisionOptions(paths: WitokPaths, stage: string, contextWindow: number, onValidation?: (result:{questionId:string;accepted:boolean;reason:string})=>void,
+  reasoning?: 'none' | 'light' | 'heavy') {
   const source = (name:string):string|null => {
     const path=resolve(paths.projectRoot,name),back=relative(paths.projectRoot,path);
     if(isAbsolute(back)||back.startsWith('..')||symlinkEscape(paths.projectRoot,path,[])!==null)throw Error('Decision source escapes workspace');
     return existsSync(path)?readFileSync(path,'utf8'):null;
   };
-  return { directory: join(paths.dir, '.runner', 'decisions', stage), contextWindow, ...(onValidation?{onValidation}:{}),
+  return { directory: join(paths.dir, '.runner', 'decisions', stage), contextWindow, ...(onValidation?{onValidation}:{}), ...(reasoning===undefined?{}:{reasoning}),
     validateQuestion(question:unknown):void {
       const check=(path:string,text?:string,hash?:string,isNew=false)=>{
         const full=source(path);

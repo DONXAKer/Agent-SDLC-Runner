@@ -156,6 +156,15 @@ export interface ModelDef {
   params?: Record<string, unknown>;
   reasoningFallback?: 'omit-params';
   /**
+   * Профиль рассуждения записи для лестницы `max_tokens` JSON-решений
+   * (`exec/completionBudget.ts`): `none` — рассуждения в ответе нет, `light` (умолчание) —
+   * короткое, `heavy` — тысячи токенов в поле `reasoning`, стартовать сразу с потолка.
+   * Серия r6 (2026-10-27): gpt-oss/granite тратили по два-три запроса на каждую лестницу
+   * 4096 → 8192 → 16384 и упирались в стенные часы, хотя профиль был известен заранее.
+   * Задаётся оператором или паспортом преполёта (`bench --preflight`), не именем модели.
+   */
+  reasoning?: 'none' | 'light' | 'heavy';
+  /**
    * Урезанный набор инструментов на этапах-документах intent/ask/plan: Read, Edit,
    * Write, AskHuman, FinalizeArtifact — без Glob/Grep/Bash. Свойство МОДЕЛИ, а не
    * этапа. Это гипотеза журнала («сокращение числа инструментов — не пробовано»,
@@ -502,6 +511,8 @@ export interface ResolvedRoute {
   /** Параметры запроса из `ModelDef.params`. `null` — не заданы. */
   params: Record<string, unknown> | null;
   reasoningFallback?: 'omit-params';
+  /** Профиль рассуждения для лестницы `max_tokens` — см. `ModelDef.reasoning`. */
+  reasoning?: 'none' | 'light' | 'heavy';
   /** Урезанный набор инструментов этапов-документов — см. `ModelDef.leanTools`. */
   leanTools: boolean;
   /** Режим заполнения бланка по полям — см. `ModelDef.formFill`. */

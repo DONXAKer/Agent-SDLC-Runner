@@ -477,6 +477,24 @@ export function renderBasisReferences(field: SchemaField, answer: string, reques
   }));
 }
 
+/** Готовый JSON-блок acceptance на диске (без плейсхолдеров). Null — basis рано спрашивать. */
+function acceptanceJsonBlock(artifactText: string): string | null {
+  const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(artifactText)?.[1]?.trim();
+  if (block === undefined || block.includes('‹')) return null;
+  return block;
+}
+
+/** Acceptance уже есть как JSON-блок или как отрендеренная таблица claim-N. */
+function acceptanceReadyForBasis(artifactText: string): boolean {
+  if (acceptanceJsonBlock(artifactText) !== null) return true;
+  return acceptanceRowsFromArtifact(artifactText, true).length > 0;
+}
+
+function isBasisField(field: SchemaField): boolean {
+  return `${field.id} ${field.label ?? ''} ${field.placeholders.map((p) => p.text).join(' ')}`
+    .toLowerCase().replace(/[^a-z]/g, '').includes('basisjson');
+}
+
 /** Validate the structured claim arrays while the model can still repair the field. */
 function structuredClaimJsonProblem(field: SchemaField, answer: string, currentArtifactText: string, requests?: readonly string[]): string | null {
   const normalizedKey = `${field.id} ${field.label ?? ''} ${field.placeholders.map((p) => p.text).join(' ')}`
@@ -525,12 +543,12 @@ function structuredClaimJsonProblem(field: SchemaField, answer: string, currentA
     return `${kind}: используй уникальные ID формата claim-N`;
   }
   if (kind === 'basis') {
-    const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(currentArtifactText)?.[1]?.trim();
-    if (block === undefined || block.includes('‹')) {
+    const block = acceptanceJsonBlock(currentArtifactText);
+    if (block === null) {
       return 'basis: acceptance ещё не прошёл проверку; дождись его исправления и свяжи основания с точными ID и требованиями';
     }
     try {
-      const acceptance: unknown = block === undefined ? null : JSON.parse(block);
+      const acceptance: unknown = JSON.parse(block);
       if (!Array.isArray(acceptance) || acceptance.length === 0) {
         return 'basis: acceptance должен быть непустым JSON-массивом до заполнения оснований';
       }
@@ -1850,7 +1868,11 @@ export class FormFillExecutor implements StageExecutor {
       }
       // A rejected value must be retried alone so its field card can include the
       // concrete rejection reason. Re-grouping it would lose that recovery hint.
-      const groups = compactFieldGroups(remainingFields, req.prompt.guidedProtocol ? 1 : FIELD_GROUP_SIZE).flatMap((group) => {
+      // Basis зависит от уже записанного acceptance: иначе decisionEngine жжёт 3 попытки
+      // на «acceptance ещё не прошёл» (r5 ministral). Откладываем до следующего sweep.
+      const deferredBasis = remainingFields.filter((field) => isBasisField(field) && !acceptanceReadyForBasis(text));
+      const readyFields = remainingFields.filter((field) => !deferredBasis.includes(field));
+      const groups = compactFieldGroups(readyFields, req.prompt.guidedProtocol ? 1 : FIELD_GROUP_SIZE).flatMap((group) => {
         if (group.some((field) => structuredClaimJsonInstruction(field, text) !== null)) return group.map((field) => [field]);
         const rejected = group.filter((field) => fieldRejectionMemo.has(compactFieldKey(field)));
         if (rejected.length === 0) return [group];

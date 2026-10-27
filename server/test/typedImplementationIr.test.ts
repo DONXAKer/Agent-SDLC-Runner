@@ -9,8 +9,8 @@ import { z } from 'zod';
 import { TypedPatchOp } from '../src/exec/implementationIr.ts';
 import { compileTypedPatch, TypedPatchCompileError } from '../src/exec/typedPatchCompiler.ts';
 import { applySymbolOp, declarationId, findSymbols, GuidedOpError } from '../src/exec/symbolOps.ts';
-import { guidedActionResponseFormat, guidedBoundActionResponseFormat, parseBoundGuidedReply, parseGuidedReply, simulateOps, validateGuidedReplyCandidate } from '../src/exec/GuidedExecutor.ts';
-import { DecisionEngine, DecisionError } from '../src/exec/decisionEngine.ts';
+import { guidedActionResponseFormat, guidedBoundActionResponseFormat, parseBoundGuidedReply, parseGuidedReply, simulateOps, summarizeReplyError, validateBoundGuidedReplyCandidate, validateGuidedReplyCandidate } from '../src/exec/GuidedExecutor.ts';
+import { DecisionEngine, DecisionError, decisionProvider } from '../src/exec/decisionEngine.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
 
 const id = (name: string) => ({ kind: 'identifier', name });
@@ -185,4 +185,48 @@ test('typed compile errors enter DecisionEngine recovery and validation returns 
     questionId: 'typed-chunk-invalid', question: {}, context, instructions: 'Return typed IR', schema: { type: 'object' }, params: {}, model: 'test',
     signal: new AbortController().signal, requestLimit: 1, validate: () => { throw new DecisionError('invalid-response', 'invalid', 'test'); },
   }), DecisionError);
+});
+
+// Сквозной контракт «адаптер × validate-хук»: что вернул адаптер, исполнитель обязан
+// разобрать тем же парсером, что и живой ответ. r6 (2026-10-27): хук отдавал
+// скомпилированный create_file, и верный create_file_ir четырежды шёл классом «format».
+test('decisionProvider output re-parses with the executor parsers for bound and unbound typed replies', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'typed-ir-roundtrip-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const module = { version: 1, body: [{ kind: 'function_declaration', name: 'validateCustomer', export: true, async: false,
+    params: [{ name: 'customer', type: { kind: 'type', text: 'Customer' } }], returnType: { kind: 'type', text: 'string[]' },
+    body: { kind: 'block', body: [{ kind: 'return', argument: { kind: 'array', elements: [] } }] } }] };
+  const bound = { action: 'patch', prediction: 'создан модуль', ops: [{ op: 'create_file_ir', module }] };
+  const unbound = { action: 'patch', prediction: 'создан модуль', ops: [{ op: 'create_file_ir', file: 'src/validate.ts', module }] };
+  const context = { revision: 'r1', task: ['typed'], constraints: { writable: ['src/validate.ts'] }, sourceVersions: {} };
+  const cases: { candidate: unknown; validate: (value: unknown) => unknown; reparse: (text: string) => unknown }[] = [
+    { candidate: bound, validate: value => validateBoundGuidedReplyCandidate(value, 'src/validate.ts', undefined, true),
+      reparse: text => parseBoundGuidedReply(text, 'src/validate.ts', undefined, true) },
+    { candidate: unbound, validate: value => validateGuidedReplyCandidate(value, true), reparse: text => parseGuidedReply(text, true) },
+  ];
+  for (const { candidate, validate, reparse } of cases) {
+    const provider: ChatProvider = { name: 'test', async chat() { return { text: JSON.stringify(candidate), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() }; } };
+    const adapter = decisionProvider(provider, { directory, capture: () => context, contextWindow: 20000 });
+    const turn = await adapter.chat({ model: 'test', messages: [{ role: 'system', content: 'typed' }, { role: 'user', content: JSON.stringify({ questionId: 'chunk' }) }],
+      tools: [], temperature: null, signal: new AbortController().signal, validate,
+      params: { max_tokens: 2000, response_format: { type: 'json_schema', json_schema: { name: 'guided_action', schema: { type: 'object' } } } } });
+    assert.deepEqual(JSON.parse(turn.text), candidate);
+    const reply = reparse(turn.text) as { action: string; ops: { op: string; file: string }[] };
+    assert.equal(reply.action, 'patch');
+    assert.deepEqual(reply.ops.map(op => [op.op, op.file]), [['create_file', 'src/validate.ts']]);
+  }
+});
+
+test('schema diagnostics name the field path and stay short instead of echoing the union dump', () => {
+  const result = z.object({ action: z.literal('patch'), ops: z.array(z.discriminatedUnion('op', [
+    z.object({ op: z.literal('create_file'), file: z.string() }).strict(),
+    z.object({ op: z.literal('delete'), file: z.string(), symbol: z.string() }).strict(),
+  ])) }).strict().safeParse({ action: 'patch', ops: [{ op: 'create_file_ir', module: {} }] });
+  assert.ok(!result.success);
+  const summary = summarizeReplyError(result.error);
+  assert.match(summary, /^ops\.0\.op: /u);
+  assert.ok(summary.length <= 600);
+  assert.ok(!summary.includes('\n'));
+  assert.equal(summarizeReplyError(new Error('Файл операции уже закреплён рантаймом')), 'Файл операции уже закреплён рантаймом');
+  assert.ok(summarizeReplyError(new Error('x'.repeat(2000)), 100).length === 100);
 });

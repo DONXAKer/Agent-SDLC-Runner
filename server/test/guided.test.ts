@@ -26,7 +26,7 @@ import { writeArtifact } from '../src/artifacts/artifact.ts';
 import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
 import { initializePreparation, preparation, savePreparation, preparationPlanEvidenceProblem, recordPreparationRead, recordPreparationImplementation, sourceHash, planContentHash } from '../src/artifacts/preparation.ts';
 import { AXES } from '../src/artifacts/planAxes.ts';
-import { guidedPlanTargetProblem, guidedPlanCallersProblem, normalizeGuidedCallers, coerceTaskNamedSymbols } from '../src/exec/GuidedPlanExecutor.ts';
+import { guidedPlanTargetProblem, guidedPlanCallersProblem, normalizeGuidedCallers, coerceTaskNamedSymbols, alignNewSymbolsToTaskNames } from '../src/exec/GuidedPlanExecutor.ts';
 import { GuidedProgress } from '../src/run/guidedProgress.ts';
 import { extractExplicitSteps } from '../src/artifacts/planSteps.ts';
 
@@ -356,6 +356,14 @@ test('coerceTaskNamedSymbols promotes bare names from the request to isNew', () 
   assert.equal(coerced.steps[0]?.symbol, 'новый: emailPattern');
   const invented = coerceTaskNamedSymbols(plan, [], ['Без этого имени'], 'intent');
   assert.equal(invented.steps[0]?.symbol, 'emailPattern');
+});
+
+test('alignNewSymbolsToTaskNames rewrites invented suffixes toward task identifiers', () => {
+  const plan = { approach: 'a', steps: [{ id: 1, file: 'src/index.ts', isNew: false, symbol: 'новый: validateCustomerFunc',
+    action: 'export', claims: ['claim-1'], check: 't', expected: 'ok', contract: 'add', dependsOn: [] }],
+    excluded: [], axes: [], changes: 'none', callers: [] };
+  const aligned = alignNewSymbolsToTaskNames(plan, ['Добавь validateCustomer и реэкспорт'], '## Что делаем\nvalidateCustomer');
+  assert.equal(aligned.steps[0]?.symbol, 'новый: validateCustomer');
 });
 
 test('a named export with a generic add-export action identifies the literal symbol', t => {

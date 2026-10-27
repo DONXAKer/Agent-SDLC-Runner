@@ -8,6 +8,7 @@ import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { atomicJson } from '../fs/atomicJson.ts';
 import { progressHash } from '../run/guidedProgress.ts';
 import { estimateMessageTokens, MIN_MAX_TOKENS } from './contextBudget.ts';
+import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
 import { WorkBudgetExhausted } from './workBudget.ts';
 
 export type DecisionFailure = 'invalid-response' | 'invalid-field' | 'invalid-evidence' | 'stale' | 'context-required' | 'human-required' | 'unsupported' | 'environment' | 'runtime' | 'budget';
@@ -38,7 +39,17 @@ export interface DecisionRequest<T = unknown> {
   requestLimit?: number;
   onRequest?: () => void;
 }
-export type DecisionResult<T> = { kind: 'proposed' | 'replayed'; decisionId: string; value: T; turn: ChatTurn; usage: Usage; attempts: number };
+/**
+ * `value` — результат `validate` (может быть ПОНИЖЕННЫМ представлением: chunk v5 компилирует
+ * typed IR в базовые операции прямо в хуке), `raw` — ответ модели после проверки схемой.
+ * Наружу через `ChatTurn.text` уходит только `raw`: исполнитель разбирает текст своим
+ * парсером заново, и пониженное значение он читал как нарушение протокола («Raw create_file
+ * запрещён», «file уже закреплён») — класс `format`, модель повторяла верный ответ до стопа
+ * (r6 qwen3/gpt-oss chunk, 2026-10-27: хук chunk стал возвращать пониженный ответ, и адаптер
+ * передал его дальше). Контракт держится с обеих сторон: хуки возвращают исходного
+ * кандидата, а адаптер в любом случае отдаёт `raw`.
+ */
+export type DecisionResult<T> = { kind: 'proposed' | 'replayed'; decisionId: string; value: T; raw: unknown; turn: ChatTurn; usage: Usage; attempts: number };
 
 const protocolVersion = 1;
 const canonical = (value: unknown): unknown => {
@@ -61,7 +72,10 @@ function findReplay(directory: string, requestHash: string): ReplayCandidate | n
       if ((journal.status !== 'proposed' && journal.status !== 'replayed') || journal.requestHash !== requestHash || typeof journal.decisionId !== 'string') continue;
       const extra = journal.extra;
       if (extra === null || typeof extra !== 'object' || !Object.prototype.hasOwnProperty.call(extra, 'value')) continue;
-      candidates.push({ decisionId: journal.decisionId, value: (extra as Record<string, unknown>).value, at: typeof journal.at === 'string' ? journal.at : '' });
+      // Повтор идёт от сырого ответа: `validate` на пониженном значении отвергал бы
+      // собственный журнал. Записи без `raw` (до этого поля) читаются по `value`.
+      const stored = extra as Record<string, unknown>;
+      candidates.push({ decisionId: journal.decisionId, value: Object.prototype.hasOwnProperty.call(stored, 'raw') ? stored.raw : stored.value, at: typeof journal.at === 'string' ? journal.at : '' });
     } catch { /* An incomplete or foreign journal cannot supply a replay. */ }
   }
   candidates.sort((a, b) => a.at.localeCompare(b.at) || a.decisionId.localeCompare(b.decisionId));
@@ -72,7 +86,9 @@ function findReplay(directory: string, requestHash: string): ReplayCandidate | n
 export class DecisionEngine {
   private readonly options: { provider: ChatProvider; directory: string; capture: () => DecisionContext;
     contextWindow: number; account?: (usage: Usage) => void; validateQuestion?: (question: unknown) => void;
-    onValidation?: (result: {questionId:string;accepted:boolean;reason:string})=>void };
+    onValidation?: (result: {questionId:string;accepted:boolean;reason:string})=>void;
+    /** Профиль рассуждения маршрута — см. `completionBudget.ts`; не задан — `light`. */
+    reasoning?: ReasoningProfile | undefined };
   constructor(options: DecisionEngine['options']) { this.options = options; }
   async decide<T = unknown>(input: DecisionRequest<T>): Promise<DecisionResult<T>> {
     const id = randomUUID(), file = join(this.options.directory, `${id}.json`);
@@ -103,25 +119,32 @@ export class DecisionEngine {
     assertCurrent();
     const replay = findReplay(this.options.directory, requestHash);
     if (replay) {
-      let checked: T | undefined, valid = false;
+      let checked: T | undefined, raw: unknown, valid = false;
       try {
-        const value = validator.parse(replay.value);
-        checked = input.validate ? input.validate(value) : value as T;
+        raw = validator.parse(replay.value);
+        checked = input.validate ? input.validate(raw) : raw as T;
         valid = true;
       } catch { /* Revalidation failure only disqualifies this replay candidate. */ }
       if (valid) {
         input.signal.throwIfAborted();
         assertCurrent();
         const replayUsage = emptyUsage();
-        const synthetic: ChatTurn = { text: canonicalJson(checked), toolCalls: [], finishReason: 'end_turn', usage: replayUsage };
-        record('replayed', { value: checked, proposalHash: progressHash(checked) }, replay.decisionId);
-        return { kind: 'replayed', decisionId: id, value: checked as T, turn: synthetic, usage: replayUsage, attempts: 0 };
+        const synthetic: ChatTurn = { text: canonicalJson(raw), toolCalls: [], finishReason: 'end_turn', usage: replayUsage };
+        record('replayed', { value: checked, raw, proposalHash: progressHash(raw) }, replay.decisionId);
+        return { kind: 'replayed', decisionId: id, value: checked as T, raw, turn: synthetic, usage: replayUsage, attempts: 0 };
       }
     }
     const maxAttempts = input.requestLimit === undefined ? 3 : Math.max(0, Math.min(3, Math.floor(input.requestLimit)));
     if (maxAttempts === 0) { record('budget'); throw new DecisionError('budget', 'Decision request budget exhausted', id); }
-    let maxTokens = typeof decodingParams.max_tokens === 'number' ? decodingParams.max_tokens : 4096;
-    let truncationRetried = false;
+    // Лестница общая на все решения (`completionBudget.ts`): reasoning-модели (даже с
+    // reasoning_effort=none) выжирают 4k–8k на поле reasoning и оставляют content пустым
+    // (r4/r5 gpt-oss intent_contract_review) — профиль `heavy` стартует с потолка. Остаток
+    // окна здесь клипуется отдельно (`attemptMaxTokens`), поэтому лестнице отдаётся всё окно.
+    const ladder = completionLadder({ contextWindow: this.options.contextWindow, promptTokens: 0, reserve: 0,
+      reasoning: this.options.reasoning, ceiling: input.maxTokensLimit,
+      requested: typeof decodingParams.max_tokens === 'number' ? decodingParams.max_tokens : undefined });
+    let maxTokens = ladder.start;
+    let truncationRaises = 0;
     const rejections = new Map<string, number>();
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       input.signal.throwIfAborted();
@@ -176,27 +199,33 @@ export class DecisionEngine {
       usage = addUsage(usage, turn.usage); this.options.account?.(turn.usage);
       input.signal.throwIfAborted();
       assertCurrent(true);
-      if (turn.finishReason === 'max_tokens' && !truncationRetried && typeof input.maxTokensLimit === 'number' && input.maxTokensLimit > maxTokens) {
-        const raised = Math.min(input.maxTokensLimit, maxTokens * 2);
-        feedback = { rejectedProposal: turn.text, diagnostics: `Response reached max_tokens=${maxTokens}; retry once with max_tokens=${raised}`,
-          instruction: 'Return one complete JSON decision within the raised completion budget. Preserve all constraints.' };
-        this.options.onValidation?.({questionId:input.questionId,accepted:false,reason:String(feedback.diagnostics)});
-        record('truncated', feedback);
-        maxTokens = raised;
-        truncationRetried = true;
-        continue;
+      const emptyContent = turn.text.trim() === '';
+      if (turn.finishReason === 'max_tokens' || emptyContent) {
+        const raised = ladder.next(maxTokens, truncationRaises);
+        if (raised !== null) {
+          const reasoningNote = turn.usage.reasoningTokens === undefined ? '' : ` (reasoning tokens=${turn.usage.reasoningTokens})`;
+          feedback = { rejectedProposal: turn.text, diagnostics: emptyContent
+            ? `Response content was empty at max_tokens=${maxTokens}${reasoningNote}; retry with max_tokens=${raised}`
+            : `Response reached max_tokens=${maxTokens}${reasoningNote}; retry with max_tokens=${raised}`,
+            instruction: 'Return one complete JSON decision in the content field within the raised completion budget. Keep reasoning brief. Preserve all constraints.' };
+          this.options.onValidation?.({questionId:input.questionId,accepted:false,reason:String(feedback.diagnostics)});
+          record('truncated', feedback);
+          maxTokens = raised;
+          truncationRaises++;
+          continue;
+        }
       }
       let rejectedValue: unknown = null, hasRejectedValue = false;
       try {
-        if (turn.finishReason === 'max_tokens') throw new Error('A complete JSON decision is required; the response reached max_tokens');
+        if (turn.finishReason === 'max_tokens' || emptyContent) throw new Error('A complete JSON decision is required; the response reached max_tokens');
         if (turn.toolCalls.length) throw new Error('A JSON decision without tool calls is required');
         const parsed = JSON.parse(turn.text);
         rejectedValue = parsed; hasRejectedValue = true;
         const value = validator.parse(parsed);
         rejectedValue = value;
         const checked = input.validate ? input.validate(value) : value as T;
-        record('proposed', { value: checked, proposalHash: progressHash(checked) });
-        return { kind: 'proposed', decisionId: id, value: checked, turn, usage, attempts: attempt };
+        record('proposed', { value: checked, raw: value, proposalHash: progressHash(value) });
+        return { kind: 'proposed', decisionId: id, value: checked, raw: value, turn, usage, attempts: attempt };
       } catch (error) {
         if (error instanceof DecisionError && ['stale', 'context-required', 'human-required', 'unsupported'].includes(error.category)) {
           record(error.category, { rejectedProposal: turn.text, diagnostics: error.message });
@@ -237,6 +266,7 @@ export function decisionProvider(provider: ChatProvider, options: Omit<Construct
       schema: format.json_schema.schema, schemaName: format.json_schema.name ?? 'guided_decision', params: { ...(request.temperature === null ? {} : { temperature: request.temperature }), ...request.params }, model: request.model, signal: request.signal,
       ...(request.validate === undefined ? {} : { validate: request.validate }), ...(request.maxTokensLimit === undefined ? {} : { maxTokensLimit: request.maxTokensLimit }),
       ...(request.requestLimit === undefined ? {} : { requestLimit: request.requestLimit }), ...(request.onRequest === undefined ? {} : { onRequest: request.onRequest }) });
-    return { ...result.turn, text: JSON.stringify(result.value), usage: result.usage };
+    // Текст — сырой ответ, а не результат `validate` (см. `DecisionResult`).
+    return { ...result.turn, text: JSON.stringify(result.raw), usage: result.usage };
   } };
 }

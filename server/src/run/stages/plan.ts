@@ -660,7 +660,12 @@ export function planMapProblem(c: StageContext): string | null {
     if (step.symbol !== null && !indexed.symbols.some((symbol) => symbol.name === step.symbol)) {
       const namedByTask = originalRequests.some((request) => request.includes(step.symbol!));
       const requiredInIntent = intentText.includes(step.symbol);
-      if (!(requiredInIntent && (step.isNewSymbol || namedByTask))) {
+      // Новый символ: достаточно точного имени в задаче/intent ИЛИ префикса известного
+      // идентификатора задачи (validateCustomer ⊂ validateCustomerFunc после выравнивания).
+      const taskStem = step.isNewSymbol && [...originalRequests, intentText].some((text) =>
+        [...text.matchAll(/\b[A-Za-z_$][\w$]{2,}\b/gu)].some((match) =>
+          step.symbol!.startsWith(match[0]!) || match[0]!.startsWith(step.symbol!)));
+      if (!(requiredInIntent && (step.isNewSymbol || namedByTask)) && !(step.isNewSymbol && (namedByTask || taskStem))) {
         issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file} и не подтверждён как новый требуемый символ`);
       }
     }

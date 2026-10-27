@@ -76,6 +76,27 @@ test('a truncated structured decision gets one bounded completion retry',async t
  assert.equal(record.entries.length,2);assert.equal(record.entries[0].request.params.max_tokens,100);assert.equal(record.entries[1].request.params.max_tokens,200);
 });
 
+test('empty truncated content raises the default completion ceiling without an explicit maxTokensLimit',async t=>{
+ const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+ const limits:number[]=[];
+ const provider:ChatProvider={name:'memoryless',async chat(req){limits.push(Number(req.params?.max_tokens));return limits.length===1?{...turn(''),finishReason:'max_tokens'}:turn('{"decision":"keep"}');}};
+ const engine=new DecisionEngine({provider,directory,capture:context,contextWindow:20000});
+ const result=await engine.decide({questionId:'counter',question:{source:'counter=1'},instructions:'Decide',context:context(),schema,params:{max_tokens:4096},model:'fixture',signal:new AbortController().signal});
+ assert.equal(result.attempts,2);assert.deepEqual(limits,[4096,8192]);
+});
+
+test('empty truncated content may raise twice toward the 16k default ceiling',async t=>{
+ const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+ const limits:number[]=[];
+ const provider:ChatProvider={name:'memoryless',async chat(req){
+  limits.push(Number(req.params?.max_tokens));
+  return limits.length < 3 ? {...turn(''),finishReason:'max_tokens'} : turn('{"decision":"keep"}');
+ }};
+ const engine=new DecisionEngine({provider,directory,capture:context,contextWindow:20000});
+ const result=await engine.decide({questionId:'counter',question:{source:'counter=1'},instructions:'Decide',context:context(),schema,params:{max_tokens:4096},model:'fixture',signal:new AbortController().signal});
+ assert.equal(result.attempts,3);assert.deepEqual(limits,[4096,8192,16384]);
+});
+
 test('requestLimit caps semantic repairs and onRequest reports every real provider call',async t=>{
  const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
  let calls=0,observed=0;
@@ -212,6 +233,23 @@ test('a replay value that fails current semantic validation is rebuilt by the pr
  const result=await new DecisionEngine({provider,directory,capture:context,contextWindow:10000}).decide({questionId:'counter',question:{source:'counter=1'},instructions:'Decide',context:context(),schema,params:{max_tokens:100},model:'fixture',signal:new AbortController().signal,
   validate(value:any){if(value.decision==='keep')throw Error('Current source forbids replay');return value;}});
  assert.equal(calls,2);assert.equal(result.kind,'proposed');assert.equal(result.attempts,1);assert.deepEqual(result.value,{decision:'change'});
+});
+
+test('a lowering validate hook never leaks into the adapter text or the replay journal',async t=>{
+ const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+ let calls=0;
+ const provider:ChatProvider={name:'memoryless',async chat(){calls++;return turn('{"decision":"keep"}');}};
+ // Хук возвращает ПОНИЖЕННОЕ представление (как chunk v5 компилирует typed IR): наружу
+ // обязан уходить сырой ответ, иначе исполнитель разбирает чужой формат как нарушение.
+ const lower=(value:any)=>({lowered:true,from:value.decision});
+ const adapter=decisionProvider(provider,{directory,capture:context,contextWindow:10000});
+ const input:ChatRequest={model:'fixture',messages:[{role:'system',content:'Decide'},{role:'user',content:JSON.stringify({questionId:'counter',source:'counter=1'})}],tools:[],temperature:null,signal:new AbortController().signal,validate:lower,params:{max_tokens:100,response_format:{type:'json_schema',json_schema:{name:'counter',schema}}}};
+ assert.deepEqual(JSON.parse((await adapter.chat(input)).text),{decision:'keep'});
+ const replayed=await adapter.chat({...input,requestLimit:0});
+ assert.deepEqual(JSON.parse(replayed.text),{decision:'keep'});assert.equal(calls,1);
+ const records=readdirSync(directory).map(name=>JSON.parse(readFileSync(join(directory,name),'utf8')));
+ for(const record of records){assert.deepEqual(record.extra.raw,{decision:'keep'});assert.deepEqual(record.extra.value,{lowered:true,from:'keep'});}
+ assert.deepEqual(records.map(record=>record.status).sort(),['proposed','replayed']);
 });
 
 test('terminal unsupported and human-required decisions are not resampled',async t=>{

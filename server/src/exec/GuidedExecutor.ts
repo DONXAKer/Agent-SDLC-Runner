@@ -13,6 +13,7 @@ import type { ChatMessage, ChatProvider, ChatTurn } from '../provider/ChatProvid
 import { ProviderEnvError, ProviderRequestTimeoutError } from '../provider/ChatProvider.ts';
 import { digest, readGuided, saveGuided, type GuidedState, type Snapshot } from '../run/guidedState.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
+import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson } from './guidedJson.ts';
 import { ReadReceipts, RepeatedReadError } from './readReceipts.ts';
@@ -21,7 +22,7 @@ import { decisionData } from './guidedProtocol.ts';
 import { guidedGroupRequirements } from './guidedContext.ts';
 import { parseRepairDiagnosis, repairDiagnosisFormat, repairDiagnosisTargets, evidenceRepairTargets, observedTestFailures, groundedRepairFeedback } from './repairDiagnosis.ts';
 import { guidedCapabilities, validateGuidedCapabilities, type GuidedCapability } from './guidedCapabilities.ts';
-import { GuidedEvidenceError, guidedEvidenceProblems, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence, workingContextCurrent, type GuidedWorkingContext, type WorkingTask } from './guidedWorkingContext.ts';
+import { GuidedEvidenceError, attachMissingClaimEvidence, guidedEvidenceProblems, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence, workingContextCurrent, type GuidedWorkingContext, type WorkingTask } from './guidedWorkingContext.ts';
 import { ExecutionObserver } from './executionObserver.ts';
 import { WorkBudgetExhausted } from './workBudget.ts';
 import { DecisionError } from './decisionEngine.ts';
@@ -83,14 +84,45 @@ function normalizeGuidedReply(value: unknown, typedCode: boolean): z.infer<typeo
   return { ...candidate, ops };
 }
 
+/**
+ * Хук `validate` для `DecisionEngine`: ПРОВЕРЯЕТ кандидата и возвращает его исходным.
+ * Пониженное представление (typed IR → базовые операции) наружу не отдаётся: исполнитель
+ * разбирает ответ своим парсером заново, и скомпилированный `create_file` он читал как
+ * нарушение протокола — класс `format` на верном ответе (r6 chunk, 2026-10-27).
+ */
 export function validateGuidedReplyCandidate(candidate: unknown, typedCode: boolean, workingContext?: GuidedWorkingContext): unknown {
-  const reply = normalizeGuidedReply(candidate, typedCode);
-  if (workingContext) validateGuidedDecisionEvidence(reply, workingContext);
+  let reply = normalizeGuidedReply(candidate, typedCode);
+  if (workingContext) {
+    reply = attachMissingClaimEvidence(reply, workingContext);
+    validateGuidedDecisionEvidence(reply, workingContext);
+  }
   return candidate;
 }
 
 export function parseGuidedReply(text: string, typedCode = false): z.infer<typeof Reply> {
   return normalizeGuidedReply(parseGuidedJson(text), typedCode);
+}
+
+/**
+ * Короткая диагностика отказа разбора ответа для обратной связи модели: путь поля и
+ * сообщение, вложенные ветви union раскрываются, итог ограничен по длине. Полный текст
+ * `ZodError` на `oneOf` из одиннадцати операций — десятки строк JSON, которые модель не
+ * читает; «ответ не является полным JSON» — ложь про верно разобранный ответ (r6 chunk).
+ */
+export function summarizeReplyError(error: unknown, limit = 600): string {
+  const lines: string[] = [];
+  const walk = (issues: readonly unknown[], prefix: readonly PropertyKey[]): void => {
+    for (const issue of issues) {
+      if (!issue || typeof issue !== 'object') continue;
+      const record = issue as { path?: PropertyKey[]; message?: string; errors?: unknown[][] };
+      const path = [...prefix, ...(record.path ?? [])];
+      if (Array.isArray(record.errors) && record.errors.length) { for (const branch of record.errors) walk(branch, path); continue; }
+      if (typeof record.message === 'string') lines.push(`${path.length ? path.map(String).join('.') : '$'}: ${record.message}`);
+    }
+  };
+  if (error instanceof z.ZodError) walk(error.issues, []);
+  const text = (lines.length ? [...new Set(lines)].slice(0, 6).join('; ') : String(error instanceof Error ? error.message : error)).replace(/\s+/gu, ' ').trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
 export function parseBoundGuidedReply(text: string, file: string, symbol?: string, typedCode = false): z.infer<typeof Reply> {
@@ -113,8 +145,12 @@ export function parseBoundGuidedReply(text: string, file: string, symbol?: strin
 
 export function validateBoundGuidedReplyCandidate(candidate: unknown, file: string, symbol: string | undefined,
   typedCode: boolean, workingContext?: GuidedWorkingContext): unknown {
-  const reply = parseBoundGuidedReply(JSON.stringify(candidate), file, symbol, typedCode);
-  if (workingContext) validateGuidedDecisionEvidence(reply, workingContext);
+  let reply = parseBoundGuidedReply(JSON.stringify(candidate), file, symbol, typedCode);
+  if (workingContext) {
+    reply = attachMissingClaimEvidence(reply, workingContext);
+    validateGuidedDecisionEvidence(reply, workingContext);
+  }
+  // См. `validateGuidedReplyCandidate`: наружу — исходный кандидат, а не пониженный.
   return candidate;
 }
 
@@ -410,6 +446,8 @@ export interface GuidedExecutorOptions {
   writableFiles?: readonly string[];
   contextWindow: number;
   params?: Record<string, unknown> | null;
+  /** Профиль рассуждения маршрута для лестницы `max_tokens` — см. `completionBudget.ts`. */
+  reasoning?: ReasoningProfile | undefined;
   /** Collect per-file proposals before approving/applying the complete group. */
   draftPerFile?: boolean;
   /** A red Verify requires a new proposal even when project tests previously passed. */
@@ -604,7 +642,11 @@ export class GuidedExecutor implements StageExecutor {
     let usage = emptyUsage();
     let calls = 0;
     const responseEffort = this.o.params?.['reasoning_effort'];
-    let tokenCap = 8192;
+    // Лестница `max_tokens` общая с остальными решениями (`completionBudget.ts`); остаток
+    // окна клипуется отдельно на каждом запросе. База chunk — 8192: typed IR длиннее полей.
+    const tokenLadder = completionLadder({ contextWindow: this.o.contextWindow, promptTokens: 0, reserve: 0, reasoning: this.o.reasoning, requested: 8192 });
+    let tokenCap = tokenLadder.start;
+    let tokenRaises = 0;
     let applied = 0;
     const save = (): void => saveGuided(this.o.paths, state);
     const finish = (ok: boolean, note: string): StageResult => {
@@ -880,8 +922,10 @@ export class GuidedExecutor implements StageExecutor {
               throw error;
             }), { inputRevision: revision, files: currentFiles, failedCheck: priorFailure || null });
           if (answer.finishReason === 'max_tokens') {
-            if (tokenCap < 16384 && this.o.contextWindow - tokens - 1024 > tokenCap) {
-              tokenCap *= 2; hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом; повтор с увеличенным max_tokens при том же reasoning effort');
+            const raised = tokenLadder.next(tokenCap, tokenRaises);
+            if (raised !== null && this.o.contextWindow - tokens - 1024 > tokenCap) {
+              tokenCap = raised; tokenRaises++;
+              hooks.onWarn(`JSON Chunk не получен: ответ обрезан лимитом${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
             } else {
               hooks.onFriction('truncated'); hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом max_tokens, лимит поднимать некуда');
             }
@@ -904,19 +948,34 @@ export class GuidedExecutor implements StageExecutor {
             req.progress?.clearRecovery(recoveryKey('format'));
             formatRepairPending = false;
             hooks.onQuestionValidated?.({ questionId: `chunk:${item.id}:${calls}`, accepted: true, reason: 'JSON соответствует схеме действия; операции проверяются перед применением' }); }
-          catch {
+          catch (error) {
+            // Отказ категории решения (`unsupported` и т. п.) — не формат ответа: наверх.
+            if (error instanceof DecisionError) throw error;
+            // Два класса под одним счётчиком ремонта, но с разной обратной связью: обрыв, tool
+            // calls или не-JSON — «format»; разобранный JSON, не прошедший схему или правила
+            // операций, — «schema» с путём поля и сообщением. Слово «не полный JSON» про
+            // верно разобранный ответ заставляло модель повторять его без изменений до стопа.
+            const formatFailure = answer.finishReason === 'max_tokens' || answer.toolCalls.length > 0 || error instanceof SyntaxError;
+            const diagnostics = formatFailure ? 'Нужен завершённый JSON действия' : summarizeReplyError(error);
             formatRepairPending = true;
-            hooks.onHarnessEvent?.({ kind: 'failure', reason: 'format' });
-            observe(item, 'format', 'Невалидный JSON-ответ');
+            hooks.onHarnessEvent?.({ kind: 'failure', reason: formatFailure ? 'format' : 'schema' });
+            observe(item, 'format', formatFailure ? 'Невалидный JSON-ответ' : `Ответ отклонён схемой действия: ${diagnostics}`);
+            hooks.onQuestionValidated?.({ questionId: `chunk:${item.id}:${calls}`, accepted: false, reason: diagnostics });
             if (req.progress) {
               const dependencies = { input: revision, code: progressHash(fileCards.map(file => [file.path, file.hash])) };
-              const action = req.progress.reject(req.progress.begin(recoveryKey('format'), 'chunk', dependencies), 'format', 'Нужен завершённый JSON действия');
-              if (action === 'stop') throw new Error('Формат не исправлен за повторные выборки');
+              const action = req.progress.reject(req.progress.begin(recoveryKey('format'), 'chunk', dependencies), formatFailure ? 'format' : 'schema', diagnostics);
+              if (action === 'stop') throw new Error(formatFailure ? 'Формат не исправлен за повторные выборки' : `Ответ не приведён к схеме действия за повторные выборки: ${diagnostics}`);
               if (action === 'narrow') focused = true;
-            } else if (formatRepairs++ >= 2) throw new Error('Формат не исправлен за повторные выборки');
-            feedback = 'Предыдущий ответ не является полным JSON. Дай заново компактное предложение по схеме только для текущего файла/шага. Не продолжай оборванный текст; убери повторы, используй таблицы тестовых случаев.'; continue;
+            } else if (formatRepairs++ >= 2) throw new Error(formatFailure ? 'Формат не исправлен за повторные выборки' : `Ответ не приведён к схеме действия за повторные выборки: ${diagnostics}`);
+            feedback = formatFailure
+              ? 'Предыдущий ответ не является полным JSON. Дай заново компактное предложение по схеме только для текущего файла/шага. Не продолжай оборванный текст; убери повторы, используй таблицы тестовых случаев.'
+              : `Предыдущий ответ разобран, но отклонён схемой действия: ${diagnostics}. Исправь только названные поля по response schema и верни полный JSON действия для текущего файла/шага.`;
+            continue;
           }
-          if (workingContext && req.guidedEngineVersion === 5) validateGuidedDecisionEvidence(reply, workingContext);
+          if (workingContext && req.guidedEngineVersion === 5) {
+            reply = attachMissingClaimEvidence(reply, workingContext);
+            validateGuidedDecisionEvidence(reply, workingContext);
+          }
           if (reply.action === 'split') {
             if (!needSplit || item.parts) throw new Error('Переразбиение допускается один раз после неудачи');
             const covered = new Set(reply.parts.flatMap(p => p.files));
@@ -1001,7 +1060,13 @@ export class GuidedExecutor implements StageExecutor {
             if (reply.action === 'no_change') {
               const path = draftFiles[draftIndex]!;
               const text = content(guardedPath(req.cwd, path));
-              if (text === null) throw new Error('no_change требует существующий источник');
+              // Новый файл из плана ещё не на диске: no_change здесь — отказ модели создать
+              // его, а не подтверждение «уже так». Мягкий ремонт вместо обрыва группы (r5 qwen).
+              if (text === null) {
+                rejectProposal(new Error(
+                  `Файл ${path} ещё не существует — создай его через patch (create/write). no_change допустим только для уже существующего источника.`), []);
+                continue;
+              }
               state.noChanges = [...(state.noChanges ?? []).filter(row => row.path !== path), { path, hash: digest(text), reason: reply.reason, inputRevision: revision }];
               save();
               draftNoChangeReasons.push(`${path}: ${reply.reason}`);

@@ -1999,7 +1999,7 @@ export class Run {
   private trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel {
     return { slug: this.slug, stage, mode, attempt: this.attempt,
       ...(readGuided(this.paths)?.engineVersion === 5 ? { decision: decisionOptions(this.paths, stage, this.profile.routes[stage].contextWindow ?? 16384,
-        result=>this.emit({type:'question_validation',runId:this.id,stage,...result})) } : {}),
+        result=>this.emit({type:'question_validation',runId:this.id,stage,...result}), this.profile.routes[stage].reasoning) } : {}),
       onRequest: request => this.flow().record('model_request', { ...request, mode }, 'Рантайм', 'Модель', stage),
       onResponse: exchange => this.flow().record('model_http', { ...exchange, mode, attempt: this.attempt }, 'Модель', 'Рантайм', stage) };
   }
@@ -2085,18 +2085,18 @@ export class Run {
     if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route, this.profile.chunkSelection, this.profile.guidedImprovements);
     if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
       provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop'), this.providerOptions(route, stage)),
-      params: route.params, contextWindow: route.contextWindow ?? 16384 });
+      params: route.params, contextWindow: route.contextWindow ?? 16384, reasoning: route.reasoning });
     if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null && this.profile.planSelection && this.profile.planSelection.candidates !== 1) {
       const selection = this.profile.planSelection;
       return new PlanSelectionExecutor({ paths: this.paths, slug: this.slug, candidates: selection.candidates === 2 ? 2 : 3,
         generator: { provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
-          params: route.params, contextWindow: route.contextWindow ?? 16384 },
+          params: route.params, contextWindow: route.contextWindow ?? 16384, reasoning: route.reasoning },
         judge: { provider: createProvider(selection.judge.provider, selection.judge.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'planJudge'), this.providerOptions(selection.judge, stage)),
           model: selection.judge.model, params: selection.judge.params, contextWindow: selection.judge.contextWindow ?? 16384 } });
     }
     if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null) return new GuidedPlanExecutor({
       paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill'), this.providerOptions(route, stage)),
-      params: route.params, contextWindow: route.contextWindow ?? 16384 });
+      params: route.params, contextWindow: route.contextWindow ?? 16384, reasoning: route.reasoning });
     if (route.flow === 'sdk') {
       // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
       // и молчаливое игнорирование выглядело бы как «настройка не сработала», не как

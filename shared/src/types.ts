@@ -456,6 +456,13 @@ export interface Usage {
   /** null — маршрут без стоимости (локальная модель), а не «стоимость ноль». */
   costUsd: number | null;
   durationMs: number;
+  /**
+   * Токены рассуждения внутри `outputTokens` (поле `reasoning`/`reasoning_content` ответа
+   * или `completion_tokens_details.reasoning_tokens`). Не задано — сервер рассуждение не
+   * отдал. Нужно стенду и лестнице `max_tokens`: пустой `content` при большом рассуждении —
+   * другой класс отказа, чем длинный ответ (r6, 2026-10-27).
+   */
+  reasoningTokens?: number;
 }
 
 export function emptyUsage(): Usage {
@@ -477,6 +484,8 @@ export function addUsage(a: Usage, b: Usage): Usage {
     cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
     costUsd: a.costUsd === null || b.costUsd === null ? null : a.costUsd + b.costUsd,
     durationMs: a.durationMs + b.durationMs,
+    ...(a.reasoningTokens === undefined && b.reasoningTokens === undefined
+      ? {} : { reasoningTokens: (a.reasoningTokens ?? 0) + (b.reasoningTokens ?? 0) }),
   };
 }
 

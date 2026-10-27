@@ -21,6 +21,8 @@ export interface PlanModel {
   model: string;
   params: Record<string, unknown> | null;
   contextWindow: number;
+  /** Профиль рассуждения маршрута — см. `completionBudget.ts`. */
+  reasoning?: 'none' | 'light' | 'heavy' | undefined;
 }
 interface Candidate { id: string; parsed: unknown; rendered: string }
 

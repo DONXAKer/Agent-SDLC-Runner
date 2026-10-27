@@ -22,6 +22,7 @@ import { extractExplicitSteps } from '../artifacts/planSteps.ts';
 import { AXES } from '../artifacts/planAxes.ts';
 import { escapeCell } from '../md/table.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
+import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson, salvageGuidedJson } from './guidedJson.ts';
 import { executeTool } from './tools/index.ts';
@@ -648,6 +649,39 @@ export function coerceTaskNamedSymbols(
   };
 }
 
+/** Идентификаторы из задачи/intent — якоря для новых символов плана. */
+export function taskNamedIdentifiers(...texts: readonly string[]): string[] {
+  const found = new Set<string>();
+  for (const text of texts) {
+    for (const match of text.matchAll(/\b[A-Za-z_$][\w$]{2,}\b/gu)) found.add(match[0]!);
+  }
+  return [...found];
+}
+
+/**
+ * Выравнивает «новый: validateCustomerFunc» к имени из задачи (`validateCustomer`),
+ * иначе planMapProblem роняет шаг на существующем файле (r5 granite).
+ */
+export function alignNewSymbolsToTaskNames(
+  plan: z.infer<typeof Plan>,
+  requests: readonly string[],
+  intent: string,
+): z.infer<typeof Plan> {
+  const names = taskNamedIdentifiers(intent, ...requests).sort((a, b) => b.length - a.length);
+  if (names.length === 0) return plan;
+  return {
+    ...plan,
+    steps: plan.steps.map((step) => {
+      const match = /^(?:новый|new):\s*(.+)$/iu.exec(step.symbol.trim());
+      if (match === null) return step;
+      const bare = match[1]!.trim();
+      if (!/^[A-Za-z_$][\w$]*$/u.test(bare) || names.includes(bare)) return step;
+      const stem = names.find((name) => bare.startsWith(name) || name.startsWith(bare));
+      return stem === undefined || stem === bare ? step : { ...step, symbol: `новый: ${stem}` };
+    }),
+  };
+}
+
 /** Решение по каждому пред-заполненному вызывающему изменённого контракта. */
 export function guidedPlanCallersProblem(plan: z.infer<typeof Plan>, callerFacts: readonly GuidedCallerFact[]): string | null {
   if (callerFacts.length === 0) return null;
@@ -1125,6 +1159,8 @@ export function renderGuidedPlan(value: z.infer<typeof Plan>, slug: string, clai
 export class GuidedPlanExecutor implements StageExecutor {
   readonly flow = 'loop' as const;
   private readonly o: { paths: WitokPaths; provider: ChatProvider; params: Record<string, unknown> | null; contextWindow: number; slug: string;
+    /** Профиль рассуждения маршрута для лестницы `max_tokens` — см. `completionBudget.ts`. */
+    reasoning?: ReasoningProfile | undefined;
     proposalOnly?: boolean; onProposal?: (parsed: unknown, rendered: string) => void; validatedProposal?: unknown };
   constructor(o: GuidedPlanExecutor['o']) { this.o = o; }
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
@@ -1183,7 +1219,10 @@ export class GuidedPlanExecutor implements StageExecutor {
     // Exploration scaffolds are possible impact, not authorization to edit dependencies.
     let runtimeRequiredPaths = guidedRequiredImplementationPaths(readArtifact(this.o.paths.intent).text, state?.requests ?? [], req.cwd);
     const responseEffort = this.o.params?.['reasoning_effort'];
-    let tokenCap = 4096;
+    // Лестница `max_tokens` общая с остальными решениями (`completionBudget.ts`).
+    const tokenLadder = completionLadder({ contextWindow: this.o.contextWindow, promptTokens: 0, reserve: 0, reasoning: this.o.reasoning });
+    let tokenCap = tokenLadder.start;
+    let tokenRaises = 0;
     let useCardGeneration = hasGuidedContracts(req.guidedEngineVersion);
     let stopCause: StageResult['stopCause'];
     const claimIds = requirements.acceptance.map(claim => claim.id);
@@ -1363,8 +1402,10 @@ callers содержит только decision для каждого адрес�
       if (answer.finishReason === 'max_tokens') {
         stopCause = 'token-limit';
         if (!repairMode) useCardGeneration = true;
-        if (tokenCap < 16384 && this.o.contextWindow - tokens - 1024 > tokenCap) {
-          tokenCap *= 2; hooks.onWarn('JSON Plan не получен: ответ обрезан лимитом; повтор с увеличенным max_tokens при том же reasoning effort');
+        const raised = tokenLadder.next(tokenCap, tokenRaises);
+        if (raised !== null && this.o.contextWindow - tokens - 1024 > tokenCap) {
+          tokenCap = raised; tokenRaises++;
+          hooks.onWarn(`JSON Plan не получен: ответ обрезан лимитом${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
         } else {
           hooks.onFriction('truncated'); hooks.onWarn('JSON Plan не получен: ответ обрезан лимитом max_tokens, лимит поднимать некуда');
         }
@@ -1413,7 +1454,9 @@ callers содержит только decision для каждого адрес�
         }))];
         const expandedKnown = [...new Set([...knownSymbols, ...stepFileSymbols])].slice(0, 200);
         const intentText = readArtifact(this.o.paths.intent).text;
-        parsed = coerceTaskNamedSymbols(parsed, expandedKnown, state?.requests ?? [], intentText);
+        parsed = alignNewSymbolsToTaskNames(
+          coerceTaskNamedSymbols(parsed, expandedKnown, state?.requests ?? [], intentText),
+          state?.requests ?? [], intentText);
         candidate = parsed; record();
         hooks.onQuestionValidated?.({ questionId: `plan:${attempt}`, accepted: true, reason: 'JSON соответствует схеме плана; проверки шагов выполняются перед записью' });
         validationFeedback = '';

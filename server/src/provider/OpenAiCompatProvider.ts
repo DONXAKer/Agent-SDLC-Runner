@@ -45,6 +45,9 @@ import { leadingThinkEnd, stripLeadingThink } from './think.ts';
 interface OpenAiChoice {
   message?: {
     content?: string | null;
+    /** Рассуждение отдельным полем: Ollama — `reasoning`, vLLM/LM Studio — `reasoning_content`. */
+    reasoning?: string | null;
+    reasoning_content?: string | null;
     tool_calls?: {
       id?: string;
       function?: { name?: string; arguments?: unknown };
@@ -59,6 +62,7 @@ interface OpenAiResponse {
     prompt_tokens?: number;
     completion_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
     /** Расширение OpenRouter: фактическая стоимость запроса. У локальных серверов его нет. */
     cost?: number;
   };
@@ -718,6 +722,7 @@ export class OpenAiCompatProvider implements ChatProvider {
         (fromText.form === 'mistral' && !fromText.truncated) || (fromText.form === 'json' && fromText.jsonAtStart === true);
     }
 
+    const reasoningTokens = reasoningTokensOf(choice, data.usage?.completion_tokens_details?.reasoning_tokens);
     const usage: Usage = {
       ...emptyUsage(),
       inputTokens: data.usage?.prompt_tokens ?? 0,
@@ -727,6 +732,7 @@ export class OpenAiCompatProvider implements ChatProvider {
       // и подставить сюда ноль значило бы «посчитали и вышло даром» — а мы не считали.
       costUsd: typeof data.usage?.cost === 'number' ? data.usage.cost : null,
       durationMs: Date.now() - started,
+      ...(reasoningTokens === null ? {} : { reasoningTokens }),
     };
 
     return {
@@ -741,6 +747,18 @@ export class OpenAiCompatProvider implements ChatProvider {
       rawLogPath,
     };
   }
+}
+
+/**
+ * Токены рассуждения ответа: точное число из `completion_tokens_details`, иначе оценка по
+ * байтам поля `reasoning`/`reasoning_content` (та же грубая мера, что `estimateMessageTokens`).
+ * `null` — сервер рассуждение не отдал: отличать «не было» от «ноль» важно стенду.
+ */
+function reasoningTokensOf(choice: OpenAiChoice | undefined, exact: number | undefined): number | null {
+  if (typeof exact === 'number') return exact;
+  const text = choice?.message?.reasoning ?? choice?.message?.reasoning_content;
+  if (typeof text !== 'string' || text === '') return null;
+  return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
 }
 
 /**

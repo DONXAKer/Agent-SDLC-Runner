@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { emptyUsage } from '@sdlc-runner/shared';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { GuidedExecutor } from '../src/exec/GuidedExecutor.ts';
-import { buildGuidedWorkingContext, guidedEvidenceProblems, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence } from '../src/exec/guidedWorkingContext.ts';
+import { attachMissingClaimEvidence, buildGuidedWorkingContext, guidedEvidenceProblems, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence } from '../src/exec/guidedWorkingContext.ts';
 import { initGuided } from '../src/run/guidedState.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
@@ -83,6 +83,20 @@ test('intermediate operations and the latest check are mandatory bound evidence 
   const all = context.decisionEvidence.map(value => value.id);
   assert.doesNotThrow(() => validateGuidedDecisionEvidence({ action: 'patch', evidenceIds: all }, context));
   assert.throws(() => validateGuidedDecisionEvidence({ action: 'patch', evidenceIds: [...all, 'invented.ts:12'] }, context), /evidenceId/);
+});
+
+test('missing claim evidence is attached when other packet ids are already cited', () => {
+  const context = supplementGuidedDecisionEvidence({ fragments: [], imports: [], missing: [], hashes: {}, partial: false, requirements: [], decisionEvidence: [] }, {
+    claims: [{ id: 'claim-1', text: 'behavior' }, { id: 'claim-2', text: 'edge' }],
+  });
+  const claim = context.requirements.find(value => value.kind === 'claim')!.evidenceIds[0]!;
+  const target = { id: 'evidence-target-abc', kind: 'target' as const, hash: 'h', path: 'src/a.ts' };
+  context.decisionEvidence.push(target);
+  context.requirements.push({ id: 'requirement-target', kind: 'target', status: 'ready', path: 'src/a.ts', claimIds: ['claim-1'], evidenceIds: [target.id], reason: 'target ready' });
+  assert.throws(() => validateGuidedDecisionEvidence({ action: 'patch', evidenceIds: [target.id] }, context), /claim/);
+  const attached = attachMissingClaimEvidence({ action: 'patch' as const, evidenceIds: [target.id] }, context);
+  assert.deepEqual(attached.evidenceIds, [target.id, claim]);
+  assert.doesNotThrow(() => validateGuidedDecisionEvidence(attached, context));
 });
 
 test('a dependency omitted by the context budget remains a blocking partial requirement', t => {

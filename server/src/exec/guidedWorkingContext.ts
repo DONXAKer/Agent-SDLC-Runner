@@ -55,6 +55,30 @@ export function supplementGuidedDecisionEvidence(context: GuidedWorkingContext, 
   return result;
 }
 
+/**
+ * Claim-evidence — хеш исходных формулировок требований, уже в пакете. Модель часто
+ * цитирует target/dependency и забывает claim-id; без дописывания один и тот же patch
+ * дважды отвергается с тем же proposalHash (r4 mellum chunk). Target/check не трогаем.
+ */
+export function attachMissingClaimEvidence<T extends { action: string; evidenceIds?: readonly string[] | undefined }>(
+  reply: T, context: GuidedWorkingContext,
+): T {
+  if (reply.action !== 'patch' && reply.action !== 'no_change') return reply;
+  const known = new Set(context.decisionEvidence.map(evidence => evidence.id));
+  const selected = [...(reply.evidenceIds ?? [])];
+  if (selected.length === 0 || selected.some(id => !known.has(id))) return reply;
+  let changed = false;
+  for (const requirement of context.requirements) {
+    if (requirement.kind !== 'claim' || requirement.status === 'not-applicable') continue;
+    if (requirement.evidenceIds.some(id => selected.includes(id))) continue;
+    const id = requirement.evidenceIds.find(candidate => known.has(candidate));
+    if (id === undefined) continue;
+    selected.push(id);
+    changed = true;
+  }
+  return changed ? { ...reply, evidenceIds: selected } : reply;
+}
+
 export function validateGuidedDecisionEvidence(reply: { action: string; evidenceIds?: readonly string[] | undefined }, context: GuidedWorkingContext): void {
   if (reply.action !== 'patch' && reply.action !== 'no_change') return;
   const known = new Set(context.decisionEvidence.map(evidence => evidence.id));

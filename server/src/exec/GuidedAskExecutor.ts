@@ -15,6 +15,7 @@ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './Stage
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { guardedPath } from './GuidedExecutor.ts';
 import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
+import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
 import { progressHash } from '../run/guidedProgress.ts';
 import { statSync } from 'node:fs';
 import { preparationReferencedCodePaths } from '../artifacts/preparation.ts';
@@ -22,7 +23,9 @@ import { ReadReceipts, RepeatedReadError, sourceHash } from './readReceipts.ts';
 import { compileQuestions } from '../artifacts/guidedArtifactCompiler.ts';
 
 export const guidedAskResponseFormat = questionResponseFormat;
-type Resolver = { provider: ChatProvider; params: Record<string, unknown> | null; contextWindow: number };
+type Resolver = { provider: ChatProvider; params: Record<string, unknown> | null; contextWindow: number;
+  /** Профиль рассуждения маршрута для лестницы `max_tokens` — см. `completionBudget.ts`. */
+  reasoning?: ReasoningProfile | undefined };
 
 export function isPlaceholderGuidedQuestion(question: string): boolean {
   return /^(?:вопрос|question)(?:\s*\d+)?[.!?…]*$/iu.test(question.trim());
@@ -204,7 +207,10 @@ human: {kind,missingDecision,options:[вариант1,вариант2],consequen
             promptTokens: estimateMessageTokens(messages), marginTokens: ESTIMATE_MARGIN_TOKENS,
             onClamped: maxTokens => hooks.onWarn(`окно контекста (${this.resolver!.contextWindow}) почти исчерпано вопросом Ask — max_tokens ограничен полом ${maxTokens}`) })!;
           const maxTokensLimit = Number(budgeted['max_tokens']);
-          const params = { ...budgeted, max_tokens: Math.min(4096, maxTokensLimit) };
+          // Стартовая ступень — из общей лестницы (`completionBudget.ts`); подъёмы делает
+          // `DecisionEngine` до `maxTokensLimit`.
+          const params = { ...budgeted, max_tokens: completionLadder({ contextWindow: maxTokensLimit, promptTokens: 0, reserve: 0,
+            reasoning: this.resolver.reasoning, ceiling: maxTokensLimit }).start };
           const requestsBefore = calls;
           let requestCounted = false;
           const reply = await this.resolver.provider.chat({ model: req.model, messages, tools: [], temperature: null,

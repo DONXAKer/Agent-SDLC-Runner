@@ -12,6 +12,7 @@ import {pinNodeImage} from '../server/src/run/isolatedNode.ts';
 import type {BenchResult} from '../bench/src/result.ts';
 import type {PreflightReport} from '../bench/src/preflight.ts';
 import {checkPlacement,placementPolicy,qualifyModel,type Qualification} from '../bench/src/modelQualification.ts';
+import {throughputFromQualification,wallclockScale,type ThroughputPassport} from '../bench/src/modelPassport.ts';
 import { acquireProcessLock, releaseProcessLock } from '../server/src/fs/processLock.ts';
 import { MatrixControl } from './matrixControl.ts';
 
@@ -19,19 +20,22 @@ const root=resolve(import.meta.dirname,'..');
 const specSchema=z.object({modelConfig:z.string(),models:z.array(z.string()).min(1).max(6),tasks:z.array(z.string()).min(1).max(5),acceptanceImage:z.string(),
  guidedEngineVersion:z.union([z.literal(4),z.literal(5)]).default(4),repetitions:z.number().int().min(1).max(3).default(1),
  profileOverrides:z.record(z.string(),z.object({placement:placementPolicy.default('gpu-only'),params:z.record(z.string(),z.unknown()).optional()})).default({}),
- limits:z.object({stageMinutes:z.number().positive(),runMinutes:z.number().positive(),attempts:z.number().int().positive(),gpuWaitMinutes:z.number().positive(),suiteHours:z.number().positive()}),
+ limits:z.object({stageMinutes:z.number().positive(),runMinutes:z.number().positive(),attempts:z.number().int().positive(),gpuWaitMinutes:z.number().positive(),suiteHours:z.number().positive(),
+   // Стенные часы по паспорту: stage/run-лимиты умножаются на (секунд на решение ÷ опора), 1..maxScale. Без блока — лимиты как есть.
+   wallclock:z.object({referenceDecisionSeconds:z.number().positive(),maxScale:z.number().min(1).default(3)}).optional()}),
  engine:z.object({host:z.string().url(),gpuFreeMiB:z.array(z.number()).length(2),gpuUtilMax:z.array(z.number()).length(2)})});
 type Spec=z.infer<typeof specSchema>;
 type Profile={id:string;provider:string;model:string;contextWindow?:number;params?:Record<string,unknown>;placement?:'gpu-only'|'hybrid'};
-type Cell={id:string;model:string;task:string;status:string;slug?:string;startedAt?:string;finishedAt?:string;pid?:number;elapsedMs?:number;outcome?:ReturnType<typeof assessGuidedValidation>;evidence?:ReturnType<typeof collectComparisonEvidence>;error?:string;layout?:unknown;invocationBudgetMs?:number};
-type Matrix={version:1;status:string;preparedAt:string;spec:Spec;specHash:string;acceptanceImage:string;profiles:Profile[];cells:Cell[];inputs:Record<string,string>;common:Record<string,string>;coordinatorHash:string;nodeVersion:string;modelDigests?:Record<string,string>;qualifications?:Record<string,Qualification>;engineVersion?:unknown;startedAt?:string;finishedAt?:string;error?:string;active?:string};
-const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','tools/matrixControl.ts','server/src/fs/processLock.ts','server/src/fs/atomicJson.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','tools/guided-suite-success.ts']));
+type Cell={id:string;model:string;task:string;status:string;slug?:string;startedAt?:string;finishedAt?:string;pid?:number;elapsedMs?:number;outcome?:ReturnType<typeof assessGuidedValidation>;evidence?:ReturnType<typeof collectComparisonEvidence>;error?:string;layout?:unknown;invocationBudgetMs?:number;wallclockScale?:number;stageMinutes?:number};
+type Matrix={version:1;status:string;preparedAt:string;spec:Spec;specHash:string;acceptanceImage:string;profiles:Profile[];cells:Cell[];inputs:Record<string,string>;common:Record<string,string>;coordinatorHash:string;nodeVersion:string;modelDigests?:Record<string,string>;qualifications?:Record<string,Qualification>;passports?:Record<string,ThroughputPassport|null>;engineVersion?:unknown;startedAt?:string;finishedAt?:string;error?:string;active?:string};
+const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','tools/matrixControl.ts','server/src/fs/processLock.ts','server/src/fs/atomicJson.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','bench/src/modelPassport.ts','tools/guided-suite-success.ts']));
 function emit(dir:string,m:Matrix){
  saveJson(join(dir,'manifest.json'),m);
  const clean=(x:unknown)=>String(x??'неизвестно').replace(/\|/g,'\\|').replace(/[\r\n]+/g,' ');
  writeFileSync(join(dir,'summary.ru.md'),`# Полный guided-цикл с независимой приёмкой\n\nСтатус: **${m.status}**. Завершено: ${m.cells.filter(c=>c.status==='complete').length}/${m.cells.length}. Успех: ${m.cells.filter(c=>c.outcome?.success).length}.\n\n| Модель | Задача | Статус | Успех | Причина |\n|---|---|---|---|---|\n${m.cells.map(c=>`| ${c.model} | ${c.task} | ${c.status} | ${clean(c.outcome?.success)} | ${clean(c.error??c.outcome?.reason)} |`).join('\n')}\n\nПриёмочные тесты подготовлены до реализации и выполняются в Docker без сети. Скрытый оценщик выполняется отдельно. Решения оператора автоматизированы стендом. Один повтор; окна и параметры моделей сохранены в манифесте, различия конфигураций ограничивают сравнение. Остановка до Verify не считается проверкой Verify.\n${m.error?'\nОшибка: '+clean(m.error)+'\n':''}`);
  appendFileSync(join(dir,'summary.ru.md'),`\n## Профили\n\n${m.profiles.map(p=>`- ${p.id}: ${p.placement??'gpu-only'}, context=${p.contextWindow??32768}`).join('\n')}\n\nВремя hybrid нельзя напрямую сравнивать с gpu-only.\n`);
  if(m.qualifications)appendFileSync(join(dir,'summary.ru.md'),`\n## Квалификация протокола\n\n${Object.entries(m.qualifications).map(([id,q])=>`- ${id}: ${q.passed?'PASS':'FAIL'}, ${q.cases.filter(c=>c.passed).length}/${q.cases.length}; ${q.cases.filter(c=>!c.passed).map(c=>clean(c.error)).join('; ')}`).join('\n')}\n`);
+ if(m.passports)appendFileSync(join(dir,'summary.ru.md'),`\n## Паспорт скорости (по квалификации)\n\n${Object.entries(m.passports).map(([id,p])=>p?`- ${id}: ${p.secondsPerDecision} с/решение, ${p.tokensPerSecond} ток/с, reasoning ≈${p.reasoningShare} выдачи; стенные часы ×${wallclockScale(p,m.spec.limits.wallclock)}`:`- ${id}: паспорта нет (usage не получен) — лимиты без масштаба`).join('\n')}\n\n${m.spec.limits.wallclock?`Опора ${m.spec.limits.wallclock.referenceDecisionSeconds} с/решение, потолок ×${m.spec.limits.wallclock.maxScale}.`:'Масштаб стенных часов в спецификации не задан: лимиты одинаковы для всех профилей.'}\n`);
 }
 /** Link only a verified frozen dependency tree, never the mutable workspace node_modules. */
 export function linkFrozenTree(source:string,destination:string):void{
@@ -140,8 +144,10 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
        const log=readFileSync(engineLog,'utf8').slice(offset),gpus=new Set([...log.matchAll(/(CUDA\d+)\s+model buffer/g)].map(x=>x[1])).size;
        if(gpus<1||gpus>2)throw Error('placement: no supported CUDA allocation');assertEngineLog(log,gpus);
        m.qualifications[profile.id]=await qualifyModel({host,model:profile.model,budgetMs:Math.max(1,900000-(Date.now()-qualificationStarted)),signal:control.signal,...(profile.params?{params:profile.params}:{})});
-       saveJson(join(dir,`qualification-${m.profiles.indexOf(profile)+1}.json`),{profile,layout,result:m.qualifications[profile.id]});
-     }catch(error){if(cancelled)throw error;m.qualifications[profile.id]={passed:false,elapsedMs:Date.now()-qualificationStarted,cases:[{name:'placement',repetition:0,passed:false,error:String(error)}]};}
+       // Паспорт скорости снимается с тех же проб: отдельного замера с другим промптом не нужно.
+       (m.passports??={})[profile.id]=throughputFromQualification(m.qualifications[profile.id]!);
+       saveJson(join(dir,`qualification-${m.profiles.indexOf(profile)+1}.json`),{profile,layout,result:m.qualifications[profile.id],passport:m.passports![profile.id]});
+     }catch(error){if(cancelled)throw error;m.qualifications[profile.id]={passed:false,elapsedMs:Date.now()-qualificationStarted,cases:[{name:'placement',repetition:0,passed:false,error:String(error)}]};(m.passports??={})[profile.id]=null;}
      emit(dir,m);await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});
    }
    if(m.profiles.some(p=>!m.qualifications?.[p.id]?.passed)){
@@ -172,8 +178,11 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
      const common=join(dir,'common');const cleanEnv=Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('SDLC_')));
      const rawLogDir=join(dir,'raw');
      const runEnv={...cleanEnv,SDLC_CONFIG_DIR:join(common,'config'),SDLC_STATE_DIR:join(dir,'state',c.slug),SDLC_METHODOLOGY_DIR:join(common,'methodology'),SDLC_SKILLS_DIR:join(common,'skills'),SDLC_AGENTS_DIR:join(common,'agents'),SDLC_CONSTANTS_PATH:join(common,'methodology/sdlc-constants.json'),SDLC_REVIEW_MODEL:c.model,OLLAMA_BASE_URL:host+'/v1',SDLC_RAW_LOG_DIR:rawLogDir};
-     const minutes=Math.min(m.spec.limits.runMinutes,(deadline-Date.now())/60000);c.invocationBudgetMs=minutes*60000;
-     child=start(process.execPath,['bench/src/cli.ts','--all','--model',c.model,'--task',c.task,'--execution-mode','guided','--guided-engine-version',String(m.spec.guidedEngineVersion??4),'--preparation-version','3','--strict-questions','--acceptance-image',m.acceptanceImage,'--attempts',String(m.spec.limits.attempts),'--stage-timeout',String(m.spec.limits.stageMinutes),'--run-timeout',String(minutes),'--probe-timeout','1','--slug',c.slug,'--keep-workspace'],snapshot,runEnv,join(runDir,'launcher.log'));
+     // Лимиты стенных часов — по паспорту скорости профиля (1..maxScale), но не дольше остатка серии.
+     const scale=wallclockScale(m.passports?.[c.model]??null,m.spec.limits.wallclock);c.wallclockScale=scale;
+     const stageMinutes=m.spec.limits.stageMinutes*scale;c.stageMinutes=stageMinutes;
+     const minutes=Math.min(m.spec.limits.runMinutes*scale,(deadline-Date.now())/60000);c.invocationBudgetMs=minutes*60000;
+     child=start(process.execPath,['bench/src/cli.ts','--all','--model',c.model,'--task',c.task,'--execution-mode','guided','--guided-engine-version',String(m.spec.guidedEngineVersion??4),'--preparation-version','3','--strict-questions','--acceptance-image',m.acceptanceImage,'--attempts',String(m.spec.limits.attempts),'--stage-timeout',String(stageMinutes),'--run-timeout',String(minutes),'--probe-timeout','1','--slug',c.slug,'--keep-workspace'],snapshot,runEnv,join(runDir,'launcher.log'));
      if(child.pid!==undefined)c.pid=child.pid;emit(dir,m);console.log(`START ${c.id} ${c.model} ${c.task}`);
      let timedOut=false;const timer=setTimeout(()=>{timedOut=true;if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}},minutes*60000+30000);
      let code:number|null=null;try{code=await new Promise<number|null>((done,fail)=>{child!.once('error',fail);child!.once('close',done);});}finally{clearTimeout(timer);child=undefined;}
