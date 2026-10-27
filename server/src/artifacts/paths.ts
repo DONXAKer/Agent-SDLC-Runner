@@ -161,6 +161,10 @@ export class WitokPaths {
     return join(this.dir, RUNNER_DIR);
   }
 
+  get requirement(): string {
+    return this.runnerFile('requirement.md');
+  }
+
   private runnerFile(name: string): string {
     return join(this.runnerDir, name);
   }

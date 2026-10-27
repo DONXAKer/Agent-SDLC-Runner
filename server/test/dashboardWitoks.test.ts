@@ -75,6 +75,14 @@ describe('scanWitoks', () => {
     strictEqual(cards.find((c) => c.ref.slug === 'ui-archive')?.ref.source, 'ui');
   });
 
+  it('исходная задача с Markdown важнее подписи из шаблона intent', () => {
+    const p = new WitokPaths(root, 'original-requirement');
+    const requirement = '## Проверка\n\n- **форматирование**\n- обычный текст';
+    writeArtifact(p.requirement, requirement);
+    writeArtifact(p.intent, '<!-- sdlc-template: intent v1 -->\n# Задача: ‹название›\n');
+    strictEqual(witokCard(project, 'original-requirement', null)?.requirement, requirement);
+  });
+
   it('терминальный виток: chunk и попытка — из журналов, как у Run; чисел нет', () => {
     const c = witokCard(project, 'term', null)!;
     strictEqual(c.chunk, 2);

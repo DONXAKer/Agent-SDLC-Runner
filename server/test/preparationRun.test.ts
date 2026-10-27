@@ -66,6 +66,7 @@ it('новый виток: исследование → критика → по�
     ok(result.ok, `${stage}: ${result.note}\n${readArtifact(run.paths.intent).text}`);
   }
   strictEqual(calls, 5, 'три этапа и два независимых вызова');
+  strictEqual(readArtifact(run.paths.requirement).text, 'Добавь фильтр зон. Неизвестная зона — пустой результат и exit 0.');
   ok(preparationSummary(run.paths)?.readyToApprove);
   throws(() => run.recordDecision({ artifact: 'plan', label: 'Одобрение', granted: true, preparationFingerprint: 'устарел' }), /редакция проработки/);
   run.recordDecision({ artifact: 'plan', label: 'Одобрение', granted: true, preparationFingerprint: preparationFingerprint(run.paths) });

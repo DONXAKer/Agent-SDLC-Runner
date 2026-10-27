@@ -2627,6 +2627,8 @@ export class Run {
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     }
 
+    if (def.startsTask && opts.requirement !== undefined) writeArtifact(this.paths.requirement, opts.requirement);
+
     if (mod.canonicalPhase === 'deliver') {
       const current = readCanonicalState(this.paths);
       if (current) { current.state.stage = 'handoff'; writeCanonicalState(this.paths, current.state); }

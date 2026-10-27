@@ -165,6 +165,7 @@ export default function App(): JSX.Element {
     try {
       const r = await api.createRun(startedProject, startedSlug, profile, stageOverrides);
       runRequirements.current.set(r.runId, startedRequirement);
+      await api.runStage(r.runId, 'intent', { requirement: startedRequirement });
       setStarted(true);
       navigate({ kind: 'dashboard', card: { source: 'ui', project: startedProject, slug: startedSlug } });
       return true;
