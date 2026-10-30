@@ -17,7 +17,7 @@ import type { ExploreState } from './explore.ts';
 import type { ReviewScanDecision } from '../reviewRoute.ts';
 import type { VerifyState } from './verify/state.ts';
 import type { CommitOutcome } from '../commitByRuntime.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage, Verdict } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, GuidedFailure, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage, Verdict } from '@sdlc-runner/shared';
 import type { ChunkState } from './chunk/index.ts';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
@@ -311,8 +311,12 @@ export interface StageInvocation {
   evidence?(): Promise<void>;
   /** Вердикт этапа по только что записанному отчёту. */
   verdict?(): Promise<void>;
-  /** Провал исхода, который этап видит сам, помимо незаполненного артефакта; `null` — нет. */
-  outcomeProblem?(result: StageResult): string | null;
+  /**
+   * Провал исхода, который этап видит сам, помимо незаполненного артефакта; `null` — нет.
+   * Объект — та же заметка плюс структурный класс отказа (`GuidedFailure`): стенд
+   * классифицирует клетку по нему, а не по тексту заметки, который меняется свободно.
+   */
+  outcomeProblem?(result: StageResult): string | { note: string; failure: GuidedFailure } | null;
 }
 
 export interface StageContext {

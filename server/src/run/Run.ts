@@ -3400,7 +3400,9 @@ export class Run {
             note: `этап закончился, но артефакт не заполнен: ${missingAfter.join(', ')}`,
           }
         : stageProblem !== null
-          ? { ...result, ok: false, note: stageProblem }
+          ? typeof stageProblem === 'string'
+            ? { ...result, ok: false, note: stageProblem }
+            : { ...result, ok: false, note: stageProblem.note, failure: stageProblem.failure }
           : result;
 
       chargeGuided();

@@ -30,7 +30,12 @@ export interface GuidedFailure {
   retryStage: StageId;
   reason: string;
   pendingFields?: number;
-  reviewStatus?: 'pending' | 'rejected' | 'stale';
+  /** Semantic acceptance review still rejected after the fill loop (separate from empty placeholders). */
+  acceptanceReviewRejected?: boolean;
+  /** Stable field identities and their last rejection, retained for failure analysis. */
+  blockers?: { key: string; reason: string }[];
+  /** `stalled` — ремонт по замечаниям не изменил адресованную карточку; повтор ревью остановлен. */
+  reviewStatus?: 'pending' | 'rejected' | 'stale' | 'stalled';
 }
 /** Public, auditable decision summaries; not the model's private reasoning. */
 export interface StageDecisionCheck {
