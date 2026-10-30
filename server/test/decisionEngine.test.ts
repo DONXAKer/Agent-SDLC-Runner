@@ -35,14 +35,27 @@ test('changed source revision and mandatory context overflow reject before mutat
  await assert.rejects(new DecisionEngine({provider,directory,capture,contextWindow:100}).decide({...input,context:capture()}),(error:unknown)=>error instanceof DecisionError&&error.category==='context-required');assert.equal(calls,1);
 });
 
-test('the same invalid decision stops on its second rejection; cancellation remains authoritative',async t=>{
+test('the same invalid decision gets one field-level retry then stops; cancellation remains authoritative',async t=>{
  const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));let calls=0;
  const provider:ChatProvider={name:'memoryless',async chat(){calls++;return turn('{"decision":"change"}');}};
  const engine=new DecisionEngine({provider,directory,capture:context,contextWindow:10000});
  const input={questionId:'counter',question:{source:'counter=1'},instructions:'Decide',context:context(),schema,params:{max_tokens:100},model:'fixture',signal:new AbortController().signal};
- await assert.rejects(engine.decide({...input,validate(){throw Error('Observed source forbids this decision');}}),(e:unknown)=>e instanceof DecisionError&&e.category==='invalid-response'&&/rejected twice with the same proposalHash/.test(e.message));assert.equal(calls,2);
+ await assert.rejects(engine.decide({...input,validate(){throw Error('Observed source forbids this decision');}}),(e:unknown)=>e instanceof DecisionError&&e.category==='invalid-response'&&/rejected 3 times with the same proposalHash/.test(e.message));assert.equal(calls,3);
  const controller=new AbortController();controller.abort(Error('operator'));
- await assert.rejects(engine.decide({...input,signal:controller.signal}),/operator/);assert.equal(calls,2);
+ await assert.rejects(engine.decide({...input,signal:controller.signal}),/operator/);assert.equal(calls,3);
+});
+
+test('same proposal under a new diagnostic does not sticky-stop on the second attempt',async t=>{
+ const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));let calls=0;
+ const provider:ChatProvider={name:'memoryless',async chat(){calls++;return turn('{"decision":"change"}');}};
+ const engine=new DecisionEngine({provider,directory,capture:context,contextWindow:10000});
+ const input={questionId:'counter',question:{source:'counter=1'},instructions:'Decide',context:context(),schema,params:{max_tokens:100},model:'fixture',signal:new AbortController().signal};
+ const result=await engine.decide({...input,validate(value){
+  if(calls===1)throw Error('first diagnostic');
+  if(calls===2)throw Error('second diagnostic — new repair input');
+  return value;
+ }});
+ assert.equal(result.attempts,3);assert.equal(calls,3);
 });
 
 test('adapter rejects implicit history and forwards complete stage inputs with original schema name',async t=>{

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { emptyUsage } from '@sdlc-runner/shared';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { GuidedExecutor } from '../src/exec/GuidedExecutor.ts';
-import { attachMissingClaimEvidence, buildGuidedWorkingContext, guidedEvidenceProblems, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence } from '../src/exec/guidedWorkingContext.ts';
+import { attachMissingClaimEvidence, buildGuidedWorkingContext, guidedEvidenceProblems, missingEvidencePaths, supplementGuidedDecisionEvidence, validateGuidedDecisionEvidence } from '../src/exec/guidedWorkingContext.ts';
 import { initGuided } from '../src/run/guidedState.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
@@ -99,6 +99,19 @@ test('missing claim evidence is attached when other packet ids are already cited
   assert.doesNotThrow(() => validateGuidedDecisionEvidence(attached, context));
 });
 
+test('missing intermediate-state evidence is attached like claim evidence', () => {
+  const context = supplementGuidedDecisionEvidence({ fragments: [], imports: [], missing: [], hashes: {}, partial: false, requirements: [], decisionEvidence: [] }, {
+    claims: [{ id: 'claim-1', text: 'behavior' }],
+    intermediateState: { kind: 'conflict', detail: 'x' },
+  });
+  const claim = context.requirements.find(value => value.kind === 'claim')!.evidenceIds[0]!;
+  const intermediate = context.requirements.find(value => value.kind === 'intermediate-state')!.evidenceIds[0]!;
+  const attached = attachMissingClaimEvidence({ action: 'patch' as const, evidenceIds: [claim] }, context);
+  assert.ok(attached.evidenceIds?.includes(claim));
+  assert.ok(attached.evidenceIds?.includes(intermediate));
+  assert.doesNotThrow(() => validateGuidedDecisionEvidence(attached, context));
+});
+
 test('a dependency omitted by the context budget remains a blocking partial requirement', t => {
   const root = rootWith(t);
   const source = "import { b } from './b.ts'; export function a() { return b; }\n";
@@ -123,6 +136,20 @@ test('dynamic imports stay uncertain and unsupported languages use file evidence
   const target = python.requirements.find(value => value.kind === 'target');
   assert.equal(target?.status, 'ready');
   assert.ok(python.fragments.some(value => value.role === 'target' && value.symbol === null && value.text.includes('def run')));
+});
+
+test('missingEvidencePaths lists unread dependency and consumer paths for hydrate', t => {
+  const root = rootWith(t);
+  writeFileSync(join(root, 'a.ts'), "import { b } from './b.ts'; export function a() { return b; }\n");
+  writeFileSync(join(root, 'b.ts'), 'export const b = 1;\n');
+  writeFileSync(join(root, 'consumer.ts'), "import { a } from './a.ts'; export const x = a();\n");
+  const tasks = [{ file: 'a.ts', symbol: 'a', action: 'change a', claims: ['claim-1'] }];
+  const unseen = buildGuidedWorkingContext(root, ['a.ts'], tasks, new Set(), '', 14000, true);
+  const pending = missingEvidencePaths(unseen);
+  assert.ok(pending.includes('b.ts'));
+  assert.ok(pending.includes('consumer.ts'));
+  const hydrated = buildGuidedWorkingContext(root, ['a.ts'], tasks, new Set(pending), '', 14000, true);
+  assert.equal(guidedEvidenceProblems(hydrated).length, 0);
 });
 
 test('dynamic consumers through aliases are explicit uncertainty, never proven absence', t => {

@@ -289,6 +289,15 @@ export interface ModelDef {
   /** Defaults on when stepFill is enabled; set false for controlled comparisons. */
   stepContext?: boolean;
   /**
+   * Представление правки на этапе 5 guided v5: `typed-ir` (умолчание) — типизированные
+   * операции над символами, `whole-file` — модель отдаёт файл целиком, рантайм считает
+   * diff (`exec/wholeFileProposal.ts`). Ручка под замер серией
+   * (`bench/experiments/whole-file-six-models-one-task.json`); до неё режим включался
+   * переменной окружения `GUIDED_EDIT_REPRESENTATION` — невидимый для оператора рычаг,
+   * которого профиль не показывал.
+   */
+  editRepresentation?: 'typed-ir' | 'whole-file';
+  /**
    * Схема формы вместо сплошного текста бланка — три независимых эффекта под одной
    * ручкой, потому что журнал замеров требует «одна ручка на прогон», а разводить их на
    * отдельные пока не для чего:
@@ -529,6 +538,8 @@ export interface ResolvedRoute {
   stepFill: boolean;
   /** Лексический контекст шага для `stepFill` — см. `ModelDef.stepContext`. */
   stepContext: boolean;
+  /** Представление правки guided v5 — см. `ModelDef.editRepresentation`; отсутствует = `typed-ir`. */
+  editRepresentation?: 'typed-ir' | 'whole-file';
   /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */
   compactForms: 'off' | 'fill' | 'inputs' | 'all';
   /** Заявленное окно контекста записи — см. `ModelDef.contextWindow`. */

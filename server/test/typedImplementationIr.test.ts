@@ -41,7 +41,7 @@ test('typed compiler is deterministic and creates a complete module', () => {
   assert.deepEqual(first, second);
   assert.equal(first.op, 'create_file');
   assert.match(first.op === 'create_file' ? first.body : '', /export function sum\(values: ReadonlyArray<number>\): number/);
-  assert.match(first.op === 'create_file' ? first.body : '', /export \{ sum as total \} from "\.\/public\.ts"/);
+  assert.match(first.op === 'create_file' ? first.body : '', /export \{ sum as total \} from '\.\/public\.ts'/);
   assert.equal(applySymbolOp(null, first), (first.op === 'create_file' ? first.body : '') + '\n');
 });
 
@@ -83,6 +83,10 @@ test('TYPE nodes accept types only and unsupported declaration positions fail cl
   assert.throws(() => compile({ op: 'replace_declaration_ir', file: 'a.ts', symbol: 'run', ...target(source),
     declaration: { kind: 'variable_declaration', declarationKind: 'const', name: 'run', type: { kind: 'type', text: 'number; throw new Error()' }, initializer: literal(1) } }),
   (error: unknown) => error instanceof TypedPatchCompileError && /Invalid TYPE node/.test(error.message));
+  // Хвостовая `;` — след копирования из объявления, не инъекция: тип принимается (корпус r1–r4, mellum).
+  const trailing = compile({ op: 'replace_declaration_ir', file: 'a.ts', symbol: 'run', ...target(source),
+    declaration: { kind: 'variable_declaration', declarationKind: 'const', name: 'run', type: { kind: 'type', text: 'Map<string, { id: string; msg: string }>;' }, initializer: literal(1) } });
+  assert.match(trailing.op === 'replace_declaration' ? trailing.declaration : '', /run: Map<string, \{\s*id: string;\s*msg: string;?\s*\}> = 1;/u);
   assert.throws(() => compile({ op: 'replace_declaration_ir', file: 'a.ts', symbol: 'run', ...target(source),
     declaration: { kind: 'return', argument: literal(1) } }), /declaration positions accept only/);
   assert.throws(() => TypedPatchOp.parse({ op: 'create_file_ir', file: 'a.ts', module: { version: 1, body: [
@@ -108,6 +112,22 @@ test('v5 rejects raw code operations but keeps docs and mechanical operations co
     { op: 'replace_text', file: 'README.md', expectedHash: 'a'.repeat(64), search: 'old', replacement: 'new' },
   ] }), true);
   assert.equal(doc.action === 'patch' && doc.ops[0]?.op, 'replace_text');
+});
+
+test('v5 compiles split IR parts of one new module as one ordered create operation', () => {
+  const declaration = (name: string, value: number) => ({ kind: 'variable_declaration', declarationKind: 'const', name, initializer: literal(value), export: true });
+  const result = parseGuidedReply(JSON.stringify({ action: 'patch', prediction: 'parts', ops: [
+    { op: 'create_file_ir', file: 'src/a.ts', module: { version: 1, body: [declaration('first', 1)] } },
+    { op: 'create_file_ir', file: 'src/a.ts', module: { version: 1, body: [declaration('second', 2)] } },
+  ] }), true);
+  assert.equal(result.action, 'patch');
+  if (result.action !== 'patch') return;
+  assert.equal(result.ops.length, 1);
+  assert.equal(result.ops[0]?.op, 'create_file');
+  const body = result.ops[0] && 'body' in result.ops[0] ? result.ops[0].body : '';
+  assert.ok(body.indexOf('first') < body.indexOf('second'));
+  assert.match(body, /export const first = 1/);
+  assert.match(body, /export const second = 2/);
 });
 
 test('compiled typed operation uses existing freshness and target simulation', t => {

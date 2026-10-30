@@ -29,6 +29,20 @@ export function guidedEvidenceProblems(context: GuidedWorkingContext): string[] 
     .map(requirement => `${requirement.kind} ${requirement.path ?? requirement.id}: ${requirement.status} — ${requirement.reason}`);
 }
 
+/** Пути dependency/consumer, которые ещё можно дочитать с диска до генерации патча. */
+export function missingEvidencePaths(context: GuidedWorkingContext): string[] {
+  const paths = new Set<string>();
+  for (const requirement of context.requirements) {
+    if (requirement.path === null) continue;
+    if (requirement.kind !== 'dependency' && requirement.kind !== 'consumer') continue;
+    if (requirement.status !== 'missing' && requirement.status !== 'partial') continue;
+    if (requirement.status === 'partial' && requirement.evidenceIds.length > 0) continue;
+    paths.add(requirement.path);
+  }
+  for (const missing of context.missing) paths.add(missing.path);
+  return [...paths];
+}
+
 export function supplementGuidedDecisionEvidence(context: GuidedWorkingContext, input: {
   claims: readonly { id: string; text: string }[]; intermediateState?: unknown; latestCheck?: string | null;
 }): GuidedWorkingContext {
@@ -56,9 +70,9 @@ export function supplementGuidedDecisionEvidence(context: GuidedWorkingContext, 
 }
 
 /**
- * Claim-evidence — хеш исходных формулировок требований, уже в пакете. Модель часто
- * цитирует target/dependency и забывает claim-id; без дописывания один и тот же patch
- * дважды отвергается с тем же proposalHash (r4 mellum chunk). Target/check не трогаем.
+ * Claim / intermediate-state / latest-check — хеши уже в пакете. Модель часто цитирует
+ * target/dependency и забывает обязательные id; без дописывания один и тот же patch
+ * дважды отвергается с тем же proposalHash (r4 mellum; series 2026-10-29). Target не трогаем.
  */
 export function attachMissingClaimEvidence<T extends { action: string; evidenceIds?: readonly string[] | undefined }>(
   reply: T, context: GuidedWorkingContext,
@@ -69,7 +83,7 @@ export function attachMissingClaimEvidence<T extends { action: string; evidenceI
   if (selected.length === 0 || selected.some(id => !known.has(id))) return reply;
   let changed = false;
   for (const requirement of context.requirements) {
-    if (requirement.kind !== 'claim' || requirement.status === 'not-applicable') continue;
+    if (!['claim', 'intermediate-state', 'latest-check'].includes(requirement.kind) || requirement.status === 'not-applicable') continue;
     if (requirement.evidenceIds.some(id => selected.includes(id))) continue;
     const id = requirement.evidenceIds.find(candidate => known.has(candidate));
     if (id === undefined) continue;

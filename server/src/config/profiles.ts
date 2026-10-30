@@ -100,6 +100,7 @@ function resolveRoute(
     // Step context is part of the default stepFill workflow; opt out for controlled comparisons.
     stepContext: def.stepContext ?? (def.stepFill ?? false),
     compactForms: def.compactForms ?? 'off',
+    ...(def.editRepresentation === undefined ? {} : { editRepresentation: def.editRepresentation }),
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
     exploreIndex: def.exploreIndex ?? false,

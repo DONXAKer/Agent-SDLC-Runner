@@ -33,7 +33,8 @@ export const SymbolOp = z.discriminatedUnion('op', [
 export type SymbolOp = z.infer<typeof SymbolOp>;
 
 export interface OpDiagnostic {
-  kind: 'unknown_symbol' | 'ambiguous_symbol' | 'not_new_file' | 'file_outside_group' | 'syntax' | 'rename_conflict' | 'missing_declaration';
+  kind: 'unknown_symbol' | 'ambiguous_symbol' | 'not_new_file' | 'file_outside_group' | 'syntax' | 'rename_conflict' | 'missing_declaration'
+    | 'capability' | 'sole_write' | 'missing_new_file';
   op: string;
   file: string;
   symbol?: string;

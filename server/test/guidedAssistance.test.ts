@@ -10,11 +10,22 @@ import { initGuided, guidedSummary } from '../src/run/guidedState.ts';
 import { GuidedWorkloadStore, readGuidedWorkload } from '../src/run/guidedWorkload.ts';
 import { packGuidedFieldQuestion } from '../src/exec/guidedContext.ts';
 import { materializeCompactPlan, guidedCompactPlanResponseFormat, compactPlanRepairFormat, materializeCompactRepair, guidedPlanRepairResponseFormat } from '../src/exec/GuidedPlanExecutor.ts';
-import { GuidedExecutor, parseBoundGuidedReply, guidedBoundActionResponseFormat } from '../src/exec/GuidedExecutor.ts';
+import { GuidedExecutor, parseBoundGuidedReply, guidedBoundActionResponseFormat, narrowGuidedRepairContext } from '../src/exec/GuidedExecutor.ts';
 import { parseRepairDiagnosis, repairDiagnosisTargets } from '../src/exec/repairDiagnosis.ts';
 import { AXES } from '../src/artifacts/planAxes.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
+
+test('repair context drops only non-target fragments and preserves all decision evidence', () => {
+  const context = {
+    fragments: [{ path: 'src/target.ts', text: 'target' }, { path: 'src/dependency.ts', text: 'dependency' }],
+    decisionEvidence: [{ id: 'claim-1' }, { id: 'latest-check' }],
+  } as any;
+  const narrowed = narrowGuidedRepairContext(context, 'src/target.ts');
+  assert.deepEqual(narrowed.fragments.map(fragment => fragment.path), ['src/target.ts']);
+  assert.deepEqual(narrowed.decisionEvidence, context.decisionEvidence);
+  assert.equal(narrowGuidedRepairContext(context, null), context);
+});
 
 test('context trimming keeps exact predicates, cited facts and authoritative artifacts or fails before asking', () => {
   const critical = 'Required final condition\n'.repeat(20);
@@ -89,7 +100,7 @@ for (const mode of ['test-expectation', 'unknown'] as const) test(`v4 diagnoses 
     maxTurns: 10, maxBudgetUsd: null, signal: new AbortController().signal, prompt: { system: '', user: '' } as ExecRequest['prompt'],
     readOnlyDirs: [], subagents: [], mcp: null, finishGuard: null, salvageFromText: null };
   const result = await new GuidedExecutor({ paths, provider, items: [item], inputRevision: () => 'same', originalRequests: ['Return one'],
-    requirements: '', sources: '', contextWindow: 8192, draftPerFile: true, writableFiles: files,
+    requirements: '', sources: '', contextWindow: 16384, draftPerFile: true, writableFiles: files,
     check: async () => readFileSync(join(root, files[1]!), 'utf8').includes('= 2') ? { passed: false, result: 'actual 1 expected 2' } : { passed: true, result: 'passes' },
   }).run(req, hooks);
   assert.equal(result.ok, mode === 'test-expectation', result.note); assert.equal(calls, mode === 'test-expectation' ? 4 : 3);

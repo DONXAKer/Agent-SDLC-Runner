@@ -59,6 +59,17 @@ export const PlanStep = z.object({
 }).strict();
 export const PlanAxis = z.object({ name: text, affected: z.boolean(), reason: text, outcome: text }).strict();
 export const PlanCaller = z.object({ symbol: text, caller: text, covered: z.enum(['да', 'нет']), decision: text }).strict();
+/** Сопоставление ответа человека (`ответ-N` из clarification-report.md) с исходным пунктом
+ * задачи — строка таблицы «Уточнения и разрешение расхождений», которую требует
+ * `clarificationResolutionProblem`. Без этого поля план с ответом человека в v5 был
+ * недостижим: страж требовал таблицу, а рендер плана её не знал (оракул, vat-rounding). */
+export const PlanResolution = z.object({
+  answer: z.string().regex(/^ответ-\d+$/u),
+  /** `claim-N` либо раздел задачи («границы», «подход», «инварианты»). */
+  source: text,
+  kind: z.enum(['подтверждает', 'уточняет', 'заменяет']),
+  text: text,
+}).strict();
 export const Plan = z.object({
   approach: text,
   steps: z.array(PlanStep).max(24),
@@ -66,6 +77,7 @@ export const Plan = z.object({
   axes: z.array(PlanAxis),
   changes: text,
   callers: z.array(PlanCaller).max(120).default([]),
+  resolutions: z.array(PlanResolution).max(24).optional(),
 }).strict();
 export const PlanIr = z.object({ version: z.literal(1), plan: Plan }).strict();
 
@@ -83,6 +95,7 @@ export const PlanRepairOperation = z.discriminatedUnion('op', [
   z.object({ op: z.literal('setApproach'), value: text }).strict(),
   z.object({ op: z.literal('setExcluded'), value: z.array(text) }).strict(),
   z.object({ op: z.literal('setChanges'), value: text }).strict(),
+  z.object({ op: z.literal('setResolution'), answer: PlanResolution.shape.answer, source: text, kind: PlanResolution.shape.kind, text }).strict(),
 ]);
 export const PlanRepairIr = z.object({ version: z.literal(1), operations: z.array(PlanRepairOperation).min(1).max(24) }).strict();
 export const PreparationIr = z.object({

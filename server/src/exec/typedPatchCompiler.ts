@@ -14,8 +14,18 @@ const factory = ts.factory;
 const sourceFile = ts.createSourceFile('implementation-ir.ts', '', ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: false });
 
+// Строковый литерал печатается в одинарных кавычках и без ASCII-экранирования: принтер TS по
+// умолчанию выдавал `"\u043F\u0430\u043A\u0435\u0442"` вместо `'пакет'` — такую строку не прочитать
+// человеку в diff'е, а гейт «Ответы человека в коде» ищет цитату ответа буквально (оракул, vat-rounding).
+function stringLiteral(text: string): ts.StringLiteral {
+  return ts.setEmitFlags(factory.createStringLiteral(text, true), ts.EmitFlags.NoAsciiEscaping);
+}
+
 function compileType(node: TypeNode): ts.TypeNode {
-  const parsed = ts.createSourceFile('type.ts', `type ImplementationIrType = ${node.text};`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // Хвостовая `;` в тексте типа — след копирования из объявления (`Map<string, {…}>;`), а не
+  // другой тип: корпус r1–r4 показал отказ всей операции из-за неё (mellum, idempotent-retry).
+  const text = node.text.trim().replace(/;+$/u, '');
+  const parsed = ts.createSourceFile('type.ts', `type ImplementationIrType = ${text};`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const diagnostics = (parsed as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics;
   if (diagnostics.length || parsed.statements.length !== 1 || !ts.isTypeAliasDeclaration(parsed.statements[0]!))
     throw new TypedPatchCompileError(`Invalid TYPE node: ${node.text}`);
@@ -64,13 +74,16 @@ function compileExpression(node: Expression): ts.Expression {
     case 'identifier': return factory.createIdentifier(node.name);
     case 'literal':
       if (node.value === null) return factory.createNull();
-      if (typeof node.value === 'string') return factory.createStringLiteral(node.value);
+      if (typeof node.value === 'string') return stringLiteral(node.value);
       if (typeof node.value === 'number') return factory.createNumericLiteral(node.value);
       return node.value ? factory.createTrue() : factory.createFalse();
     case 'array': return factory.createArrayLiteralExpression(node.elements.map(compileExpression));
     case 'object': return factory.createObjectLiteralExpression(node.properties.map(property => property.kind === 'spread'
       ? factory.createSpreadAssignment(compileExpression(property.expression))
-      : factory.createPropertyAssignment(factory.createStringLiteral(property.key), compileExpression(property.value))));
+      // Ключ-идентификатор печатается без кавычек, как пишут руками: `{ "vat": "std" }` в коде
+      // не идиоматичен, а гейт «Ответы человека в коде» ищет цитату человека `vat: 'std'`
+      // в добавленных строках и не находил её из-за кавычек вокруг ключа (оракул, vat-rounding).
+      : factory.createPropertyAssignment(/^[A-Za-z_$][\w$]*$/u.test(property.key) ? factory.createIdentifier(property.key) : stringLiteral(property.key), compileExpression(property.value))));
     case 'property_access':
       if (node.computed) return factory.createElementAccessExpression(compileExpression(node.object), compileExpression(node.property));
       if (node.property.kind !== 'identifier') unsupported('non-computed property access requires an identifier property');
@@ -128,12 +141,12 @@ function compileStatement(node: Statement): ts.Statement {
       const clause = node.defaultImport || named || node.namespaceImport ? factory.createImportClause(node.typeOnly ?? false,
         node.defaultImport ? factory.createIdentifier(node.defaultImport) : undefined,
         node.namespaceImport ? factory.createNamespaceImport(factory.createIdentifier(node.namespaceImport)) : named) : undefined;
-      return factory.createImportDeclaration(undefined, clause, factory.createStringLiteral(node.source));
+      return factory.createImportDeclaration(undefined, clause, stringLiteral(node.source));
     }
     case 'reexport': return factory.createExportDeclaration(undefined, node.typeOnly ?? false,
       factory.createNamedExports(node.names.map(name => factory.createExportSpecifier(false,
         name.exported && name.exported !== name.imported ? factory.createIdentifier(name.imported) : undefined,
-        factory.createIdentifier(name.exported ?? name.imported)))), factory.createStringLiteral(node.source));
+        factory.createIdentifier(name.exported ?? name.imported)))), stringLiteral(node.source));
   }
 }
 

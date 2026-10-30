@@ -60,6 +60,17 @@ const canonical = (value: unknown): unknown => {
 };
 const canonicalJson = (value: unknown): string => JSON.stringify(canonical(value)) ?? 'null';
 
+/** Поля Zod/схемы из отказа — для field-level recovery при повторном proposalHash. */
+function zodFieldHints(error: unknown): string[] {
+  if (!(error instanceof z.ZodError)) return [];
+  const hints: string[] = [];
+  for (const issue of error.issues.slice(0, 6)) {
+    const path = issue.path.length ? issue.path.join('.') : '(root)';
+    hints.push(`${path}: ${issue.message}`);
+  }
+  return hints;
+}
+
 type ReplayCandidate = { decisionId: string; value: unknown; at: string };
 function findReplay(directory: string, requestHash: string): ReplayCandidate | null {
   const candidates: ReplayCandidate[] = [];
@@ -232,16 +243,37 @@ export class DecisionEngine {
           this.options.onValidation?.({questionId:input.questionId,accepted:false,reason:error.message.slice(0,2000)});
           throw new DecisionError(error.category, error.message, id, usage);
         }
-        feedback = { rejectedProposal: turn.text, diagnostics: String(error).slice(0, 4000),
-          instruction: 'Repair only the rejected decision using the complete current packet. No filesystem changes occurred.' };
+        const fieldHints = zodFieldHints(error);
+        const diagnostics = String(error).slice(0, 4000);
+        feedback = { rejectedProposal: turn.text, diagnostics,
+          instruction: fieldHints.length
+            ? `Repair only these fields: ${fieldHints.join('; ')}. Keep every other constraint. No filesystem changes occurred.`
+            // Non-Zod rejects (outline allowlist и т.п.) раньше давали пустой hint — модель
+            // повторяла тот же JSON (series 2026-10-29 format). Диагностику кладём в instruction.
+            : `Repair the rejected decision. Diagnostics: ${diagnostics.slice(0, 1200)}. No filesystem changes occurred.` };
         this.options.onValidation?.({questionId:input.questionId,accepted:false,reason:String(error).slice(0,2000)});
         const proposalHash = hasRejectedValue ? progressHash(rejectedValue) : null;
         record('rejected', { ...feedback, proposalHash });
         if (proposalHash !== null) {
-          const count = (rejections.get(proposalHash) ?? 0) + 1;
-          rejections.set(proposalHash, count);
-          if (count === 2) {
-            const reason = `Decision response was rejected twice with the same proposalHash ${proposalHash}`;
+          // Sticky только при том же repair-входе (диагностика). Новый вход = новый шанс;
+          // тот же JSON при той же диагностике — по-прежнему стоп.
+          const stickyKey = progressHash({ proposal: proposalHash, diagnostics });
+          const count = (rejections.get(stickyKey) ?? 0) + 1;
+          rejections.set(stickyKey, count);
+          // Первый повтор того же хеша — не стоп: сужаем инструкцию (field-level), даём
+          // третью попытку. Стоп на третьем том же ответе — иначе vat-rounding/format
+          // убивали клетку на попытке 2 без смены входа (6×5).
+          if (count === 2 && attempt < maxAttempts) {
+            feedback = {
+              ...feedback,
+              instruction: fieldHints.length
+                ? `Same proposal was rejected again. Change ONLY: ${fieldHints.join('; ')}. Do not repeat the previous JSON unchanged.`
+                : 'Same proposal was rejected again. Change the rejected fields; do not repeat the previous JSON unchanged. No filesystem changes occurred.',
+            };
+            continue;
+          }
+          if (count >= 3 || (count >= 2 && attempt >= maxAttempts)) {
+            const reason = `Decision response was rejected ${count} times with the same proposalHash ${proposalHash}`;
             record('invalid-response', { ...feedback, proposalHash });
             throw new DecisionError('invalid-response', reason, id, usage);
           }

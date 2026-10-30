@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildGuidedWorkingContext, workingContextCurrent } from '../src/exec/guidedWorkingContext.ts';
-import { guidedCapabilities, validateGuidedCapabilities } from '../src/exec/guidedCapabilities.ts';
+import { GuidedOpError } from '../src/exec/symbolOps.ts';
+import { guidedCapabilities, synthesizeAddressableDiagnostic, validateGuidedCapabilities } from '../src/exec/guidedCapabilities.ts';
 import { parseBoundGuidedReply, guidedBoundActionResponseFormat, simulateOps } from '../src/exec/GuidedExecutor.ts';
 import { observedTestFailures, groundedRepairFeedback, parseRepairDiagnosis } from '../src/exec/repairDiagnosis.ts';
 import { preservationConstraint } from '../src/run/preservationConstraint.ts';
@@ -105,10 +106,27 @@ test('a bound response cannot overwrite a new file repeatedly or mix full and pa
   assert.throws(() => validateGuidedCapabilities([
     { op: 'create_file', file: capability[0]!.file, body: 'export const calculate = 1;' },
     { op: 'create_file', file: capability[0]!.file, body: 'export const calculate = 2;' },
-  ], capability), /единственной/);
+  ], capability), (error: unknown) => error instanceof GuidedOpError && error.diagnostic.kind === 'sole_write'
+    && error.diagnostic.file === capability[0]!.file && error.diagnostic.op === 'create_file' && /единственной/.test(error.message));
   assert.throws(() => validateGuidedCapabilities([
     { op: 'create_file', file: capability[0]!.file, body: 'export const calculate = 1;' },
     { op: 'ensure_import', file: capability[0]!.file, from: './types.ts', names: ['Item'] },
-  ], capability), /единственной/);
+  ], capability), (error: unknown) => error instanceof GuidedOpError && error.diagnostic.kind === 'sole_write');
   assert.doesNotThrow(() => validateGuidedCapabilities([{ op: 'create_file', file: capability[0]!.file, body: 'export const calculate = 1;' }], capability));
+});
+
+test('capability reject and missing new file synthesize an addressable diagnostic', () => {
+  const capability = [{ file: 'src/new.ts', ops: ['create_file'] as const }];
+  assert.throws(() => validateGuidedCapabilities([
+    { op: 'replace_body', file: 'src/new.ts', symbol: 'x', body: 'return 1;' },
+  ], capability), (error: unknown) => error instanceof GuidedOpError && error.diagnostic.kind === 'capability'
+    && error.diagnostic.op === 'create_file' && error.diagnostic.file === 'src/new.ts');
+  const mixed = [
+    { op: 'create_file' as const, file: 'src/new.ts', body: 'export const x = 1;\n' },
+    { op: 'ensure_import' as const, file: 'src/new.ts', from: './a', names: ['A'] },
+  ];
+  const diagnostic = synthesizeAddressableDiagnostic(mixed, [{ path: 'src/new.ts', isNew: true }]);
+  assert.deepEqual(diagnostic, { kind: 'sole_write', op: 'create_file', file: 'src/new.ts', candidates: [] });
+  assert.deepEqual(synthesizeAddressableDiagnostic([], [{ path: 'src/new.ts', isNew: true }]),
+    { kind: 'missing_new_file', op: 'create_file', file: 'src/new.ts', candidates: [] });
 });

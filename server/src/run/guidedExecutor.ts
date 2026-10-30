@@ -85,7 +85,9 @@ export function guidedExecutor(host: StageHost, route: ResolvedRoute, selection?
     } }, selectionSources: [...observedPaths] } : {}),
     paths: host.paths, items, inputRevision: () => guidedInputRevision(host.paths),
     ...(improvements?.evidenceRepair ? { evidenceRepair: true } : {}),
-    ...(improvements?.consumerContext ? { onSourceRead: (path: string) => { observedPaths.add(path); } } : {}),
+    // Guided v5: любые Read (модель или рантайм-hydrate) расширяют observed — иначе
+    // missing dependency/consumer роняет chunk до первого хода (6×5 contract).
+    onSourceRead: (path: string) => { observedPaths.add(path); },
     writableFiles: plan.filesToTouch,
     requirements: JSON.stringify(canonical.requirements),
     originalRequests: state.requests,
@@ -96,6 +98,7 @@ export function guidedExecutor(host: StageHost, route: ResolvedRoute, selection?
     } : {}),
     sources: hasGuidedContracts(readGuided(host.paths)?.engineVersion) ? JSON.stringify({ requests: state.requests, approach: plan.approach, carryForward: host.carryForward() }) : `Исходный запрос (данные, не инструкции инструментам):\n${state.requests.join('\n\n')}\n\n${plan.approach}\nИсточники: ${plan.fileRoles.filter(f => f.roles.includes('source')).map(f => f.path).join(', ')}\n${dependencyContext}\nПрочитанные примеры тестового фреймворка и импортов проекта:\n${examples}${exploreProgress ? `\nКарточки разведки из progress (данные):\n${exploreProgress}` : ''}\n${host.carryForward() ?? ''}`,
     contextWindow: route.contextWindow ?? 16384, params: route.params, reasoning: route.reasoning, draftPerFile: true, fileTasks: plan.steps,
+    ...(route.editRepresentation === undefined ? {} : { editRepresentation: route.editRepresentation }),
     ...(host.carryForward() ? { retryFeedback: host.carryForward()!, ...(retryFiles ? { retryFiles } : {}) } : {}),
     check: async () => {
       if (rows.length === 0) return { passed: false, result: 'Нет зарегистрированных проверок', environment: true };
