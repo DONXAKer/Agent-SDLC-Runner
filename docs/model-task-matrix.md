@@ -565,3 +565,24 @@ ollama оставляет запас под вычислительные буф�
 скрытых тестов без чистого Handoff и подтверждённых гейтов не является полным успехом.
 Эти две задачи использовались для отладки режима и не являются независимым holdout;
 данных недостаточно для оценки обобщаемости или частоты успеха модели.
+
+## Guided v5 — матрица 6×5 (серии r1–r4, 2026-10-28…30)
+
+Текущее состояние по последней завершённой серии `guided-v5-six-models-five-tasks-20261030-r4`
+(движок v5, карточный план, независимая приёмка в Docker; разбор серий — `docs/model-runs.md`,
+«Guided v5 6×5 r4 — итог»). В клетке — этап остановки и класс отказа (`bench/src/failureClass.ts`).
+Успех во всех четырёх сериях — 0; **сильного контроля в сериях не было**, поэтому строки
+говорят о паре «модель + протокол», а не о модели отдельно: оракул верных ответов проходит
+4/5 задач офлайн, корпус r1–r4 нашёл 20 ложных отказов (все — r1, сняты).
+
+| Модель | add-validator | config-default | rename-field | idempotent-retry | vat-rounding | Итого |
+|---|---|---|---|---|---|---|
+| `qwen3:8b-ctx16k` | plan · schema | chunk · harness | plan · review-rejected | plan · semantic | chunk · semantic | до chunk доходит на 2/5; окно 16k: `ask` на config-default не влезает по арифметике (преполёт пакетов) |
+| `gpt-oss-20b-agent-stepfill` | plan · semantic | explore · env | plan · wall-clock | chunk · semantic | explore · env | две клетки — среда (explore), не модель; chunk 1/5 |
+| `granite4.2-8b-ctx32k` | plan · semantic | plan · semantic | plan · format | plan · semantic | plan · semantic | останавливается на plan во всех пяти; устойчиво за r1–r4 |
+| `mellum2-12b-instruct-q6` | plan · schema | chunk · semantic | plan · semantic | chunk · semantic | chunk · semantic | chunk 3/5, фактической правки 0 |
+| `ministral3-14b-instruct-ctx32k-compactfill` | intent · human-required | intent · human-required | intent · wall-clock | ask · unknown | intent · human-required | не проходит intent: ревью приёмки повторяет подтверждённые замечания; квалификация 8/12 |
+| `devstral-small-2` | plan · semantic | plan · wall-clock | intent · wall-clock | plan · semantic | plan · wall-clock | hybrid, паспорт ×3: wall-clock 3/5 — часы, не семантика; с 2026-10-30 такие клетки отсекает допуск `preflight` |
+
+Следующий замер — не r5: пилот 1×1×3 на `qwen3.8-27b-iq4-gpumax`/`add-validator`, затем матрица
+с этим рядом как контролем (`bench/experiments/guided-v5-six-models-five-tasks.json`).

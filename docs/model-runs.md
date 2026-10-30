@@ -7630,28 +7630,306 @@ Apriel-1.6-15b-rf: preflight красный (89.2% GPU / 10.8% CPU). Взят `o
 
 **Итог локального рецензента:** qwen3.8-27b-iq4-gpumax-rf **2/2** осевых посева (против gpt-oss-rf 0/2). Условие: `reviewModel` = та же loop-модель с reviewFill, не Claude SDK.
 
-### qwen gpumax-rf � ����� axis-config-blind ?3, 2026-10-23
+### qwen gpumax-rf — серия axis-config-blind ×3, 2026-10-23
 
-`ollama:qwen3.8-27b-iq4-gpumax-rf`, ������ `oversize-axes3-diagnostic-v4`, `--stage verify`, `reviewModel` = �� �� ������ (loop reviewFill).
+`ollama:qwen3.8-27b-iq4-gpumax-rf`, снимок `oversize-axes3-diagnostic-v4`, `--stage verify`, `reviewModel` = та же модель (loop reviewFill).
 
-| ����� | caught | where |
+| Сэмпл | caught | where |
 |---|---|---|
 | s1 | ? | report |
 | s2 | ? | report |
 | s3 | ? | report |
 
-**����:** 3/3. ����������: `bench/results/roles-qwen-axis-config-x3-s{1,2,3}.*`. ��������� ����� � `axis-secret-in-log` ?3 �� ��� �� ������������.
+**Итог:** 3/3. Результаты: `bench/results/roles-qwen-axis-config-x3-s{1,2,3}.*`. Следующий замер — `axis-secret-in-log` ×3 на той же конфигурации.
 
-### qwen gpumax-rf � ����� axis-secret-in-log ?3, 2026-10-23
+### qwen gpumax-rf — серия axis-secret-in-log ×3, 2026-10-23
 
-�� �� ������������: `ollama:qwen3.8-27b-iq4-gpumax-rf`, ������ `oversize-axes3-diagnostic-v4`, `reviewModel` = �� �� (loop reviewFill).
+Та же конфигурация: `ollama:qwen3.8-27b-iq4-gpumax-rf`, снимок `oversize-axes3-diagnostic-v4`, `reviewModel` = та же (loop reviewFill).
 
-| ����� | caught | where |
+| Сэмпл | caught | where |
 |---|---|---|
 | s1 | ? | report |
 | s2 | ? | report |
 | s3 | ? | report |
 
-**����:** 3/3. ����������: `bench/results/roles-qwen-axis-secret-x3-s{1,2,3}.*`.
+**Итог:** 3/3. Результаты: `bench/results/roles-qwen-axis-secret-x3-s{1,2,3}.*`.
 
-**���� �� ����� ������ (qwen gpumax-rf, n=3 �� �����):** axis-config-blind **3/3**, axis-secret-in-log **3/3**. ������ gpt-oss-rf 0/2 �� ��� �� ������� (n=1). �������: ��������� `reviewModel` � reviewFill, �� Claude SDK.
+**Свод по обеим сериям (qwen gpumax-rf, n=3 на класс):** axis-config-blind **3/3**, axis-secret-in-log **3/3**. Против gpt-oss-rf 0/2 на тех же посевах (n=1). Условие: локальный `reviewModel` с reviewFill, не Claude SDK.
+
+## Guided v5 6×5 — harness-фиксы после series 20261029, remasure r2 (частичный), 2026-10-29
+
+**Что чинили (код, не модели):** ложный allowlist плана (`кроме` в `forbiddenCodePaths` / `intentPlanBoundaryProblem`); create-only схема chunk без `read`/`no_change`; outline `enum` allowedTargets + диагностика в recovery; soft-attach `intermediate-state`/`latest-check`; packing scenarios×4 на card-phased; `context-required`→`harness`, красный verify→`contract`.
+
+**Замер:** `bench/results/guided-v5-six-models-five-tasks-20261029-r2` vs baseline `…-20261029`.
+Статус remasure: **stopped** на 10/30 — `GPU wait budget exhausted` (после qwen?5 + gpt-oss?5). Успех 0; mutation 0; Plan 5/10; Verify 1.
+
+**Сдвиг классов (10 клеток):** `format` у qwen/gpt-oss почти ушёл (rename/vat/idempotent → semantic|wall-clock|review-failed). `human-required` у qwen idempotent → `semantic`. `review-failed` на qwen vat остался (packing 16k). gpt-oss: 3× `wall-clock` (plan/chunk/work-budget).
+
+**Помогло ли:** allowlist/format — да (класс сдвинулся). Mutation/успех — нет на этом срезе. Полный 6×5 после фиксов ещё не измерен (20 клеток pending).
+
+**Во что упёрлись сейчас:** semantic на plan/chunk; wall-clock у gpt-oss; GPU1 free < 6500 MiB оборвал серию.
+
+
+## Guided v5 6×5 — глобальные правки протокола + remasure r3, 2026-10-29
+
+**Что меняли (контракт, не attempts ceiling):**
+1. **Полнота карточек до workItems** — `guidedPlanCardCompletenessProblem` (claims claim-N + check/expected) внутри `guidedPlanFieldsProblem` и перед `renderGuidedPlan`; адресный repair по «шаг N», без финального dump.
+2. **Sticky repair-вход** — `DecisionEngine`: счётчик sticky по (proposalHash, diagnostics); `GuidedExecutor`: fingerprint включает `repairFocus`, после отказа с диагностикой схема сужается сразу.
+3. **Символы plan-time** — `guidedPlanTargetProblem`: символ ∈ индекс файла или `новый:` + якорь из требований/запроса; иначе ремонт карточки (не ждать planMap на chunk). `planMapProblem` не ослабляли.
+4. **Узкий allowlist** — `ensureExcludedExplorationPaths`: пути разведки без шага → «Из задачи исключено» с runtime-обоснованием; `files_to_touch` только из steps. `excludedFromPlanPaths` читает и `##`-заголовок guided. `failureClass`: `stopped:escalate` / scope → `contract`.
+
+**Замер:** `bench/results/guided-v5-six-models-five-tasks-20261029-r3` (тот же experiment spec), compare vs `…-20261029` → `compare.ru.md`. GPU1 floor в манифесте сначала 6400, на resume pending — 6000 MiB (иначе GPU wait как у r2 на 4060). Compare предупреждает о расхождении спецификаций из‑за floor — классы всё равно сравнимы по клеткам.
+
+**Итог (30/30 complete):** успех **0** (как baseline). Воронка: Intent 26 → Ask 25 → **Plan 9** (baseline тоже 9) → **mutation 2** (было 0) → Verify 1 → приёмка 0. Единственная клетка с Verify+escalate→`contract`: granite/`rename-field` (hidden 2/6, scope/приёмка/топтание). Вторая mutation без Verify — mellum/`add-validator` (repair без прогресса).
+
+**Классы (было → стало):** `format` 9→3, `unknown` 2→0, `review-failed` 1→0, `human-required` 5→3, `review-rejected` 2→1; `semantic` 11→**18**; `contract` 0→1; `wall-clock` 0→4 (devstral plan×3 + ministral intent/`vat`). Сдвиги по клеткам — в `compare.ru.md` (format/unknown/human-required чаще уходят в ранний `semantic` на plan: пустые claims, символ ∉ index без якоря, цель вне allowlist).
+
+**Помогло ли.** Да, частично и адресно: (1) полнота/символ plan-time ловят брак карточки до chunk — меньше `format`/`unknown`, больше честного `semantic` на plan; (2) `escalate`/scope → `contract` сработал на granite rename; (3) mutation 0→2. Нет по критерию успеха: Plan не вырос, success 0; модели по-прежнему пишут пустые claims и «новый: …» без якоря / символ из чужого файла; sticky держит петлю, но не выводит из повторного reject (qwen/`vat`); wall-clock на медленных hybrid/ministral — не регресс протокола, бюджет стенных часов.
+
+**Во что упёрлись теперь.** Семантика плана (claims≥1, символ∈index|новый+якорь, цель test-пути), вопросы о требованиях в chunk (gpt-oss), decision-format (gpt-oss idempotent/vat, ministral idempotent), human-required на приёмке у ministral, wall-clock plan у devstral. Следующий рычаг — не attempts ceiling, а качество карточки/якоря символа и/или сужение вопросов «вернись к плану» до адресного repair, не новый remasure без кода.
+
+**Матрица/сильные-слабые:** success-картина моделей не сдвинулась (всё ещё 0/30) — клетки `model-task-matrix` / строки strengths не переписывать; деталь в этом журнале и `summary.ru.md` r3.
+
+## Guided v5 6×5 — фиксы после r3 + remasure r4, 2026-10-30
+
+**Что чинили по разбору r3 (контракт, не attempts ceiling):**
+1. **Chunk `question`** — больше не AskHuman+throw (r3 gpt-oss: applied 0). Мягкий reject + feedback «используй plan/requirements», группа продолжает.
+2. **Allowlist путей** — `guidedPathAllowed` / `guidedCanonicalPath` через `foldPathCase`: setTarget с тем же путём в другом регистре (Windows) не «не разрешена для ремонта» (r3 qwen/idempotent: `sendnotification` vs `sendNotification`).
+3. **Symbol-guard feedback** — в ошибке символы *этого файла* и якоря новых имён из задачи; пустые claims → адресное «укажи claim-N», не zod Too small.
+
+**Замер:** `bench/results/guided-v5-six-models-five-tasks-20261030-r4` vs baseline `…-20261029` → `compare.ru.md`. GPU1 floor 6000 MiB. Середина: `Frozen inputs changed` (live `coordinatorHash` уехал от снимка) на 27/30 → обновлён hash, resume 6-3…6-5 → **complete 30/30**.
+
+**Итог:** успех **0**. Воронка: Intent 25 → Ask 24 → **Plan 6** (baseline 9, r3 9) → mutation **0** (r3: 2) → Verify 0. Классы vs baseline: `format` 9→1, `unknown` 2→1, `human-required` 5→3; появились `schema` 2, `harness` 1, `env` 2, `wall-clock` 5. Vs r3: `format` 3→1; `semantic` 18→14; `contract` 1→0; ask-requirements у gpt-oss **снят** (мягкий reject), но те же клетки ушли в empty-claims / env / wall-clock.
+
+**Помогло ли.** Частично по классам: (1) chunk `question` больше не роняет applied-0; (2) `format`↓; (3) в причинах plan видны подсказки «в файле: …» / claim-N. **Не помогло** по воронке: Plan и mutation хуже r3/baseline на одном повторе (шум + пустые claims / invented `новый:` / wall-clock). Подсказки «допустимые новые из задачи» в снимке r4 тащили шум `sdlc/template/intent` — сужать до camelCase/PascalCase вне scaffold (live-код после серии уже упрощает guard).
+
+**Во что упёрлись.** Пустые claims на plan; выдуманные `новый: IdempotencyStore` / `explore*`; `srcDir`/`тест` как символ; human-required у ministral; wall-clock plan/intent у gpt-oss/devstral/ministral; env-timeout ollama. Success-картина моделей не сдвинулась — матрицу не переписывать.
+
+## Оракул выполнимости guided v5 — верные ответы на живом конвейере, 2026-10-30
+
+**Зачем.** Четыре серии 6×5 (r1–r4) дали success 0/30 при сдвигах классов отказа, и каждый фикс
+снимался «по клетке». Вопрос, который ни одна серия не отвечала: **проходит ли конвейер хоть одну
+задачу стенда, если модель отвечает идеально?** Если нет — модели мерить нечем. Оракул
+(`bench/src/simulator/oracle.ts` + книги ответов `oracleBooks.ts`): HTTP-двойник провайдера,
+отвечающий на каждый пакет решения заведомо верным ответом по имени схемы; живой `Run`, guided v5,
+`--all`, независимая приёмка в `node:24-alpine`, скрытые тесты задачи. Тест —
+`bench/test/simulatorOracle.test.ts` (skip с причиной без эталона методологии или Docker).
+
+**Было (первый прогон, до правок):** handoff 0/5. Упирались не модели, а конвейер.
+
+**Что нашли и починили — всё в рантайме, по общему интерфейсу, не под клетку:**
+
+| # | Где упёрлись | Починено |
+|---|---|---|
+| F2a | enum `guided_plan_outline` строился из ключей в нижнем регистре (`readme.md`) и отвергал канонический путь | enum из канонических путей (`canonicalByKey`) |
+| F2b | enum outline закрытый — новый тест-файл назвать нельзя вовсе | ветка `{"isNew":true,"path"}` + `constraints.newTarget` (guardedPath, нет на диске, родитель есть, границы intent) |
+| F6 | `clarificationResolutionProblem` требует таблицу «Уточнения и разрешение расхождений», а рендер guided-плана её не умел — план с ответами человека зацикливался на ремонте | `Plan.resolutions` в IR, схема `guidedPlanResolutionSchema`, рендер таблицы, операция ремонта `setResolution` |
+| F8 | `symbolAnchoredInTask` отвергал `новый: idempotencyTests` — имя describe-блока в тексте задачи не встречается по построению | проверка якоря удалена; новый символ объявляется объектом, появление сверяет `planMapProblem` на chunk |
+| F9 | `planCallersProblem` на повторном входе в chunk сверял строки вызовов с уже изменённым деревом | вызывающие в файлах `files_to_touch` учтены по построению, строка не сверяется |
+| F10 | гейт «Ответы человека в коде» не находил `vat: 'std'` в diff'е с `"vat": "std"` | `quotedLiteralFound` — канонизация кавычек и пробелов; принтер IR печатает ключи-идентификаторы без кавычек, строки в одинарных кавычках и **без `\uXXXX`** (кириллица в тестах была нечитаемой) |
+| F11 | «не меняем существующие тесты, кроме `test/invoice.test.ts`» читалось как полный запрет | `boundaryProseWithoutPaths` — фразы с конкретными путями запрет не образуют |
+| — | карточка нового файла отвергалась списком известных символов разведки (символ «тест» у runtime-карточки) | для `isNew` символ новый по построению |
+
+**Стало: handoff 4/5** (add-validator 8/8 скрытых, rename-field 6/6, idempotent-retry 5/5,
+vat-rounding 8/8 включая H1–H3 по ответу человека). `config-default` — **предел конвейера**,
+задокументирован в `ORACLE_KNOWN_LIMITS`: задача велит обновить существующий тест внутри
+`describe`, а типизированный IR правит только объявления верхнего уровня (`syntaxIndex` не видит
+`describe/it`), и `repairDiagnosisTargets` не даёт ремонту взять существующий тест целью. Снимается
+общим расширением (индекс тест-кейсов как символов + замена statement по якорю), не хаком.
+
+**Открытое (в работу schema-close):** F12 — `materializeGuidedPlanImplementation` собирает карточку
+«Экспортировать index из src/sender.ts» по упоминанию пути в запросе (idempotent-retry); оракул
+закрывает её честным `no_change` с одобрением `no_change_review`, но карточка выдумана рантаймом.
+
+**Во что упёрлись в оракуле как в инструменте:** нестабильность места остановки у
+`config-default` (chunk или verify — зависит от исчерпания бюджета ремонта); книга ответов обязана
+давать точные выдержки для `no_change_review` и диагноз с `observedFailure` дословно — иначе
+рантайм молча отклоняет, и это выглядит как отказ конвейера.
+
+**Статус моделей не менялся** — это замер конвейера, матрица и strengths не переписываются.
+
+## Реплей-корпус отказов r1–r4 — кто виноват в отказе, офлайн, 2026-10-30
+
+**Что сделали.** `bench/src/replayCorpus.ts`: из `raw/` серии и ленты витка собраны все 159 отказов
+валидации четырёх серий 6×5 (пакет → ответ модели → причина), каждый ответ прогнан через схему
+своего запроса, причины разложены по закрытому словарю классов, метки — автоматические (бюджет /
+двойник enum / не по схеме) плюс правила стенда `bench/corpus/replay/labels.json`. Сводка —
+`bench/corpus/replay/r1-r4-20261030.summary.md`.
+
+**Что показал корпус (159 отказов):**
+- **53 % — обрезка по `max_tokens`** (85), с исчерпанной лестницей в 52 случаях. gpt-oss-20b 38,
+  ministral 22, mellum 17. Схемы: `guided_action` 30, `sdlc_form_fields` 28, repair плана 17.
+  Доля по сериям r1→r4: 17 → 14 → 29 → 25 — фиксы протокола её не трогали. Главный класс отказов
+  серий — арифметика окна/вывода, а не семантика ответа.
+- **13 % — ложные отказы рантайма** (20): все в r1 на `guided_plan_outline` — модель называла путь
+  из текста задачи, allowlist без enum и без ветки нового файла отвечал «target is not allowed».
+  Плюс `Invalid TYPE node: …;` (хвостовая `;`, mellum ×3) — снят в `compileType`.
+- **17 % — брак модели** (27): символ не идентификатор (granite ×10), чужой файл, IR вне словаря,
+  пропущенный evidenceId.
+- **13 % — без правила** (21): «Цитата не адресует предмет вопроса» у ministral на ask (13 подряд,
+  config-default) и «basis: уникальные claim-N» у mellum на intent (6) — ручной разбор.
+
+**Помогло ли.** Корпус подтвердил оракул: ложные отказы r1 — те же F2a/F2b. Класс отказов, под
+который чинили протокол в r2–r4 (format/allowlist/semantic), в корпусе занимает треть; бюджет —
+половину, и ни один фикс серий на него не был направлен. Следующий рычаг — преполёт по контексту
+(todo `context-preflight`), не новые валидаторы.
+
+**Статус моделей не менялся.** Регресс-тесты ложных отказов: `server/test/planOutlineGate.test.ts`
+(«replay corpus r1»), `server/test/typedImplementationIr.test.ts` (хвостовая `;`);
+тест корпуса — `bench/test/replayCorpus.test.ts`.
+
+## Закрытие символа схемой вместо пост-валидаторов (schema-close), 2026-10-30
+
+**Что чинили.** По оракулу и корпусу — класс «символ карточки»: модель печатала символ свободным
+текстом (или из общего списка разведки по всем файлам), а после хода его судили три разных
+места — `guidedPlanTargetProblem` (символ ∈ файл / ∈ список разведки / якорь в задаче),
+`coerceTaskNamedSymbols`+`alignNewSymbolsToTaskNames` (подгонка имени по стему к любому
+ASCII-слову ≥3 символов из текста задачи) и `planMapProblem` на входе chunk (те же стемы). Отказ
+r3 qwen/rename-field «Product не найден в src/store.ts … knownSymbols: Product» — ровно этот класс.
+
+**Что сделали (одно изменение — контракт карточки):**
+- `guided_plan_card.symbol` и `setTarget` ремонта — `enum` объявлений ИМЕННО файла карточки из
+  индекса (`fileSymbolsAt`/`fileSymbolSchema`) либо `{isNew:true,name}`; новому файлу и файлу без
+  объявлений — только новый. Символ чужого файла стал невыразим по построению.
+- Удалены `coerceTaskNamedSymbols`, `alignNewSymbolsToTaskNames`, `taskNamedIdentifiers` и их
+  тесты; `guidedPlanTargetProblem` оставлен с ОДНИМ правилом (объявлен в файле или помечен новым),
+  без параметров `knownSymbols`/`requests`; `planMapProblem` — то же правило без стемов.
+- F12: рантайм больше не читает сырой текст запроса ради целей (`extractExplicitExportPaths`,
+  `extractRequestImplementationPaths` удалены; `intentNewTestPath`, `materialize…`,
+  `guidedRequiredImplementationPaths` — только по одобренному intent.md). Путь из прозы запроса
+  («реэкспорт из src/index.ts») карточкой рантайма не становится — его предлагает outline.
+
+**Помогло ли.** Оракул: по-прежнему 4/5 до handoff (config-default — задокументированный предел),
+то есть закрытие схемой верные планы не отвергает. **Живой серией не замерено** — по правилу
+«фикс по находке серии замеряется той же серией» следующий шаг после `context-preflight` —
+пилот 1×1×3 (см. `stand-discipline`), не матрица.
+
+**Во что упёрлись.** `addStep` ремонта по-прежнему несёт общий `symbolSchema(knownSymbols)`: вариант
+на каждый файл раздул бы схему ремонта в N раз; для него правило `guidedPlanTargetProblem` остаётся
+единственным стражем. Прямой (не карточный) путь полного плана v4 — тоже.
+
+## Арифметика контекста в преполёте (context-preflight), 2026-10-30
+
+**Что сделали.** `bench/src/contextPreflight.ts` собирает из сырых обменов серий профиль пакетов
+задачи (`bench/corpus/packets/<task>.json`): по (этап, схема) — минимальный/медианный/максимальный
+промпт по `usage.prompt_tokens` провайдера и p90 размера ПОЛНЫХ ответов (`finish_reason: stop`).
+Преполёт (`preflight.ts::checkDecisionPacketsFit`) считает формулу `DecisionEngine`:
+`окно − минимальный пакет − 512 ≥ max(256, min(1024, старт лестницы))` → иначе красный
+(класс `preflight`), остаток меньше p90 полного ответа → предупреждение «обрезка вероятна».
+
+**Что показали профили r1–r4 (5 задач, 15–17 пакетов на задачу):**
+
+| Задача | Окно 16k | Окно 32k |
+|---|---|---|
+| add-validator, rename-field, idempotent-retry | помещается | помещается |
+| vat-rounding | ⚠ `ask` остаток 3077 < p90 9427; `chunk/guided_action` 8221 < 8994 | помещается |
+| config-default | **❌ `ask/guided_question_resolution`: 16384 − 15161 − 512 = 711 < 1024** — решение не стартует; ⚠ `chunk` 9643 < 10440 | помещается |
+
+Самые тяжёлые пакеты — `ask` (11,6–15,2k токенов минимум: вопрос человеку несёт задачу, intent и
+источники целиком) и `verify` (10,7–12,1k); `chunk/guided_action` при минимуме 4,6–7,7k растёт
+по ходу витка до 17,4k (максимум) — то есть на окне 16k обрезка `guided_action` — вопрос не
+«если», а «когда». Это и есть 53 % budget-отказов корпуса.
+
+**Помогло ли.** Отказ qwen3-8b-ctx16k «Mandatory decision context does not fit» на
+config-default теперь предсказывается до запуска клетки по числам, а не классифицируется после.
+Живьём не замерено — преполёт включён в `runPreflight` и сработает на следующей серии; в
+матрицу (`tools/guided-matrix.ts`, пропуск клетки как `preflight`) не встроен — файл заморожен
+до конца r4 (`coordinatorHash`), см. `stand-discipline`.
+
+**Во что упёрлись.** Профиль — наблюдение прошлых серий, не расчёт по конструкции: новая задача
+без серии профиля не имеет (преполёт говорит об этом словами, не зеленит). Минимум промпта —
+нижняя оценка (токенизатор самой экономной модели); «помещается» по минимуму не гарантирует
+старт на расширенном пакете — для этого есть медиана/максимум в том же файле.
+
+## Guided v5 6×5 r4 — итог, 2026-10-30
+
+**Серия:** `bench/results/guided-v5-six-models-five-tasks-20261030-r4`, 30/30 клеток, статус
+`complete`, успех **0** (четвёртый ноль подряд: r1 → r4). Воронка: Intent 25/30 → Ask 24 →
+Plan **6** → фактическая правка **0** → Verify 0. Классы отказа: semantic 14, wall-clock 5,
+human-required 3 (все — ministral на intent), schema 2, env 2 (gpt-oss на explore), format 1,
+review-rejected 1, harness 1, unknown 1.
+
+**Сдвиг vs r3** (`compare.ru.md`, n=1): класс сменился в 14 клетках из 30 — но при одном
+повторе смена класса стохастической моделью **утверждением о сдвиге не является**
+(с этой записи `compare` и колонка «Сдвиг» подписывают это явно: «n=1 — не сдвиг»).
+Устойчивое за четыре серии: devstral — wall-clock на plan (3 из 5 клеток, паспорт ×3),
+granite/mellum — semantic на plan, ministral — не проходит intent.
+
+**Контроля в серии нет** (как и в r1–r3): ряд сильной модели в спецификацию не входил,
+поэтому ответ «раннер или модель» серия r4 дать не может — его дают оракул (4/5 офлайн) и
+корпус (20 ложных отказов из 159, все — r1). Следующий живой замер — не r5 той же матрицы,
+а пилот 1×1×3 на `qwen3.8-27b-iq4-gpumax`/`add-validator`
+(`bench/experiments/guided-v5-pilot-qwen27b-add-validator.json`), и только при успехе —
+матрица с этим рядом как седьмым (`guided-v5-six-models-five-tasks.json`, `control`).
+
+## Whole-file представление правки — серия 6×1 на add-validator, 2026-10-28 (запись задним числом)
+
+`bench/results/whole-file-six-models-one-task-20261028`, движок v5, `GUIDED_EDIT_REPRESENTATION=whole-file`
+(переменная окружения — с 2026-10-30 ручка профиля `ModelDef.editRepresentation`). Серия не была
+записана в журнал; координатор умер на шестой клетке (devstral, `running` без процесса), 5/6
+завершены, успех 0. До chunk — где только и действует whole-file — дошли две модели, и обе
+упали в его собственных стражах: gpt-oss `schema` «Creation would alter proposed bytes;
+применено 0», granite `schema` «Whole-file change cannot be represented by one unambiguous
+authorized operation; применено 0». Остальные три упали до chunk (qwen3-8b —
+`PreparationReviewContextError` на plan, mellum — `review-stalled`, ministral — `human-required`
+на intent) и о представлении правки ничего не говорят. **Вывод:** whole-file не измерен — 2
+наблюдения, оба отказ в его же проверках; ручка остаётся выключенной по умолчанию.
+
+## Дисциплина стенда — в код (stand-discipline), 2026-10-30
+
+**Что сделали.** `bench/src/seriesDiscipline.ts` — чистые функции, `tools/guided-matrix.ts`
+их зовёт:
+- **Пилот-гейт.** `prepare` матрицы шире 1×1 требует `--pilot DIR` — завершённую серию
+  1 модель × 1 задача × ≥3 повтора того же движка хотя бы с одним успехом (`pilotGate`);
+  сам пилот обязан иметь `repetitions ≥ 3`. Манифест пишет `pilot: {dir, verdict}`.
+- **Отпечаток исходников.** `sourceDiff` по пофайловому `inputs` замороженного снимка:
+  `prepare --previous DIR` (или пилот по умолчанию) пишет `sourceChange` — изменённые,
+  добавленные, удалённые файлы и их число; summary и `compare.ru.md` показывают его рядом
+  с классами. Запись в журнал обязана называть ОДНО изменение; манифест показывает,
+  сколько их было.
+- **Допуск клетки** (`cellAdmission`) до загрузки модели: квалификация FAIL, паспорт
+  скорости выше потолка `wallclock.maxScale`, пакет решения задачи не влезает в окно
+  (`contextPreflight` по `bench/corpus/packets/<task>.json`) → клетка `complete` с классом
+  `preflight`, не запускается. Прежнее «FAIL, но транспорт совместим — гоняем» снято.
+- **GPU wait → пауза.** Исчерпанный `gpuWaitMinutes` даёт статус `paused` с сохранёнными
+  `pending`; возобновление — тем же `run`. Остановить серию может только `suiteHours`.
+- **Контрольный ряд.** Спецификация обязана содержать `control` ⊆ `models`; потолок моделей
+  поднят до 7 (шесть кандидатов + контроль). Историческим спецификациям без `control`
+  `prepare` отказывает — они остаются записью условий прошлых серий, не шаблоном новых.
+- **«Сдвиг» при n=1** подписывается «не сдвиг» и в summary, и в `compare`.
+
+**Помогло ли.** Проверено на r4: `prepare --pilot <r4>` отклоняет матрицу («лучшая пара
+0/1, нужно ≥1 из ≥3»), без `--pilot` — отклоняет сразу. Живой серией не замерено — по
+построению это и есть то, что не даст запустить следующую серию без пилота и контроля.
+
+**Во что упёрлись.** Профиль пакетов есть только у пяти задач серий r1–r4; для новой задачи
+допуск по контексту не судится (клетка запускается, преполёт прогона скажет словами).
+Паспорт считается по квалификационным пробам, а не по реальному витку — порог
+`maxScale` отсекает лишь заведомо непроходимое. `claude-sdk` как контроль в матрицу не
+входит: координатор держит только локальный движок Ollama.
+
+## Разбор незакоммиченной груды (triage-diff), 2026-10-30
+
+60 файлов разложены по темам против оракула (4/5) и корпуса (ложные отказы = 0 после
+schema-close), набор зелёный (server 3094, bench 461, web): `32ede97` структурный класс
+отказа; `f7a0f5b` этап 4 — символ схемой, цели из intent.md; `d6013b7` подготовка — якорь
+замечания, stop-loss, скелет оснований; `6d3a386` этап 5 — ремонт по диагностике, hydrate,
+печать литералов; `816b8bd` корпус и профили пакетов; `c5f6eab` стенд — классификатор,
+воронка, паспорт, hybrid, преполёт пакетов; `420bbf0` оракул.
+
+**Отозвано** (эвристики под клетки, не под контракт):
+- `taskNamedIdentifiers` / `coerceTaskNamedSymbols` / `alignNewSymbolsToTaskNames` (символ
+  подгонялся по стему к любому ASCII-слову задачи; комментарии ссылались на клетки r3/r5) —
+  заменены enum объявлений файла (schema-close).
+- `isPostImplementationAcceptanceIssue` (распознавание замечаний «файл/экспорт ещё не
+  создан» по словам рецензента, r6 ministral): без цитаты запроса такое замечание и так
+  уходит в `dropped`, а с цитатой фильтр отбрасывал бы настоящее. Фазу
+  BEFORE_IMPLEMENTATION задаёт системный промпт, не пост-фильтр.
+- `GUIDED_EDIT_REPRESENTATION` (переменная окружения) → `ModelDef.editRepresentation`:
+  рычаг, невидимый оператору, ручкой замера быть не может.
+
+**Решение по двум красным тестам `formFill`:** несостоявшийся аудит приёмки (битый ответ
+рецензента, сбой среды) — не подтверждённое замечание: он даёт отказ контракта на повтор
+этапа (`reviewStatus: rejected`, скелет из запроса закрывает плейсхолдеры), а не
+`human-required` — человеку нечего решать, замечания нет. Stop-loss `human-required`
+остался только за подтверждёнными повторными замечаниями.
