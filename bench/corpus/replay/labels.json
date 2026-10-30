@@ -1,0 +1,49 @@
+{
+  "// назначение": "Правила разметки отказов содержательных валидаторов в реплей-корпусе (bench/src/replayCorpus.ts::applyLabelRules). Правило применяется к случаю с меткой post-validator, если совпали схема, класс причины и регулярка по причине; targetNamedInTask требует, чтобы путь из первой группы регулярки был назван в тексте задачи в обратных кавычках. Первое совпавшее правило побеждает. Это данные стенда, не код раннера.",
+  "rules": [
+    {
+      "schema": "guided_plan_outline",
+      "rejectionClass": "allowlist",
+      "reasonPattern": "target is not allowed: (\\S+)",
+      "targetNamedInTask": true,
+      "label": "false-reject",
+      "note": "r1 (20261029): allowlist outline был пост-валидатором без enum в схеме и не допускал ни новых файлов (src/vat.ts), ни существующих тестов, названных задачей (test/invoice.test.ts), ни файлов вне списка разведки (src/product.ts). Модель называла путь из текста задачи и получала отказ. Снято: enum канонических путей в схеме + ветка {isNew,path} (F2a/F2b, оракул 2026-10-30)."
+    },
+    {
+      "schema": "guided_plan_outline",
+      "rejectionClass": "allowlist",
+      "reasonPattern": "target is not allowed: (\\S+)",
+      "label": "model",
+      "note": "Цель не названа задачей и не входит в allowlist — модель выбрала чужой файл."
+    },
+    {
+      "schema": "guided_action",
+      "reasonPattern": "Invalid TYPE node: .*;\\s*$",
+      "label": "false-reject",
+      "note": "Текст типа с хвостовой `;` (след копирования из объявления) ронял всю операцию. Снято: compileType срезает хвостовую `;` (2026-10-30)."
+    },
+    {
+      "schema": "guided_action",
+      "reasonPattern": "Unsupported implementation IR|declaration positions accept only",
+      "label": "model",
+      "note": "Операция IR вне поддерживаемого словаря (return/класс в позиции объявления)."
+    },
+    {
+      "schema": "guided_action",
+      "reasonPattern": "не ссылается на обязательное доказательство",
+      "label": "model",
+      "note": "Пропущен обязательный evidenceId пакета; схема перечисляет обязательные id явно."
+    },
+    {
+      "schema": "guided_plan_outline",
+      "reasonPattern": "dependency must refer to an earlier card",
+      "label": "model",
+      "note": "dependsOn ссылается на позднюю или собственную карточку."
+    },
+    {
+      "reasonPattern": "must match pattern /\\^\\[A-Za-z_\\$\\]",
+      "label": "model",
+      "note": "Имя символа не идентификатор (проза или путь вместо имени); схема называет шаблон явно."
+    }
+  ]
+}
