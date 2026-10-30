@@ -51,6 +51,17 @@ export function literalPattern(form: string): RegExp {
 }
 
 /**
+ * Цитата ответа человека найдена в тексте diff'а, если совпадает с точностью до вида кавычек и
+ * пробелов: человек пишет `vat: 'std'`, принтер кода печатает `vat: "std"` — это одна и та же
+ * форма, а не потерянный ответ (оракул, vat-rounding). Смысловых символов нормализация не
+ * трогает: `'std'` и `'standard'` по-прежнему разные.
+ */
+export function quotedLiteralFound(form: string, text: string): boolean {
+  const canon = (s: string): string => s.replace(/['"`]/gu, '"').replace(/\s+/gu, ' ').trim();
+  return canon(text).includes(canon(form));
+}
+
+/**
  * Литералы ответа: числа (с процентной альтернативой) и цитаты «…»/"…"/`…`.
  * Числа внутри слов не берутся — регулярка требует нецифровое окружение.
  */

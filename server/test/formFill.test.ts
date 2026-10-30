@@ -127,7 +127,8 @@ it('guided reviews acceptance before writing it and retries concrete semantic er
       audits++;
       const data = JSON.parse(req.messages.at(-1)!.content);
       strictEqual(data.phase,'BEFORE_IMPLEMENTATION'); strictEqual('sourceFacts' in data,false);
-      text = JSON.stringify({ issues: audits === 1 ? [{claimId:'claim-1',problem:'valid input must not fail',basis:'valid allowed',counterexample:'valid input expected refusal'}] : [] });
+      // Основание — цитата запроса: замечание без якоря в запросе отбрасывается (см. тест ниже).
+      text = JSON.stringify({ issues: audits === 1 ? [{claimId:'claim-1',problem:'valid input must not fail',basis:'«valid input is accepted»',counterexample:'valid input expected refusal'}] : [] });
     } else {
       drafts++;
       if (drafts > 1) ok(req.messages.at(-1)?.content.includes('valid input must not fail'));
@@ -136,9 +137,41 @@ it('guided reviews acceptance before writing it and retries concrete semantic er
     return { text, toolCalls: [], finishReason:'end_turn' as const, usage:{inputTokens:1,outputTokens:1,cacheReadTokens:0,cacheWriteTokens:0,costUsd:null,durationMs:1} };
   }} as unknown as ChatProvider;
   const result = await new FormFillExecutor({provider,maxResultBytes:10000,readRangeRequiredAboveBytes:10000,bashTimeoutMs:1000,
-    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent'}).run(request(root,artifact), hooks({writes:[]},true));
+    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent',intentRequests:['Reject malformed entries; valid input is accepted as is.']}).run(request(root,artifact), hooks({writes:[]},true));
   strictEqual(result.ok,true,result.note); strictEqual(drafts,2); strictEqual(audits,2);
   ok(readFileSync(artifact,'utf8').includes('"expected":"allow"')); ok(!readFileSync(artifact,'utf8').includes('"expected":"refuse"'));
+});
+it('guided acceptance review: замечание без якоря не отклоняет поле, неразрешённое замечание требует человека', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-anchor-')); roots.push(root);
+  const artifact = join(root, 'intent.md');
+  const template = '<!-- sdlc-template: intent v1 -->\n<!-- sdlc-json:acceptance:start -->\n‹acceptance_json›\n<!-- sdlc-json:acceptance:end -->';
+  const draft = JSON.stringify([{ id: 'claim-1', behavior: 'phone accepted', procedure: 'use +7 number', expected: 'accepted' }]);
+  const reply = (text: string) => ({ text, toolCalls: [], finishReason: 'end_turn' as const, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } });
+  const isAudit = (req: ChatRequest) => req.messages[0]?.content.startsWith('Проверь черновик приёмки') === true;
+  const run = (issues: () => unknown[], counters: { drafts: number; audits: number }) => {
+    writeFileSync(artifact, template);
+    const provider = { name: 'anchor-spy', async chat(req: ChatRequest) {
+      if (isAudit(req)) { counters.audits++; return reply(JSON.stringify({ issues: issues() })); }
+      counters.drafts++; return reply(draft);
+    } } as unknown as ChatProvider;
+    return new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000,
+      compact: true, preparationV2: true, reviewIntentClaims: true, stage: 'intent',
+      intentRequests: ['Phone numbers in international format with a leading plus are accepted.'] })
+      .run({ ...request(root, artifact), maxTurns: 20 }, hooks({ writes: [] }, true));
+  };
+  // Уточнение рецензента, которого нет в запросе: поле принято с первого раза.
+  const unanchored = { drafts: 0, audits: 0 };
+  const first = await run(() => [{ claimId: 'claim-1', problem: 'no length check', basis: 'phone must be exactly 10 digits', counterexample: '+7 12' }], unanchored);
+  strictEqual(first.ok, true, first.note); strictEqual(unanchored.drafts, 1); strictEqual(unanchored.audits, 1);
+  ok(first.note?.includes('без основания в запросе'), first.note);
+  // Повтор подтверждённого замечания — stop-loss, а не молчаливое одобрение красного claim.
+  const repeated = { drafts: 0, audits: 0 };
+  await rejects(run(() => [{ claimId: 'claim-1', problem: 'plus sign not required', basis: '«with a leading plus»', counterexample: '79990000000' }], repeated), /требуется решение человека/);
+  strictEqual(repeated.drafts, 2);
+  // Новые подтверждённые замечания тоже не отменяются по счётчику попыток.
+  const capped = { drafts: 0, audits: 0 };
+  await rejects(run(() => [{ claimId: 'claim-1', problem: `objection ${capped.audits}`, basis: '«international format»', counterexample: 'x' }], capped), /требуется решение человека/);
+  strictEqual(capped.drafts, 3); strictEqual(capped.audits, 3);
 });
 for (const version of [3, 4] as const) it(`guided v${version} handles rejected acceptance without concealing review status`, async () => {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-fail-')); roots.push(root);
@@ -159,6 +192,24 @@ for (const version of [3, 4] as const) it(`guided v${version} handles rejected a
   ok(!text.includes('"expected":"allow"'), text);
   strictEqual(result.ok, version === 3, result.note);
   if (version === 4) { strictEqual(result.failure?.kind, 'contract'); strictEqual(result.failure?.reviewStatus, 'rejected'); }
+});
+it('скелет после отказов закрывает и basis_json строкой на каждый claim', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-seed-basis-')); roots.push(root);
+  const artifact = join(root, 'intent.md');
+  writeFileSync(artifact, '<!-- sdlc-template: intent v1 -->\n<!-- sdlc-json:acceptance:start -->\n‹acceptance_json›\n<!-- sdlc-json:acceptance:end -->\n<!-- sdlc-json:basis:start -->\n‹basis_json›\n<!-- sdlc-json:basis:end -->\n');
+  const provider = { name: 'broken-audit', async chat(req: ChatRequest) {
+    return { text: req.messages[0]?.content.startsWith('Проверь черновик приёмки') ? '{}' : '[{"id":"claim-1","behavior":"valid","procedure":"check","expected":"allow"}]',
+      toolCalls: [], finishReason: 'end_turn' as const, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } } as unknown as ChatProvider;
+  await new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000,
+    compact: true, preparationV2: true, reviewIntentClaims: true, stage: 'intent',
+    intentRequests: ['## Что должно получиться\n\n1. Функция validateCustomer возвращает коды нарушений.\n2. Пустой телефон даёт код phone_required.\n'] })
+    .run({ ...request(root, artifact), guidedEngineVersion: 4 }, hooks({ writes: [] }, true));
+  const text = readFileSync(artifact, 'utf8');
+  ok(!/‹[^›]*›/u.test(text), text);
+  const basis = JSON.parse(/<!-- sdlc-json:basis:start -->\n([\s\S]*?)\n<!-- sdlc-json:basis:end -->/u.exec(text)![1]!) as { id: string; basis: string }[];
+  deepStrictEqual(basis.map((row) => row.id), ['claim-1', 'claim-2']);
+  ok(basis[1]!.basis.startsWith('request-1:L4-L4 «'), basis[1]!.basis);
 });
 after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });

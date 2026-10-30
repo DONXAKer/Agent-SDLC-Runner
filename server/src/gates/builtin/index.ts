@@ -26,7 +26,7 @@ import { overwriteGate } from './overwrite.ts';
 import { testsClaimsGate } from './testsClaims.ts';
 import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
 import { extensionProblems, type ImportExtensionProblem } from './imports.ts';
-import { extractHumanFacts, literalPattern } from '../../artifacts/humanFacts.ts';
+import { extractHumanFacts, literalPattern, quotedLiteralFound } from '../../artifacts/humanFacts.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
@@ -1917,7 +1917,7 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
     const missing = fact.literals.filter(
       (lit) =>
         !lit.accepted.some((form) =>
-          /^\d/.test(form) ? literalPattern(form).test(added) : added.includes(form),
+          /^\d/.test(form) ? literalPattern(form).test(added) : quotedLiteralFound(form, added),
         ),
     );
     if (missing.length > 0) {

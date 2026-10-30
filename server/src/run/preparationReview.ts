@@ -1,10 +1,11 @@
 import { readArtifact } from '../artifacts/artifact.ts';
-import { preparation, preparationReferencedCodePaths, savePreparation, preparationFingerprint, preparationReviewProblem, section, sourceHash, reviewSourcesCurrent } from '../artifacts/preparation.ts';
+import { preparation, preparationReferencedCodePaths, savePreparation, preparationFingerprint, preparationReviewProblem, section, sourceHash, reviewSourcesCurrent, planCardHashes } from '../artifacts/preparation.ts';
 import type { ExecHooks } from '../exec/StageExecutor.ts';
 import type { StageHost } from './stages/types.ts';
 import { extractHumanFacts } from '../artifacts/humanFacts.ts';
 import { readTree } from '../explore/tree.ts';
 import { extractFilesToTouch } from '../artifacts/planFiles.ts';
+import { splitByAnchor } from '../exec/reviewAnchor.ts';
 import { capBytes } from '../prompt/bytes.ts';
 import { readGuided } from './guidedState.ts';
 import { artifactFacts, documentFacts, guidedQuestion, plainQuestion } from '../exec/guidedProtocol.ts';
@@ -33,24 +34,52 @@ function parseReviewJson(text: string): unknown {
   }
 }
 
-export function parsePreparationReview(text: string): string[] {
+export interface PreparationReviewItem {
+  /** Строка замечания в том виде, в каком она уходит в отчёт и обратную связь. */
+  text: string;
+  /** Поле `basis` объекта замечания; у строкового замечания его нет. */
+  basis: string | null;
+  /** Поле `location` («Место плана: Шаг N») — адрес ремонта. */
+  location: string | null;
+}
+
+export function parsePreparationReviewItems(text: string): PreparationReviewItem[] {
   const value = parseReviewJson(text);
   if (typeof value !== 'object' || value === null || !('issues' in value) || !Array.isArray(value.issues)) {
     throw new Error('ожидался JSON {"issues": ["конкретное расхождение и контрпример"]}');
   }
-  return value.issues.map((issue: unknown) => {
-    if (typeof issue === 'string' && issue.trim() !== '') return issue.trim();
+  return value.issues.map((issue: unknown): PreparationReviewItem => {
+    if (typeof issue === 'string' && issue.trim() !== '') return { text: issue.trim(), basis: null, location: null };
     if (typeof issue !== 'object' || issue === null) throw new Error('замечание должно быть строкой или объектом с issue/defect');
     const item = issue as Record<string, unknown>;
     const finding = [item.issue, item.defect].find((part): part is string => typeof part === 'string' && part.trim() !== '');
     if (finding === undefined) throw new Error('объект замечания должен содержать непустое issue или defect');
+    const field = (key: string): string | null => typeof item[key] === 'string' && (item[key] as string).trim() !== '' ? (item[key] as string).trim() : null;
+    const basis = field('basis');
+    const location = field('location');
+    const counterexample = field('counterexample');
     const details = [
-      typeof item.basis === 'string' && item.basis.trim() !== '' ? `Основание: ${item.basis.trim()}` : '',
-      typeof item.location === 'string' && item.location.trim() !== '' ? `Место плана: ${item.location.trim()}` : '',
-      typeof item.counterexample === 'string' && item.counterexample.trim() !== '' ? `Контрпример: ${item.counterexample.trim()}` : '',
+      basis === null ? '' : `Основание: ${basis}`,
+      location === null ? '' : `Место плана: ${location}`,
+      counterexample === null ? '' : `Контрпример: ${counterexample}`,
     ].filter(Boolean);
-    return [finding.trim(), ...details].join(' — ');
+    return { text: [finding.trim(), ...details].join(' — '), basis, location };
   });
+}
+
+export function parsePreparationReview(text: string): string[] {
+  return parsePreparationReviewItems(text).map((item) => item.text);
+}
+
+/**
+ * Замечания независимого ревью с якорем в запросе; без якоря — предупреждение, не отказ
+ * (`reviewAnchor.ts`). Рецензент, цитирующий «основание», которого в запросе нет, спорит
+ * с собственным пересказом задачи, и такой отказ плана человек снять не может.
+ */
+export function anchoredPreparationIssues(items: readonly PreparationReviewItem[], requests: readonly string[], warn: (reason: string) => void): PreparationReviewItem[] {
+  const split = splitByAnchor(items, requests, (item) => item.basis);
+  for (const { reason } of split.dropped) warn(`Независимое ревью плана: ${reason}`);
+  return split.anchored;
 }
 
 export function preparationReviewResponseFormat(kind: 'scenarios' | 'issues'): Record<string, unknown> {
@@ -80,6 +109,28 @@ type ReviewSource = { path: string; content: string; partial: boolean };
 
 /** Доля окна, которую может занять промпт независимого ревью: остальное — reasoning и ответ. */
 export const PREPARATION_REVIEW_PROMPT_SHARE = 1 / 3;
+
+/** Пакет ревью не помещается даже без источников — не «модель плохая», а packing. */
+export class PreparationReviewContextError extends Error {
+  constructor(message = 'Структурированные данные независимого ревью не помещаются в контекст') {
+    super(message);
+    this.name = 'PreparationReviewContextError';
+  }
+}
+
+/** Карточки `### Шаг N` для поэтапного независимого ревью на узком окне. */
+export function extractPlanReviewCards(planText: string): { id: string; title: string; body: string }[] {
+  const cards: { id: string; title: string; body: string }[] = [];
+  for (const match of planText.matchAll(/^### (Шаг (\d+)[^\n]*)\n([\s\S]*?)(?=^#{1,3}\s|$(?![\s\S]))/gmu)) {
+    cards.push({ id: match[2]!, title: match[1]!.trim(), body: match[3]!.replace(/\r\n/gu, '\n').trim() });
+  }
+  return cards;
+}
+
+export function isPreparationReviewContextError(error: unknown): boolean {
+  return error instanceof PreparationReviewContextError
+    || (error instanceof Error && /не помещаются в контекст/u.test(error.message));
+}
 
 /**
  * Ужимает источники guided-ревью, пока вопрос и ответ помещаются в окно. Без Read модель видит только этот payload.
@@ -113,10 +164,14 @@ export function packGuidedPreparationReview(
     // content; порог 512 оставлял issues-фазу с ~900 completion и пустым JSON (r4 qwen/granite).
     const promptTokens = estimateMessageTokens(messages);
     const available = window - promptTokens - 1024;
-    if (available >= 2048 && promptTokens <= promptCeiling) return { question, available, facts: packed };
-    if (!packed || typeof packed !== 'object' || Array.isArray(packed)) {
-      throw new Error('Структурированные данные независимого ревью не помещаются в контекст');
-    }
+    const fits = available >= 2048;
+    if (fits && promptTokens <= promptCeiling) return { question, available, facts: packed };
+    // Потолок в треть окна — цель ужатия, а не отказ: на 16k запрос + требования + план
+    // в неё не помещаются даже без источников (r7 qwen3 падал здесь, не дойдя до ревью).
+    // Отказ остаётся только за остатком под ответ; вызывающий может уйти в card-phased.
+    const giveUp = (): never => { throw new PreparationReviewContextError(); };
+    const settle = () => fits ? { question, available, facts: packed } : giveUp();
+    if (!packed || typeof packed !== 'object' || Array.isArray(packed)) return settle();
     const record = packed as Record<string, unknown>;
     const sources = Array.isArray(record.sources) ? record.sources as ReviewSource[] : [];
     const dispensable = sources.findLastIndex(source => !priority.has(source.path));
@@ -138,25 +193,10 @@ export function packGuidedPreparationReview(
       packed = { ...record, sources, coverage: { ...coverage, provided: sources.length, truncatedForContext: true } };
       continue;
     }
-    // Sources alone are not enough on 16k: shrink plan/intent prose next.
-    let shrunk = false;
-    for (const key of ['intent', 'plan', 'previousIntent', 'independent', 'requirements'] as const) {
-      const value = record[key];
-      if (typeof value === 'string' && value.length > 256) {
-        record[key] = value.slice(0, Math.floor(value.length / 2));
-        shrunk = true;
-      } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const row = value as Record<string, unknown>;
-        for (const [field, item] of Object.entries(row)) {
-          if (typeof item === 'string' && item.length > 256) {
-            row[field] = item.slice(0, Math.floor(item.length / 2));
-            shrunk = true;
-          }
-        }
-      }
-    }
-    if (!shrunk) throw new Error('Структурированные данные независимого ревью не помещаются в контекст');
-    packed = { ...record, truncatedForContext: true };
+    // Требования и полный план — предмет ревью. Overflow здесь не маскируем усечением
+    // контракта: вызывающий (`reviewPreparation`) переходит на card-phased по «### Шаг N».
+    if (fits) return settle();
+    giveUp();
   }
 }
 
@@ -320,25 +360,135 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
     const scenarios = parseIndependentScenarios(await run(
       'Независимо восстанови цель, границы, неоднозначности и важные сценарии приёмки только из исходного запроса, ответов человека и первоисточников. Ты не видел требований и плана автора. Верни ТОЛЬКО JSON вида {"scenarios":[{"scenario":"...","incorrectBehavior":"...","basis":"..."}]}. По одному объекту на существенный сценарий; каждое поле — одно короткое предложение. Укажи только неверное поведение, которое следует обнаружить, и точное основание. Не пересказывай код и не повторяй одинаковые сценарии.', original, 'scenarios', originalData));
     independent = JSON.stringify(scenarios);
-    const text = await run('Проверь требования и план против независимого разбора и первоисточников. Найди потерянное намерение, выдуманное требование, скрытое предположение, неучтённый ответ человека, неопределённый сценарий или тест, пропускающий неверную реализацию. В независимом разборе поле incorrectBehavior описывает ошибочную реализацию, которую сценарий должен поймать; это не утверждение требований или плана. Замечание допустимо только если конкретный шаг/проверка плана действительно пропускает эту ошибку. Не сообщай дефектом ошибку или двусмысленность самого независимого разбора. Каждый дефект обоснуй точной цитатой/адресом из источника, местом в плане и контрпримером. Существующий код не определяет желаемое поведение. Перед добавлением замечания сверь его с исходным запросом: НЕ сообщай как дефект поведение, которое запрос прямо исключает, и не требуй проверок/изменений, запрещённых его рамками. Если запрос оставил выбор реализации Плану, оцени выбранный вариант по контрактам, не называй сам выбор пропуском намерения. Верни только JSON {"issues": ["конкретный дефект, основание, место плана, контрпример"]}; пустой список означает отсутствие найденных существенных расхождений, а не доказанную полноту.',
-      [original, 'Независимый разбор:', independent, 'Актуальные требования:', readArtifact(host.paths.intent).text,
-        'Предыдущая подтверждённая редакция (если была); проверь причины удаления и переопределения ID:', state.revisions.at(-1)?.intent ?? 'первая редакция',
-        'План:', readArtifact(host.paths.plan).text].join('\n\n'), 'issues', { ...planData, independent: scenarios });
-    let issues = parsePreparationReview(text);
+    const issuesSystem = 'Проверь требования и план против независимого разбора и первоисточников. Найди потерянное намерение, выдуманное требование, скрытое предположение, неучтённый ответ человека, неопределённый сценарий или тест, пропускающий неверную реализацию. В независимом разборе поле incorrectBehavior описывает ошибочную реализацию, которую сценарий должен поймать; это не утверждение требований или плана. Замечание допустимо только если конкретный шаг/проверка плана действительно пропускает эту ошибку. Не сообщай дефектом ошибку или двусмысленность самого независимого разбора. Каждый дефект обоснуй точной цитатой/адресом из источника, местом в плане и контрпримером; поле basis — дословная цитата исходного запроса или ответа человека в «кавычках» либо адрес request-N:Lx-Ly, иначе замечание отбрасывается. Существующий код не определяет желаемое поведение. Перед добавлением замечания сверь его с исходным запросом: НЕ сообщай как дефект поведение, которое запрос прямо исключает, и не требуй проверок/изменений, запрещённых его рамками. Если запрос оставил выбор реализации Плану, оцени выбранный вариант по контрактам, не называй сам выбор пропуском намерения. Верни только JSON {"issues": ["конкретный дефект, основание, место плана, контрпример"]}; пустой список означает отсутствие найденных существенных расхождений, а не доказанную полноту.';
+    const issuesUser = [original, 'Независимый разбор:', independent, 'Актуальные требования:', readArtifact(host.paths.intent).text,
+      'Предыдущая подтверждённая редакция (если была); проверь причины удаления и переопределения ID:', state.revisions.at(-1)?.intent ?? 'первая редакция',
+      'План:', readArtifact(host.paths.plan).text].join('\n\n');
+    // Якорь замечания — текст задачи: запросы дословно и ответы человека. Код якорем не
+    // служит («существующий код не определяет желаемое поведение» — из того же промпта).
+    const anchorCorpus = [...state.requests, ...extractHumanFacts(readArtifact(host.paths.clarificationReport).text).map((fact) => `${fact.question}\n${fact.answer}`)];
+    const anchored = (reviewText: string): string[] =>
+      anchoredPreparationIssues(parsePreparationReviewItems(reviewText), anchorCorpus, (reason) => hooks.onWarn(reason)).map((item) => item.text);
+    const runIssuesFull = (): Promise<string> => run(issuesSystem, issuesUser, 'issues', { ...planData, independent: scenarios });
+    /** Полный план не влез — ревью по карточкам «### Шаг N»; pending только если ни одна фаза не прошла. */
+    const runIssuesCardPhased = async (): Promise<string> => {
+      const planText = readArtifact(host.paths.plan).text;
+      const cards = extractPlanReviewCards(planText);
+      if (cards.length === 0) throw new PreparationReviewContextError();
+      const collected: { issue: string; basis: string; location: string; counterexample: string }[] = [];
+      let completedPhases = 0;
+      // Лёгкий пакет на 16k: без полного planData/intent prose и без повторной выгрузки
+      // всех scenarios — иначе card-phased сам упирался в PreparationReviewContextError (qwen).
+      // Потолок числа scenarios на карточку: полный список из 10+ на 16k снова ронял
+      // card-phased в PreparationReviewContextError (qwen add-validator, 2026-10-29).
+      const slimScenarios = scenarios.slice(0, 4).map((row) => ({
+        scenario: String(row.scenario ?? '').slice(0, 180),
+        incorrectBehavior: String(row.incorrectBehavior ?? '').slice(0, 180),
+        basis: String(row.basis ?? '').slice(0, 120),
+      }));
+      const acceptanceBrief = (state.canonical?.requirements?.acceptance ?? []).map((claim) => ({
+        id: claim.id, behavior: String(claim.behavior ?? '').slice(0, 160),
+      }));
+      const slimRequests = state.requests.map((request) => request.slice(0, 1200));
+      for (const card of cards) {
+        signal.throwIfAborted();
+        const filesInCard = [...planned].filter((path) => card.body.includes(path));
+        const cardSources = sourceData.filter((source) => filesInCard.includes(source.path));
+        const scopedSources = (cardSources.length > 0 ? cardSources : sourceData.filter((source) => planned.has(source.path)).slice(0, 1))
+          .map((source) => ({
+            ...source,
+            content: source.content.length > 1800 ? `${source.content.slice(0, 1800)}\n/* truncated */` : source.content,
+            ...(source.content.length > 1800 ? { partial: true } : {}),
+          }));
+        const cardBody = card.body.length > 2500 ? `${card.body.slice(0, 2500)}\n/* truncated */` : card.body;
+        const cardFacts = {
+          requests: slimRequests,
+          humanAnswers: extractHumanFacts(readArtifact(host.paths.clarificationReport).text).map((fact) => ({
+            question: fact.question.slice(0, 200), answer: fact.answer.slice(0, 400),
+          })),
+          sources: scopedSources,
+          coverage: { provided: scopedSources.length, candidates: candidates.length, skipped: index.skipped.files, truncatedForContext: true, mode: 'card-phased', card: card.id },
+          plan: {
+            path: host.paths.plan, exists: true, hash: sourceHash(cardBody),
+            sections: [{ section: card.title, values: [cardBody] }],
+          },
+          reviewScope: { mode: 'card-phased', card: card.id, totalCards: cards.length },
+          independent: slimScenarios,
+          acceptance: acceptanceBrief,
+        };
+        const cardUser = [
+          'Исходные запросы (сжато):', ...slimRequests,
+          'Независимый разбор (сжато):', JSON.stringify(slimScenarios),
+          'Acceptance ids:', JSON.stringify(acceptanceBrief),
+          `План — только карточка ${card.title}:`, `### ${card.title}\n${cardBody}`,
+          'Сейчас ревьюируй ТОЛЬКО эту карточку; замечания по другим шагам не добавляй.',
+        ].join('\n\n');
+        try {
+          const text = await run(`${issuesSystem}\nРежим card-phased: в данных только одна карточка плана.`, cardUser, 'issues', cardFacts);
+          for (const item of parsePreparationReviewItems(text)) {
+            collected.push({
+              issue: item.text.split(' — ')[0] ?? item.text,
+              basis: item.basis ?? 'см. запрос',
+              location: item.location ?? card.title,
+              counterexample: 'см. замечание',
+            });
+          }
+          completedPhases++;
+        } catch (error) {
+          if (!isPreparationReviewContextError(error)) throw error;
+          // Ещё уже: без исходников — только карточка + запросы.
+          try {
+            const text = await run(`${issuesSystem}\nРежим card-phased без исходников.`, cardUser, 'issues',
+              { ...cardFacts, sources: [], coverage: { ...cardFacts.coverage, provided: 0 } });
+            for (const item of parsePreparationReviewItems(text)) {
+              collected.push({
+                issue: item.text.split(' — ')[0] ?? item.text,
+                basis: item.basis ?? 'см. запрос',
+                location: item.location ?? card.title,
+                counterexample: 'см. замечание',
+              });
+            }
+            completedPhases++;
+          } catch (inner) {
+            if (!isPreparationReviewContextError(inner)) throw inner;
+            hooks.onWarn(`Независимое ревью плана: карточка «${card.title}» не поместилась в контекст; фаза пропущена`);
+          }
+        }
+      }
+      if (completedPhases === 0) throw new PreparationReviewContextError();
+      return JSON.stringify({ issues: collected });
+    };
+    let text: string;
+    try { text = await runIssuesFull(); }
+    catch (error) {
+      if (!guided || !isPreparationReviewContextError(error)) throw error;
+      hooks.onWarn('Независимое ревью плана: полный пакет не помещается — переход на card-phased по шагам');
+      text = await runIssuesCardPhased();
+    }
+    let issues = anchored(text);
     if (issues.length > 0) {
+      // Замечание, уже предъявленное предыдущей редакции плана и повторённое дословно, —
+      // не новое открытие: арбитр получает счётчик повторов и снимает повтор без нового
+      // контрпримера (по неизменённой карточке ремонт останавливается раньше, см.
+      // `preparationRepairStalled`).
+      const priorIssues = state.review?.completed === true ? state.review.issues : [];
+      const repeated = issues.filter((issue) => priorIssues.includes(issue));
       // Критик модели иногда превращает само ожидаемое ошибочное поведение из сценария
       // в дефект плана, даже когда шаги уже требуют сохранить это поведение. Перед красным
       // исходом повторно сверяем только найденные замечания с задачей и точным текстом плана.
       // Арбитраж, как и не-guided проза, сверяет замечания с запросом и планом — без повторной выгрузки исходников.
       const { sources: _adjudicationSources, ...adjudicationFacts } = planData;
       const adjudication = await run(
-        'Ты — арбитр замечаний, предыдущий критик мог ошибиться. Для каждого замечания проверь исходный запрос и конкретные шаги/проверки плана. Поле incorrectBehavior описывает ошибочную реализацию, а не поведение плана. Оставь замечание только если план действительно допускает указанный дефект. Удали всё, что запрос прямо запрещает, что уже покрыто планом/проверкой, или где критик неверно прочёл сценарий. Не добавляй новых замечаний. Верни только JSON {"issues": ["подтверждённый пропуск, цитата задачи, место плана, контрпример"]}; если замечания не подтверждаются — {"issues":[]}.',
+        'Ты — арбитр замечаний, предыдущий критик мог ошибиться. Для каждого замечания проверь исходный запрос и конкретные шаги/проверки плана. Поле incorrectBehavior описывает ошибочную реализацию, а не поведение плана. Оставь замечание только если план действительно допускает указанный дефект. Удали всё, что запрос прямо запрещает, что уже покрыто планом/проверкой, или где критик неверно прочёл сценарий. Замечания из repeatedIssues уже предъявлялись предыдущей редакции плана и повторены дословно: оставь такое, только если названная карточка всё ещё допускает дефект с тем же контрпримером. Не добавляй новых замечаний. Верни только JSON {"issues": ["подтверждённый пропуск, цитата задачи, место плана, контрпример"]}; если замечания не подтверждаются — {"issues":[]}.',
         [requestContext, 'Независимые сценарии:', independent, 'Требования:', readArtifact(host.paths.intent).text,
-          'План:', readArtifact(host.paths.plan).text, 'Замечания для проверки:', JSON.stringify(issues)].join('\n\n'), 'issues', { ...adjudicationFacts, independent: scenarios, issues },
+          'План:', readArtifact(host.paths.plan).text, 'Замечания для проверки:', JSON.stringify(issues),
+          ...(repeated.length === 0 ? [] : ['Повторённые дословно замечания предыдущего ревью:', JSON.stringify(repeated)])].join('\n\n'),
+        'issues', { ...adjudicationFacts, independent: scenarios, issues, ...(repeated.length === 0 ? {} : { repeatedIssues: repeated }) },
       );
-      issues = parsePreparationReview(adjudication);
+      issues = anchored(adjudication);
     }
-    const review = { fingerprint, independent, issues, completed: true, sourceHashes };
+    // Снимок карточек плана — для сверки «ремонт затронул карточку» перед повторным ревью.
+    const review = { fingerprint, independent, issues, completed: true, sourceHashes, cards: planCardHashes(readArtifact(host.paths.plan).text) };
     if (fingerprint !== preparationFingerprint(host.paths) || !reviewSourcesCurrent(host.paths, review)) throw new Error('источники изменились во время проверки; нужен повтор');
     savePreparation(host.paths, { ...state, review });
   } catch (error) {

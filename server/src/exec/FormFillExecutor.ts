@@ -77,15 +77,19 @@ import {
 import { foreignScript, isSheetError, looksLikeToolCallEcho, parseFieldValue } from '../artifacts/sheet.ts';
 import { listSourceFiles } from '../gates/builtin/index.ts';
 import { readTree } from '../explore/tree.ts';
-import { INTENT_CLAIM_REVIEW_SYSTEM, intentClaimReviewFormat, intentClaimReviewProblems, intentClaimSourceFacts } from './intentClaimReview.ts';
+import { INTENT_CLAIM_REVIEW_SYSTEM, intentClaimReviewFormat, intentClaimReviewVerdict, intentClaimSourceFacts } from './intentClaimReview.ts';
 import { INTENT_CONTRACT_REVIEW_SYSTEM, intentContractReviewFormat, intentContractRepairFormat, intentContractSections,
   parseIntentContractReview, renderIntentContractIssue, applyIntentContractRepair, contractIssueKey } from './intentContractReview.ts';
 import {
   materializeAcceptanceSeed,
   mergeAcceptanceSeedAnswer,
   seedAcceptanceFromRequests,
+  seedBasisFromRequests,
   type AcceptanceSeed,
 } from '../artifacts/preparation.ts';
+
+/** Сколько адресных ремонтов допускается до явной эскалации неразрешённого замечания. */
+export const MAX_ACCEPTANCE_REVIEW_REJECTIONS = 2;
 import { templateNameFor } from '../run/seed.ts';
 import { escapeCell, isSeparatorRow, splitRow, parseTables } from '../md/table.ts';
 import { RUNTIME_AUTOFILLED_TEMPLATES } from '../run/formAutofill.ts';
@@ -1075,6 +1079,13 @@ export class FormFillExecutor implements StageExecutor {
     const strictIntent = hasGuidedContracts(req.guidedEngineVersion) && this.o.stage === 'intent';
     let contractReviewedText: string | null = null;
     let acceptanceReviewRejected = false;
+    /** Аудит приёмки не состоялся (битый/оборванный ответ рецензента, сбой среды): ответ модели не проверен. */
+    let acceptanceReviewUnverified = false;
+    // Отказы ревью приёмки ограничены по полю. Повторное подтверждённое замечание
+    // или превышение лимита ремонтов требует решения человека: красный claim нельзя
+    // превращать в принятый просто потому, что попытки закончились.
+    const acceptanceReviewRejections = new Map<string, number>();
+    const acceptanceReviewSeen = new Set<string>();
     this.maxRequestTokens = null;
     const artifacts = req.formArtifacts ?? [];
     const fieldProgress = req.progress && this.o.stage ? new GuidedFieldProgress(req.progress, this.o.stage,
@@ -1984,6 +1995,10 @@ export class FormFillExecutor implements StageExecutor {
           }
           if (this.o.reviewIntentClaims && /acceptance.?json/iu.test(`${field.id} ${field.placeholders.map(p => p.text).join(' ')}`)) {
             let problems: string[];
+            const reviewKey = compactFieldKey(field);
+            // Битый или оборванный аудит — не замечание: потолок отказов на него не действует,
+            // иначе два сбоя рецензента пропускали бы непроверенный ответ.
+            let auditFailed = false;
             try {
               if (callsSpent >= fillBudget) throw new Error('Бюджет проверки приёмки исчерпан');
               callsSpent++;
@@ -1999,20 +2014,46 @@ export class FormFillExecutor implements StageExecutor {
               const audit = await this.ask(req, reviewMessages, hooks, { response_format: intentClaimReviewFormat,
                 max_tokens: 4096 });
               usage = addUsage(usage, audit.usage);
-              problems = intentClaimReviewProblems(audit.text, draft.map(claim => claim.id));
+              const verdict = intentClaimReviewVerdict(audit.text, draft.map(claim => claim.id), claimRequests);
+              for (const dropped of verdict.dropped) {
+                hooks.onWarn(`Ревью приёмки, ${dropped}`);
+                notes.push(`ревью приёмки: ${dropped}`);
+              }
+              problems = [];
+              for (const problem of verdict.problems) {
+                if (acceptanceReviewSeen.has(problem.key)) {
+                  throw new DecisionError('human-required',
+                    `Проверка приёмки повторяет подтверждённое замечание после ремонта; требуется решение человека: ${problem.text}`,
+                    'intent:acceptance-review');
+                }
+                acceptanceReviewSeen.add(problem.key);
+                problems.push(problem.text);
+              }
             } catch (error) {
           if (error instanceof DecisionError || error instanceof WorkBudgetExhausted) throw error;
               noteEnvFailure(error);
+              auditFailed = true;
               problems = [`Проверка приёмки не завершена: ${(error as Error).message}`];
             }
             if (problems.length) {
-              acceptanceReviewRejected = true;
-              const rejection = `Приёмка противоречит запросу или не проверена: ${problems.join('\n')}`;
-              notes.push(rejection); fieldRejectionMemo.set(compactFieldKey(field), rejection);
-              rejectFieldCompact(rejection, 'intent-claim-review');
-              continue;
+              const rejections = auditFailed ? 0 : (acceptanceReviewRejections.get(reviewKey) ?? 0) + 1;
+              if (!auditFailed) acceptanceReviewRejections.set(reviewKey, rejections);
+              if (rejections > MAX_ACCEPTANCE_REVIEW_REJECTIONS) {
+                throw new DecisionError('human-required',
+                  `Проверка приёмки сохраняет подтверждённые замечания после ${rejections - 1} ремонтов; требуется решение человека: ${problems.join('\n')}`,
+                  'intent:acceptance-review');
+              } else {
+                // Подтверждённое замечание и несостоявшийся аудит — разные исходы: первое после
+                // доборов эскалируется человеку, второе — отказ контракта на повтор этапа
+                // (человеку нечего решать, замечания нет — ответ просто не проверен).
+                if (auditFailed) acceptanceReviewUnverified = true; else acceptanceReviewRejected = true;
+                const rejection = `Приёмка противоречит запросу или не проверена: ${problems.join('\n')}`;
+                notes.push(rejection); fieldRejectionMemo.set(reviewKey, rejection);
+                rejectFieldCompact(rejection, 'intent-claim-review');
+                continue;
+              }
             }
-            acceptanceReviewRejected = false;
+            acceptanceReviewRejected = false; acceptanceReviewUnverified = false;
           }
 
           // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
@@ -2571,16 +2612,29 @@ export class FormFillExecutor implements StageExecutor {
       const intentPath = artifacts.find(path => /(?:^|[\\/])intent\.md$/u.test(path));
       if (intentPath === undefined) return;
       const before = readArtifact(intentPath).text;
-      const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(before)?.[1]?.trim();
-      if (block === undefined || (!/‹[^›]*›/u.test(block) && block !== '')) return;
-      const seeds = materializeAcceptanceSeed(seedAcceptanceFromRequests(
-        this.o.intentRequests?.length ? this.o.intentRequests : [req.prompt.user]));
-      const seeded = before.replace(
-        /<!--\s*sdlc-json:acceptance:start\s*-->[\s\S]*?<!--\s*sdlc-json:acceptance:end\s*-->/u,
-        `<!-- sdlc-json:acceptance:start -->\n${JSON.stringify(seeds)}\n<!-- sdlc-json:acceptance:end -->`,
-      );
+      const requests = this.o.intentRequests?.length ? this.o.intentRequests : [req.prompt.user];
+      const blockOf = (kind: 'acceptance' | 'basis'): { empty: boolean; re: RegExp } => {
+        const re = new RegExp(`<!--\\s*sdlc-json:${kind}:start\\s*-->([\\s\\S]*?)<!--\\s*sdlc-json:${kind}:end\\s*-->`, 'u');
+        const inner = re.exec(before)?.[1]?.trim();
+        return { empty: inner !== undefined && (/‹[^›]*›/u.test(inner) || inner === ''), re };
+      };
+      const acceptance = blockOf('acceptance');
+      const basis = blockOf('basis');
+      let seeded = before;
+      let seeds: AcceptanceSeed[] | null = null;
+      if (acceptance.empty) {
+        seeds = materializeAcceptanceSeed(seedAcceptanceFromRequests(requests));
+        seeded = seeded.replace(acceptance.re, `<!-- sdlc-json:acceptance:start -->\n${JSON.stringify(seeds)}\n<!-- sdlc-json:acceptance:end -->`);
+      }
+      // Основания сеются и тогда, когда приёмку записала модель: строка на каждый её claim.
+      if (basis.empty) {
+        const accepted = seeds ?? acceptanceRowsFromArtifact(seeded, true);
+        if (accepted.length > 0) {
+          seeded = seeded.replace(basis.re, `<!-- sdlc-json:basis:start -->\n${JSON.stringify(seedBasisFromRequests(accepted, requests))}\n<!-- sdlc-json:basis:end -->`);
+        }
+      }
       if (seeded === before) return;
-      hooks.onWarn('Приёмка осталась пустой после доборов — рантайм записал скелет из пунктов запроса');
+      hooks.onWarn(`${seeds === null ? 'Основания остались пустыми' : 'Приёмка осталась пустой'} после доборов — рантайм записал скелет из пунктов запроса`);
       await flushArtifact(intentPath, seeded, before);
     };
 
@@ -2627,10 +2681,23 @@ export class FormFillExecutor implements StageExecutor {
       }
     }
     await seedAcceptanceIfNeeded();
-    if (strictIntent && (fieldsLeftOnDisk() > 0 || acceptanceReviewRejected)) {
-      const note = `Intent не готов: незаполненных полей ${fieldsLeftOnDisk()}; проверка приёмки ${acceptanceReviewRejected ? 'отклонена' : 'не завершена'}`;
+    if (strictIntent && acceptanceReviewRejected) {
+      // Sticky semantic reject после цикла доборов: не soft review-rejected с pendingFields,
+      // а human-required — иначе модели залипают на одном замечании рецензента без эскалации.
+      const blockers = [...fieldRejectionMemo].map(([key, reason]) => ({ key, reason }));
+      const detail = blockers.map((row) => row.reason).filter(Boolean).slice(0, 3).join('\n') || 'проверка приёмки отклонена';
+      throw new DecisionError('human-required',
+        `Проверка приёмки осталась отклонённой после доборов Intent; требуется решение человека: ${detail}`,
+        'intent:acceptance-review');
+    }
+    if (strictIntent && (fieldsLeftOnDisk() > 0 || acceptanceReviewUnverified)) {
+      // Непроверенная приёмка (аудит не состоялся) — отказ контракта на повтор этапа, не
+      // решение человека: скелет из запроса закрыл плейсхолдер, но ответ модели не аудирован.
+      const note = `Intent не готов: незаполненных полей ${fieldsLeftOnDisk()}; проверка приёмки ${acceptanceReviewUnverified ? 'не состоялась' : 'не завершена'}`;
       return withSpent({ ok: false, finalText: '', usage, note, failure: { kind: 'contract', origin: 'intent', retryStage: 'intent', reason: note,
-        pendingFields: fieldsLeftOnDisk(), reviewStatus: acceptanceReviewRejected ? 'rejected' : 'pending' } });
+        pendingFields: fieldsLeftOnDisk(), acceptanceReviewRejected: false,
+        blockers: [...fieldRejectionMemo].map(([key, reason]) => ({ key, reason })),
+        reviewStatus: acceptanceReviewUnverified ? 'rejected' : 'pending' } });
     }
     if (this.o.reviewIntentContract && fieldsLeftOnDisk() === 0) {
       const intentPath = artifacts.find(path => /(?:^|[\\/])intent\.md$/u.test(path));

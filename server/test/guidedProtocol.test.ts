@@ -13,7 +13,7 @@ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts'
 import { contractLineFacts, sourceLineFacts, renderGuidedContractRepair } from '../src/exec/guidedIntentContract.ts';
 import { parseIntentContractReview } from '../src/exec/intentContractReview.ts';
 import { deriveClaimsBlind } from '../src/run/claimsBlind.ts';
-import { PREPARATION_REVIEW_PROMPT_SHARE, packGuidedPreparationReview, validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
+import { PREPARATION_REVIEW_PROMPT_SHARE, PreparationReviewContextError, extractPlanReviewCards, packGuidedPreparationReview, validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
 
 test('document conversion removes forms and multiline comments while preserving literal code', () => {
   const code = 'const token = `x`; // **literal**';
@@ -264,4 +264,49 @@ test('guided preparation review caps the prompt at a third of the window and dro
   // Файл плана остаётся целым: сначала целиком ушли источники, которых план не трогает.
   assert.ok(sources.some(source => source.path === 'src/target.ts' && !source.partial));
   assert.ok(sources.length < 3);
+});
+
+test('guided preparation review: потолок трети окна не режет требования и план и не роняет ревью на 16k', () => {
+  // Запрос + требования + план ≈ 7k токенов: больше трети 16k, но под ответ остаётся место.
+  const prose = 'Шаг требует проверить поведение валидатора. '.repeat(200);
+  const facts = {
+    requests: [prose], humanAnswers: [],
+    sources: [{ path: 'src/a.ts', content: 'export const a = 1;\n'.repeat(50), partial: false }],
+    coverage: { provided: 1, candidates: 1, skipped: 0 },
+    intent: { path: 'intent.md', sections: { doing: prose } },
+    plan: { path: 'plan.md', sections: { steps: prose } },
+  };
+  const packed = packGuidedPreparationReview('plan:review:issues:initial', 'Есть ли пропуски?', 'Система.', facts, '', 16384);
+  assert.ok(packed.available >= 2048);
+  assert.ok(16384 - packed.available - 1024 > Math.floor(16384 * PREPARATION_REVIEW_PROMPT_SHARE), 'фикстура обязана превышать потолок, иначе ветка не проверена');
+  const payload = (JSON.parse(packed.question) as { data: { facts: { plan: { sections: { steps: string } }; sources: unknown[] } } }).data.facts;
+  assert.equal(payload.plan.sections.steps, prose, 'план не урезан ради потолка');
+});
+
+test('guided preparation review: непомещающийся план — PreparationReviewContextError (не усечённый контракт)', () => {
+  const prose = 'Требование и обязательная проверка. '.repeat(2000);
+  const facts = {
+    requests: [prose], humanAnswers: [], sources: [], coverage: { provided: 0, candidates: 0, skipped: 0 },
+    intent: { path: 'intent.md', sections: { doing: prose } },
+    plan: { path: 'plan.md', sections: { steps: prose } },
+  };
+  assert.throws(
+    () => packGuidedPreparationReview('plan:review:issues:initial', 'Есть ли пропуски?', 'Система.', facts, '', 16384),
+    (error: unknown) => error instanceof PreparationReviewContextError && /не помещаются в контекст/.test(error.message),
+  );
+});
+
+test('extractPlanReviewCards: карточки ### Шаг N для card-phased ревью', () => {
+  const plan = [
+    '## Подход', 'сделать валидатор',
+    '### Шаг 1 — модуль', '- файл: src/a.ts', '- действие: создать',
+    '### Шаг 2 — тест', '- файл: test/a.test.ts', '- действие: покрыть',
+    '## files_to_touch', '| Путь | Что |',
+  ].join('\n');
+  const cards = extractPlanReviewCards(plan);
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0]!.id, '1');
+  assert.equal(cards[0]!.title, 'Шаг 1 — модуль');
+  assert.match(cards[0]!.body, /src\/a\.ts/);
+  assert.equal(cards[1]!.id, '2');
 });

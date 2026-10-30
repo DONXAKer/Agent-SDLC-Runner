@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test';
 import { emptyUsage } from '@sdlc-runner/shared';
 import { WitokPaths, isRuntimeServicePath } from '../src/artifacts/paths.ts';
 import { writeArtifact } from '../src/artifacts/artifact.ts';
-import { initializePreparation, preparation, preparationContext, isPreparationV2, researchProblem, requirementProblem, blockingQuestions, savePreparation, preparationFingerprint, approvePreparation, approvedPreparationProblem, preparationReviewProblem, sourceHash, recordPreparationRead, syncCanonicalPreparation, preparationSummary, requireStructuredPreparationTables, markStructuredPreparationTablesRendered } from '../src/artifacts/preparation.ts';
+import { initializePreparation, preparation, preparationContext, isPreparationV2, researchProblem, requirementProblem, blockingQuestions, savePreparation, preparationFingerprint, approvePreparation, approvedPreparationProblem, preparationReviewProblem, sourceHash, recordPreparationRead, syncCanonicalPreparation, preparationSummary, requireStructuredPreparationTables, markStructuredPreparationTablesRendered, planCardHashes, reviewIssueStepIds, preparationRepairStalled, markPreparationRepairStalled } from '../src/artifacts/preparation.ts';
 import { commitTargets } from '../src/run/commitByRuntime.ts';
 import { claimsMinimum, isSmallContour } from '../src/run/stages/preconditions.ts';
 import { readinessRun1, readinessRun2 } from '../src/run/readinessChecks.ts';
@@ -211,6 +211,51 @@ describe('версионированная проработка', () => {
       issues: ['SyntaxError: Unexpected token } in JSON at position 17'], completed: false,
     } });
     ok(preparationReviewProblem(p)?.includes('Unexpected token'), 'ошибка протокола должна быть видна оператору');
+  });
+  describe('адресный ремонт плана по замечанию', () => {
+    const planWithCards = (step2: string) => `# План\n## Подход\nОснован на src/list.ts\n- **Одобрение:** ‹имя и дата›\n## Шаги\n### Шаг 1 — Разобрать флаг\nЧитаем --zone\n### Шаг 2 — Фильтр\n${step2}\n## Проверки\nclaim-1 — тест\n`;
+    it('reviewIssueStepIds предпочитает «Место плана», иначе любое «шаг N» в тексте', () => {
+      deepStrictEqual(reviewIssueStepIds('Пропуск: нет пустого вывода — Цитата: «пустой результат» — Место плана: Шаг 2, шаг 3 — Контрпример: шаг 1 печатает таблицу'), [2, 3]);
+      deepStrictEqual(reviewIssueStepIds('план на шаге 4 не проверяет код выхода; step 4 again'), [4]);
+      deepStrictEqual(reviewIssueStepIds('замечание без адреса'), []);
+    });
+    it('planCardHashes меняется от правки карточки и не зависит от перевода строк', () => {
+      const before = planCardHashes(planWithCards('Фильтруем по zone'));
+      deepStrictEqual(Object.keys(before), ['1', '2']);
+      strictEqual(planCardHashes(planWithCards('Фильтруем по zone').replace(/\n/gu, '\r\n'))['2'], before['2']);
+      const after = planCardHashes(planWithCards('Фильтруем по zone; пустой результат — exit 0'));
+      strictEqual(after['1'], before['1']);
+      ok(after['2'] !== before['2']);
+    });
+    it('ремонт, не тронувший адресованную карточку, останавливается, а правка карточки снова открывает ревью', () => {
+      const p = fixture();
+      writeArtifact(p.plan, planWithCards('Фильтруем по zone'));
+      const issue = 'Пропуск: пустой результат не описан — Место плана: Шаг 2 — Контрпример: missing печатает таблицу';
+      const state = preparation(p)!;
+      savePreparation(p, { ...state, review: {
+        fingerprint: preparationFingerprint(p), independent: 'сценарии', issues: [issue], completed: true,
+        cards: planCardHashes(readFileSync(p.plan, 'utf8')),
+      } });
+      // Ремонт переписал только карточку 1 — адресованная карточка 2 осталась прежней.
+      writeArtifact(p.plan, planWithCards('Фильтруем по zone').replace('Читаем --zone', 'Читаем флаг --zone'));
+      const stalled = preparationRepairStalled(p) ?? '';
+      ok(stalled.startsWith('ремонт не затронул карточку Шаг 2'), stalled || 'ожидалась остановка');
+      ok(stalled.includes(issue));
+      markPreparationRepairStalled(p, stalled);
+      strictEqual(preparationReviewProblem(p), stalled, 'страж завершения называет остановку, а не «план изменился»');
+      // Карточка 2 изменилась — судить больше нечего, ревью повторяется заново.
+      writeArtifact(p.plan, planWithCards('Фильтруем по zone; пустой результат — exit 0'));
+      strictEqual(preparationRepairStalled(p), null);
+    });
+    it('без адресов шагов или без снимка карточек остановки нет', () => {
+      const p = fixture();
+      writeArtifact(p.plan, planWithCards('Фильтруем по zone'));
+      const state = preparation(p)!;
+      savePreparation(p, { ...state, review: { fingerprint: preparationFingerprint(p), independent: 'сценарии', issues: ['замечание без адреса'], completed: true, cards: planCardHashes(readFileSync(p.plan, 'utf8')) } });
+      strictEqual(preparationRepairStalled(p), null);
+      savePreparation(p, { ...state, review: { fingerprint: preparationFingerprint(p), independent: 'сценарии', issues: ['Место плана: Шаг 2'], completed: true } });
+      strictEqual(preparationRepairStalled(p), null);
+    });
   });
   it('v3 публикует валидированные требования и шаги из документов как структурированные данные', () => {
     const p = paths(); initializePreparation(p, 'Добавить фильтр');

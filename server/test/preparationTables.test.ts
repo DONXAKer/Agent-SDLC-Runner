@@ -5,6 +5,7 @@ import {
   mergeAcceptanceSeedAnswer,
   normalizePreparationTables,
   seedAcceptanceFromRequests,
+  seedBasisFromRequests,
 } from '../src/artifacts/preparation.ts';
 import { parseTables } from '../src/md/table.ts';
 
@@ -198,5 +199,26 @@ describe('preparation JSON table rendering', () => {
     ok(rows[2]?.expected.includes('Соответствует пункту'));
     const material = materializeAcceptanceSeed(seeds);
     ok(material.every((row) => row.procedure !== '' && row.expected !== '' && !/[‹›]/u.test(row.procedure)));
+  });
+
+  it('seeds basis rows with request line addresses and quotes for each acceptance claim', () => {
+    const request = [
+      '## Что должно получиться',
+      '',
+      '1. Функция `canonSku` обрезает пробелы',
+      '   и поднимает регистр.',
+      '2. Канонизация на всех границах пакета.',
+    ].join('\n');
+    const seeds = seedAcceptanceFromRequests([request]);
+    const basis = seedBasisFromRequests(seeds, [request]);
+    strictEqual(basis.length, 2);
+    strictEqual(basis[0]?.id, 'claim-1');
+    ok(basis[0]!.basis.startsWith('request-1:L3-L4 «'), basis[0]!.basis);
+    ok(basis[0]!.basis.includes('canonSku'));
+    ok(basis[1]!.basis.startsWith('request-1:L5-L5 «'), basis[1]!.basis);
+    ok(basis.every((row) => row.scenario !== '' && row.counterexample !== '' && !/[‹›]/u.test(row.basis)));
+    // Пункт, не найденный построчно, получает адрес всего запроса — не плейсхолдер.
+    const unknown = seedBasisFromRequests([{ id: 'claim-9', behavior: 'Нечто совсем иное из другого источника' }], [request]);
+    ok(unknown[0]!.basis.startsWith('request-1:L1-L5 «'), unknown[0]!.basis);
   });
 });

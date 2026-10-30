@@ -15,7 +15,7 @@ import { documentFacts } from '../exec/guidedProtocol.ts';
 import { extractFilesToTouch, forbiddenCodePaths } from './planFiles.ts';
 import { extractExplicitSteps } from './planSteps.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
-import type { PreparationSummary, StageId } from '@sdlc-runner/shared';
+import type { GuidedFailure, PreparationSummary, StageId } from '@sdlc-runner/shared';
 import { IntentIr, PreparationIr, type PlanIr, type QuestionsIr, type SourceReference } from './guidedIr.ts';
 import { compileIntent } from './guidedArtifactCompiler.ts';
 
@@ -25,6 +25,10 @@ export interface PreparationReview {
   independent: string;
   issues: string[];
   completed: boolean;
+  /** Хеши карточек «### Шаг N» плана на момент ревью — сверка «ремонт затронул карточку». */
+  cards?: Record<string, string>;
+  /** Ремонт не изменил адресованные карточки: причина остановки вместо повторного ревью. */
+  stalled?: string;
 }
 export interface PreparationReadEvidence {
   path: string;
@@ -519,6 +523,49 @@ export function materializeAcceptanceSeed(seeds: readonly AcceptanceSeed[]): Acc
   }));
 }
 
+/** Строка таблицы «Основания и сценарии», засеянная рантаймом по пункту запроса. */
+export type BasisSeed = { id: string; basis: string; scenario: string; counterexample: string };
+
+const normalizeSeedLine = (line: string): string =>
+  line.replace(/^\s*(?:\d+[.)]|[-*+])\s+/u, '').replace(/[`*_]/gu, '').replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+
+/**
+ * Скелет оснований из тех же пунктов запроса, что и приёмка: адрес строк `request-N:Lx-Ly`
+ * и дословная цитата. Поле `basis_json`, оставшееся плейсхолдером после отказов ревью,
+ * давало «незаполненных полей 1» при уже засеянной приёмке (r6 ministral) — скелет
+ * закрывает его тем же механическим правилом, что и `materializeAcceptanceSeed`.
+ */
+export function seedBasisFromRequests(seeds: readonly Pick<AcceptanceSeed, 'id' | 'behavior'>[], requests: readonly string[]): BasisSeed[] {
+  const fallbackLines = Math.max(1, (requests[0] ?? '').split('\n').length);
+  return seeds.map((seed) => {
+    const behavior = seed.behavior.replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+    let basis = requests.length > 0 ? `request-1:L1-L${fallbackLines} «${seed.behavior.slice(0, 160)}»` : 'н/п — источник не удалось проверить';
+    for (const [index, request] of requests.entries()) {
+      const lines = request.split('\n');
+      const start = lines.findIndex((line) => {
+        const text = normalizeSeedLine(line);
+        return text.length >= 12 && behavior.startsWith(text);
+      });
+      if (start < 0) continue;
+      let end = start;
+      while (end + 1 < lines.length) {
+        const next = normalizeSeedLine(lines[end + 1]!);
+        if (next === '' || !behavior.includes(next)) break;
+        end++;
+      }
+      const quote = lines.slice(start, end + 1).map((line) => line.replace(/[|\r]+/gu, ' ').trim()).join(' ').replace(/\s{2,}/gu, ' ');
+      basis = `request-${index + 1}:L${start + 1}-L${end + 1} «${quote.slice(0, 200)}»`;
+      break;
+    }
+    return {
+      id: seed.id,
+      basis,
+      scenario: `Проверить по запросу: ${seed.behavior}`,
+      counterexample: `Поведение, противоречащее пункту: ${seed.behavior}`,
+    };
+  });
+}
+
 /**
  * Склеить ответ модели (id + procedure + expected) с замороженным behavior из seed.
  * Пустые procedure/expected добиваются шаблоном — этап не остаётся с ‹acceptance_json›.
@@ -803,30 +850,84 @@ export function preparationFingerprint(paths: WitokPaths): string {
   })).digest('hex');
 }
 export function preparationReviewProblem(paths: WitokPaths): string | null {
+  return preparationReviewOutcome(paths)?.note ?? null;
+}
+
+/**
+ * Та же проверка со структурным статусом ревью: `pending` — ревью не состоялось,
+ * `rejected` — замечания не сняты, `stale` — редакция ушла от проверенной, `stalled` —
+ * ремонт не изменил адресованную карточку. Без статуса — проблема контракта (требования,
+ * улики плана), а не ревью. Стенд классифицирует отказ клетки по статусу, не по заметке.
+ */
+export function preparationReviewOutcome(paths: WitokPaths): { note: string; reviewStatus?: NonNullable<GuidedFailure['reviewStatus']> } | null {
   const state = preparation(paths);
   if (state === null) return null;
   const problem = requirementProblem(readArtifact(paths.intent).text,
     state.version === 3 && state.structuredTablesRendered === true ? state.canonical?.requirements : undefined);
-  if (problem !== null) return problem;
+  if (problem !== null) return { note: problem };
   const planArtifact = readArtifact(paths.plan);
   if (planArtifact.exists) {
     const sourceProblem = preparationPlanEvidenceProblem(paths, planArtifact.text);
-    if (sourceProblem !== null) return sourceProblem;
+    if (sourceProblem !== null) return { note: sourceProblem };
   }
   const review = state.review;
-  if (review === undefined) return 'независимая проверка ещё не проводилась; заверши проверку требований и плана';
+  if (review === undefined) return { note: 'независимая проверка ещё не проводилась; заверши проверку требований и плана', reviewStatus: 'pending' };
+  // Остановка ремонта названа раньше «изменилось — повтори»: повторять нечего, карточка та же.
+  if (review.stalled !== undefined) return { note: review.stalled, reviewStatus: 'stalled' };
   if (!review.completed) {
     const diagnostic = review.issues.find((issue) => issue.trim() !== '');
-    return diagnostic === undefined
+    return { reviewStatus: 'pending', note: diagnostic === undefined
       ? 'независимая проверка не завершилась; повтори проверку требований и плана'
-      : `независимая проверка не завершилась: ${diagnostic}`;
+      : `независимая проверка не завершилась: ${diagnostic}` };
   }
   if (review.fingerprint !== preparationFingerprint(paths) ||
-      (approvedPreparationProblem(paths) !== null && !reviewSourcesCurrent(paths, review))) return 'требования, план или исходники изменились после ревью; повтори проверку актуальной редакции';
-  return review.issues.length === 0 ? null : 'проработка требует исправлений:\n' + review.issues.map((issue) => '- ' + issue).join('\n');
+      (approvedPreparationProblem(paths) !== null && !reviewSourcesCurrent(paths, review))) return { note: 'требования, план или исходники изменились после ревью; повтори проверку актуальной редакции', reviewStatus: 'stale' };
+  return review.issues.length === 0 ? null : { note: 'проработка требует исправлений:\n' + review.issues.map((issue) => '- ' + issue).join('\n'), reviewStatus: 'rejected' };
 }
 
 export function sourceHash(text: string): string { return createHash('sha256').update(text).digest('hex'); }
+
+/** Хеш каждой карточки «### Шаг N» плана по её тексту целиком — любая правка карточки меняет хеш. */
+export function planCardHashes(planText: string): Record<string, string> {
+  const cards: Record<string, string> = {};
+  for (const match of planText.matchAll(/^### Шаг (\d+)[^\n]*\n([\s\S]*?)(?=^#{1,3}\s|$(?![\s\S]))/gmu)) {
+    cards[match[1]!] = sourceHash(match[2]!.replace(/\r\n/gu, '\n').trim());
+  }
+  return cards;
+}
+
+/** Номера карточек, названных замечанием в поле «Место плана: …» (без него — любое «шаг N» в тексте). */
+export function reviewIssueStepIds(issue: string): number[] {
+  const locations = [...issue.matchAll(/Место плана:\s*([^—\n]*)/gu)].map((match) => match[1] ?? '');
+  const scope = locations.length > 0 ? locations.join(' ') : issue;
+  return [...new Set([...scope.matchAll(/(?:шаг(?:е|а|и)?|\bstep)\s*[#№]?\s*(\d+)/giu)].map((match) => Number(match[1])))];
+}
+
+/**
+ * Ремонт после ревью обязан изменить адресованные карточки. Все названные карточки
+ * совпали с хешами на момент ревью — повторять ревью бессмысленно (оно вернёт те же
+ * замечания и сожжёт стенные часы: r6 granite/mellum); причина остановки — `stalled`.
+ * Null — судить нечего: ревью без замечаний, без снимка карточек или без адресов шагов.
+ * Уже поставленный `stalled` не учитывается: карточка, изменённая после остановки (рукой
+ * человека или новым ходом), снова открывает дорогу ревью, которое пишет запись заново.
+ */
+export function preparationRepairStalled(paths: WitokPaths): string | null {
+  const review = preparation(paths)?.review;
+  if (review === undefined || !review.completed || review.issues.length === 0 || review.cards === undefined) return null;
+  const targets = [...new Set(review.issues.flatMap(reviewIssueStepIds))].filter((id) => review.cards![String(id)] !== undefined);
+  if (targets.length === 0) return null;
+  const current = planCardHashes(readArtifact(paths.plan).text);
+  const unchanged = targets.filter((id) => current[String(id)] === review.cards![String(id)]);
+  if (unchanged.length !== targets.length) return null;
+  return `ремонт не затронул карточк${unchanged.length === 1 ? 'у' : 'и'} ${unchanged.map((id) => `Шаг ${id}`).join(', ')}: план после ремонта повторяет редакцию, по которой независимое ревью уже вернуло замечания:\n`
+    + review.issues.map((issue) => '- ' + issue).join('\n');
+}
+
+export function markPreparationRepairStalled(paths: WitokPaths, reason: string): void {
+  const state = preparation(paths);
+  if (state === null || state.review === undefined) return;
+  savePreparation(paths, { ...state, review: { ...state.review, stalled: reason } });
+}
 export function reviewSourcesCurrent(paths: WitokPaths, review: PreparationReview): boolean {
   try {
     const root = realpathSync(paths.projectRoot);
