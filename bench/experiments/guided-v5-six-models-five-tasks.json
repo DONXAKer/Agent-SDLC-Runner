@@ -1,6 +1,8 @@
 {
+  "// дисциплина": "Матрица готовится только после пилота: node tools/guided-matrix.ts prepare --spec <этот файл> --pilot bench/results/<пилот> [--previous bench/results/<прошлая серия>]. Седьмой ряд — сильный контроль: без него нули матрицы неотличимы от отказов раннера.",
   "modelConfig": "config/models.json",
   "models": [
+    "ollama:qwen3.8-27b-iq4-gpumax",
     "ollama:qwen3:8b-ctx16k",
     "ollama:gpt-oss-20b-agent-stepfill",
     "ollama:granite4.2-8b-ctx32k",
@@ -8,6 +10,7 @@
     "ollama:ministral3-14b-instruct-ctx32k-compactfill",
     "ollama:devstral-small-2"
   ],
+  "control": ["ollama:qwen3.8-27b-iq4-gpumax"],
   "tasks": [
     "add-validator",
     "config-default",
@@ -17,6 +20,7 @@
   ],
   "acceptanceImage": "node:24-alpine",
   "profileOverrides": {
+    "ollama:qwen3.8-27b-iq4-gpumax": { "placement": "gpu-only" },
     "ollama:qwen3:8b-ctx16k": { "placement": "gpu-only" },
     "ollama:gpt-oss-20b-agent-stepfill": { "placement": "gpu-only" },
     "ollama:granite4.2-8b-ctx32k": { "placement": "gpu-only" },
@@ -29,7 +33,7 @@
     "runMinutes": 75,
     "attempts": 3,
     "gpuWaitMinutes": 15,
-    "suiteHours": 30,
+    "suiteHours": 36,
     "wallclock": { "referenceDecisionSeconds": 3, "maxScale": 3 }
   },
   "engine": {
