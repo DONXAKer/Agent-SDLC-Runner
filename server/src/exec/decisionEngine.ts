@@ -215,14 +215,30 @@ export class DecisionEngine {
         // Непустой обрезок: лестница почти никогда не дописывает валидный JSON — либо точная
         // петля (Customer×N), либо инфляция имён (Fn3/Fn4/…, пилот r5 клетки 2–3). Подъём
         // 4096→8192→16384 сжигает stageMinutes. Пустой content — другой класс (reasoning
-        // съел бюджет, r6): его по-прежнему поднимаем.
+        // съел бюджет): его по-прежнему поднимаем.
+        //
+        // Пилот r6: мгновенный throw на непустом обрезе обходил и компактный retry DecisionEngine,
+        // и format-repair GuidedExecutor (DecisionError пробрасывается наружу). Точная петля
+        // редко чинится новым запросом — стоп сразу. Инфляция без периода — тот же бюджет,
+        // новая инструкция «компактный полный JSON», без подъёма max_tokens.
         if (!emptyContent) {
-          const reason = runawayRepetition(turn.text)
+          const runaway = runawayRepetition(turn.text);
+          const reason = runaway
             ? `Truncated response repeats the same fragment at max_tokens=${maxTokens}; raising the limit will not complete the JSON`
             : `Response reached max_tokens=${maxTokens} with non-empty content; raising the limit is disabled for structured decisions — return a compact complete JSON`;
           this.options.onValidation?.({ questionId: input.questionId, accepted: false, reason });
-          record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway: runawayRepetition(turn.text) });
-          throw new DecisionError('invalid-response', reason, id, usage);
+          record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway });
+          if (runaway) throw new DecisionError('invalid-response', reason, id, usage);
+          if (attempt >= maxAttempts) throw new DecisionError('invalid-response', reason, id, usage);
+          feedback = {
+            rejectedProposal: turn.text,
+            diagnostics: reason,
+            instruction:
+              'Previous response reached max_tokens with incomplete JSON. Do not continue or repeat that text. '
+              + 'Return one complete compact JSON decision now: smallest valid ops, one file when possible, '
+              + 'short bodies, tables for cases. Preserve all constraints.',
+          };
+          continue;
         }
         const raised = ladder.next(maxTokens, truncationRaises);
         if (raised !== null) {

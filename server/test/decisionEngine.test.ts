@@ -120,14 +120,17 @@ test('a truncated runaway loop does not climb the completion ladder', async t =>
 
 test('non-empty truncation without an exact period also refuses to climb', async t => {
   // Пилот r5 клетки 2–3: инфляция ValidationContextFn3/Fn4/… — не точный период, но
-  // подъём 4096→8192→16384 снова сжигал stageMinutes.
+  // подъём 4096→8192→16384 снова сжигал stageMinutes. r6: вместо мгновенного throw —
+  // компактные повторы на том же бюджете (макс. 3 попытки), лимит не растёт.
   const directory = mkdtempSync(join(tmpdir(), 'decision-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const limits: number[] = [];
+  const packets: Array<Record<string, unknown>> = [];
   const provider: ChatProvider = {
     name: 'memoryless',
     async chat(req) {
       limits.push(Number(req.params?.max_tokens));
+      packets.push(JSON.parse(req.messages[1]!.content) as Record<string, unknown>);
       const truncated = `{"action":"patch","ops":[{"op":"create_file","file":"src/x.ts","body":"${Array.from({ length: 80 }, (_, i) => `const n${i}=${i};`).join('')} `;
       return { ...turn(truncated), finishReason: 'max_tokens' };
     },
@@ -137,7 +140,32 @@ test('non-empty truncation without an exact period also refuses to climb', async
     engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
     (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /non-empty content/.test(error.message),
   );
-  assert.deepEqual(limits, [4096]);
+  assert.deepEqual(limits, [4096, 4096, 4096]);
+  assert.match(String((packets[1]?.recovery as { instruction?: string } | undefined)?.instruction), /compact JSON/i);
+});
+
+test('non-empty truncation can recover with a compact retry at the same budget', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'decision-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const limits: number[] = [];
+  const provider: ChatProvider = {
+    name: 'memoryless',
+    async chat(req) {
+      limits.push(Number(req.params?.max_tokens));
+      if (limits.length === 1) {
+        const truncated = `{"action":"patch","ops":[{"op":"create_file","file":"src/x.ts","body":"${Array.from({ length: 80 }, (_, i) => `const n${i}=${i};`).join('')} `;
+        return { ...turn(truncated), finishReason: 'max_tokens' };
+      }
+      return turn('{"decision":"keep"}');
+    },
+  };
+  const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
+  const result = await engine.decide({
+    questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(),
+    schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal,
+  });
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(limits, [4096, 4096]);
 });
 
 test('empty truncated content may raise twice toward the 16k default ceiling',async t=>{
