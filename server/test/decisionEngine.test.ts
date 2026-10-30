@@ -118,6 +118,28 @@ test('a truncated runaway loop does not climb the completion ladder', async t =>
   assert.deepEqual(limits, [4096]);
 });
 
+test('non-empty truncation without an exact period also refuses to climb', async t => {
+  // Пилот r5 клетки 2–3: инфляция ValidationContextFn3/Fn4/… — не точный период, но
+  // подъём 4096→8192→16384 снова сжигал stageMinutes.
+  const directory = mkdtempSync(join(tmpdir(), 'decision-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const limits: number[] = [];
+  const provider: ChatProvider = {
+    name: 'memoryless',
+    async chat(req) {
+      limits.push(Number(req.params?.max_tokens));
+      const truncated = `{"action":"patch","ops":[{"op":"create_file","file":"src/x.ts","body":"${Array.from({ length: 80 }, (_, i) => `const n${i}=${i};`).join('')} `;
+      return { ...turn(truncated), finishReason: 'max_tokens' };
+    },
+  };
+  const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
+  await assert.rejects(
+    engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
+    (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /non-empty content/.test(error.message),
+  );
+  assert.deepEqual(limits, [4096]);
+});
+
 test('empty truncated content may raise twice toward the 16k default ceiling',async t=>{
  const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
  const limits:number[]=[];

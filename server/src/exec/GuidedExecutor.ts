@@ -995,15 +995,19 @@ export class GuidedExecutor implements StageExecutor {
               throw error;
             }), { inputRevision: revision, files: currentFiles, failedCheck: priorFailure || null });
           if (answer.finishReason === 'max_tokens') {
-            // Зацикленный обрезок: лестница только дописывает ту же петлю (пилот qwen27b).
-            if (runawayRepetition(answer.text)) {
+            // Непустой обрезок (в т.ч. точная петля или Fn3/Fn4/…): не поднимать — см. DecisionEngine.
+            // Пустой content здесь через decisionProvider почти не бывает; на всякий случай
+            // лестницу оставляем только для него.
+            if (answer.text.trim() !== '') {
               hooks.onFriction('truncated');
-              hooks.onWarn('JSON Chunk не получен: ответ обрезан и повторяет один фрагмент — max_tokens не поднимаю');
+              hooks.onWarn(runawayRepetition(answer.text)
+                ? 'JSON Chunk не получен: ответ обрезан и повторяет один фрагмент — max_tokens не поднимаю'
+                : 'JSON Chunk не получен: ответ обрезан непустым content — max_tokens не поднимаю, нужен компактный JSON');
             } else {
               const raised = tokenLadder.next(tokenCap, tokenRaises);
               if (raised !== null && this.o.contextWindow - tokens - 1024 > tokenCap) {
                 tokenCap = raised; tokenRaises++;
-                hooks.onWarn(`JSON Chunk не получен: ответ обрезан лимитом${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
+                hooks.onWarn(`JSON Chunk не получен: пустой ответ при лимите${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
               } else {
                 hooks.onFriction('truncated'); hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом max_tokens, лимит поднимать некуда');
               }

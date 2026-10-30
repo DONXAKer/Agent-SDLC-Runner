@@ -212,19 +212,23 @@ export class DecisionEngine {
       assertCurrent(true);
       const emptyContent = turn.text.trim() === '';
       if (turn.finishReason === 'max_tokens' || emptyContent) {
-        // Зацикленный обрезок: лестница только сжигает стенные часы (пилот qwen27b chunk).
-        if (!emptyContent && runawayRepetition(turn.text)) {
-          const reason = `Truncated response repeats the same fragment at max_tokens=${maxTokens}; raising the limit will not complete the JSON`;
+        // Непустой обрезок: лестница почти никогда не дописывает валидный JSON — либо точная
+        // петля (Customer×N), либо инфляция имён (Fn3/Fn4/…, пилот r5 клетки 2–3). Подъём
+        // 4096→8192→16384 сжигает stageMinutes. Пустой content — другой класс (reasoning
+        // съел бюджет, r6): его по-прежнему поднимаем.
+        if (!emptyContent) {
+          const reason = runawayRepetition(turn.text)
+            ? `Truncated response repeats the same fragment at max_tokens=${maxTokens}; raising the limit will not complete the JSON`
+            : `Response reached max_tokens=${maxTokens} with non-empty content; raising the limit is disabled for structured decisions — return a compact complete JSON`;
           this.options.onValidation?.({ questionId: input.questionId, accepted: false, reason });
-          record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway: true });
+          record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway: runawayRepetition(turn.text) });
           throw new DecisionError('invalid-response', reason, id, usage);
         }
         const raised = ladder.next(maxTokens, truncationRaises);
         if (raised !== null) {
           const reasoningNote = turn.usage.reasoningTokens === undefined ? '' : ` (reasoning tokens=${turn.usage.reasoningTokens})`;
-          feedback = { rejectedProposal: turn.text, diagnostics: emptyContent
-            ? `Response content was empty at max_tokens=${maxTokens}${reasoningNote}; retry with max_tokens=${raised}`
-            : `Response reached max_tokens=${maxTokens}${reasoningNote}; retry with max_tokens=${raised}`,
+          feedback = { rejectedProposal: turn.text, diagnostics:
+            `Response content was empty at max_tokens=${maxTokens}${reasoningNote}; retry with max_tokens=${raised}`,
             instruction: 'Return one complete JSON decision in the content field within the raised completion budget. Keep reasoning brief. Preserve all constraints.' };
           this.options.onValidation?.({questionId:input.questionId,accepted:false,reason:String(feedback.diagnostics)});
           record('truncated', feedback);
