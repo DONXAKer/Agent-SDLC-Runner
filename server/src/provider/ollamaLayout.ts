@@ -40,6 +40,11 @@ interface OllamaPsBody {
 
 export interface OllamaLayoutOptions {
   timeoutMs?: number;
+  /**
+   * Минимальная доля веса в VRAM (0–100). Умолчание — `FULL_GPU_THRESHOLD` (gpu-only).
+   * Для объявленного hybrid (матрица Devstral) — >0: частичный офлоад допустим.
+   */
+  minGpuPercent?: number;
 }
 
 /**
@@ -88,17 +93,22 @@ export async function checkOllamaLayout(
   // Округление/особенности учёта KV-кэша у ollama иногда дают size_vram чуть больше size —
   // модель при этом целиком в VRAM, просто «105.3% GPU» в сообщении вводило бы в заблуждение.
   const percent = Math.min(100, (entry.size_vram / entry.size) * 100);
-  if (percent < FULL_GPU_THRESHOLD) {
+  const minGpu = options.minGpuPercent ?? FULL_GPU_THRESHOLD;
+  if (percent < minGpu || entry.size_vram <= 0) {
     return fail(
-      `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU / ${(100 - percent).toFixed(1)}% CPU — частичный офлоад. ` +
-        `Модель не влезает в видеопамять целиком на этой раскладке; короткая проба этого не показывает — ` +
-        `вскрывается только настоящей нагрузкой (длинный контекст, несколько запросов подряд).`,
+      minGpu >= FULL_GPU_THRESHOLD
+        ? `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU / ${(100 - percent).toFixed(1)}% CPU — частичный офлоад. ` +
+          `Модель не влезает в видеопамять целиком на этой раскладке; короткая проба этого не показывает — ` +
+          `вскрывается только настоящей нагрузкой (длинный контекст, несколько запросов подряд).`
+        : `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU — ниже порога hybrid (${minGpu}%); CUDA-доля не подтверждена.`,
     );
   }
   return {
     ok: true,
     skipped: false,
     gpuPercent: percent,
-    message: `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU — целиком в видеопамяти`,
+    message: minGpu >= FULL_GPU_THRESHOLD
+      ? `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU — целиком в видеопамяти`
+      : `раскладка «${modelId}»: ${percent.toFixed(1)}% GPU — hybrid (порог ${minGpu}%)`,
   };
 }

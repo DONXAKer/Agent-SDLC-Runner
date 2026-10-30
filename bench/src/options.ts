@@ -54,6 +54,15 @@ export interface BenchOptions {
   stageTimeoutMs: number;
   runTimeoutMs: number;
   /**
+   * Множитель стенных часов бюджета работы витка (`runner.limits.workBudget.wallClockMs` и
+   * резерв), guided v5. Стенд масштабирует свои `--stage-timeout`/`--run-timeout` по паспорту
+   * скорости модели, но у рантайма ЕСТЬ третьи часы — бюджет работы из конфига, и без этого
+   * множителя медленный профиль упирался в него раньше обоих лимитов стенда (матрица r7,
+   * 2026-10-27: gpt-oss ×2.79 по паспорту, бюджет 50 мин сгорел на chunk при лимите клетки
+   * 209 мин). Ходы и токены бюджета не трогаются: медленнее — не значит больше запросов.
+   */
+  workWallclockScale: number;
+  /**
    * Потолок стенных часов на ОДИН кейс расширенной пробы преполёта (`--preflight`),
    * `null` — умолчание `PROBE_CASE_TIMEOUT_MS` (`server/src/probe.ts`, 120 с). Найдено
    * серией local6 (2026-09-24): плотная медленная модель (`apriel-1.6-15b`) стабильно
@@ -106,6 +115,11 @@ export interface BenchOptions {
    * среде — право оператора, но явное).
    */
   preflight: boolean;
+  /**
+   * Политика раскладки после прогрева: `gpu-only` (умолчание, ≥99% VRAM) или `hybrid`
+   * (допустим CPU-офлоад при ненулевой CUDA-доле). Матрица передаёт hybrid для Devstral.
+   */
+  placement?: 'gpu-only' | 'hybrid';
   /**
    * Явное разрешение преполёту ОДИН раз перезагрузить модель при средовом сбое движка
    * (`--engine-reload`) и повторить прогрев движка. Кейсы пробы не перезапускаются: сбой
@@ -241,6 +255,8 @@ ${taskListForUsage()}
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
   --probe-timeout <мин> потолок на ОДИН кейс расширенной пробы преполёта (умолчание 2 мин)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
+  --work-wallclock-scale <k> множитель стенных часов бюджета работы guided v5 (умолчание 1);
+                        ходы и токены бюджета не масштабируются
   --max-turns <n>       ходов на этап (умолчание — штатный лимит config/runner.json); явный
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
@@ -312,6 +328,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   const controlOverrides: Partial<Record<StageId, string>> = {};
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
   let runTimeoutMs = DEFAULTS.runTimeoutMs;
+  let workWallclockScale = 1;
   let probeTimeoutMs: number | null = null;
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
   let maxTurnsExplicit = false;
@@ -324,6 +341,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let probe = false;
   let preflightOnly = false;
   let preflight = true;
+  let placement: 'gpu-only' | 'hybrid' = 'gpu-only';
   let engineReload = false;
   let quiet = false;
   let makeSnapshot: string | null = null;
@@ -399,6 +417,10 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         runTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
         i++;
         break;
+      case '--work-wallclock-scale':
+        workWallclockScale = positiveNumber(next(i, key), key);
+        i++;
+        break;
       case '--probe-timeout':
         probeTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
         i++;
@@ -445,6 +467,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       case '--no-preflight':
         preflight = false;
         break;
+      case '--placement': {
+        const value = next(i, key);
+        if (value !== 'gpu-only' && value !== 'hybrid') {
+          throw new OptionsError('--placement: ожидается gpu-only или hybrid');
+        }
+        placement = value;
+        i++;
+        break;
+      }
       case '--engine-reload':
         engineReload = true;
         break;
@@ -605,6 +636,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   if ([stageTimeoutMs, runTimeoutMs, probeTimeoutMs ?? 1].some(value => value > 2_147_483_647)) {
     throw new OptionsError('таймаут превышает максимальный таймер Node; единица параметра — минуты');
   }
+  if (workWallclockScale !== 1 && executionMode !== 'guided') throw new OptionsError('--work-wallclock-scale действует только в guided: бюджет работы есть лишь у него');
   if (executionMode === 'guided' && (resolvedMode.kind !== 'all' || (preparationVersion !== undefined && preparationVersion !== 3) ||
       Object.keys(controlOverrides).some(stage => stage !== 'plan' || planCandidates === undefined))) {
     throw new OptionsError('guided требует --all, preparation-version 3 и одну модель; control-plan доступен только в явном эксперименте выбора плана');
@@ -651,6 +683,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     controlOverrides,
     stageTimeoutMs,
     runTimeoutMs,
+    workWallclockScale,
     probeTimeoutMs,
     maxIterationsPerStage,
     maxTurnsExplicit,
@@ -663,6 +696,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     probe,
     preflightOnly,
     preflight,
+    placement,
     engineReload,
     quiet,
     makeSnapshot,

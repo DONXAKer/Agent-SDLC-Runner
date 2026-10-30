@@ -61,6 +61,8 @@ export interface BenchResult {
     maxTurns?: number;
     maxTurnsExplicit?: boolean;
     maxIterationsByStage?: Partial<Record<StageId, number>>;
+    /** Множитель стенных часов бюджета работы (`--work-wallclock-scale`), только когда ≠ 1. */
+    workWallclockScale?: number;
   };
   driver: DriverResult;
   metrics: RunMetrics;
@@ -127,6 +129,7 @@ export function buildResult(args: {
       measured: built.measured,
       startedAt: args.startedAt.toISOString(),
       finishedAt: args.finishedAt.toISOString(),
+      ...(opts.workWallclockScale === 1 ? {} : { workWallclockScale: opts.workWallclockScale }),
       ...(limits === undefined
         ? {}
         : {

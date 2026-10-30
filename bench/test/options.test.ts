@@ -161,6 +161,14 @@ describe('аргументы бенчмарка', () => {
     strictEqual(o.runTimeoutMs, 5_400_000);
   });
 
+  it('--work-wallclock-scale: умолчание 1, только в guided', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all']).workWallclockScale, 1);
+    const guided = ['--model', 'x', '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions'];
+    strictEqual(parseArgs([...guided, '--work-wallclock-scale', '2.79']).workWallclockScale, 2.79);
+    throws(() => parseArgs(['--model', 'x', '--all', '--work-wallclock-scale', '2']), /guided/);
+    throws(() => parseArgs([...guided, '--work-wallclock-scale', '0']), /--work-wallclock-scale/);
+  });
+
   it('--repeat разбирается, умолчание 1, с пробой/снимком несовместим', () => {
     strictEqual(parseArgs(['--model', 'x', '--all']).repeat, 1);
     strictEqual(parseArgs(['--model', 'x', '--stage', 'chunk', '--repeat', '3']).repeat, 3);
@@ -183,6 +191,12 @@ describe('аргументы бенчмарка', () => {
     throws(() => parseArgs(['--model', 'x', '--preflight', '--probe']), /взаимоисключает/);
     throws(() => parseArgs(['--model', 'x', '--preflight', '--dry-run']), /взаимоисключает/);
     throws(() => parseArgs(['--model', 'x', '--preflight', '--repeat', '3']), /--repeat/);
+  });
+
+  it('--placement: gpu-only по умолчанию, hybrid явно', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all']).placement, 'gpu-only');
+    strictEqual(parseArgs(['--model', 'x', '--all', '--placement', 'hybrid']).placement, 'hybrid');
+    throws(() => parseArgs(['--model', 'x', '--all', '--placement', 'cpu']), /gpu-only или hybrid/);
   });
 
   it('автогейт включён по умолчанию, --no-preflight отключает', () => {

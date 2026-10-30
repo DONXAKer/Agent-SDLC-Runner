@@ -74,7 +74,7 @@ describe('buildResult', () => {
         slug: 'bench-x',
         controlOverrides: {},
         stageTimeoutMs: 1,
-        runTimeoutMs: 1,
+        runTimeoutMs: 1, workWallclockScale: 1,
         probeTimeoutMs: null,
         maxIterationsPerStage: 1,
         maxBudgetUsd: 1,
@@ -169,7 +169,7 @@ describe('инвариант «result.json пересобирает отчёт �
         slug: 'bench-x',
         controlOverrides: {},
         stageTimeoutMs: 1,
-        runTimeoutMs: 1,
+        runTimeoutMs: 1, workWallclockScale: 1,
         probeTimeoutMs: null,
         maxIterationsPerStage: 1,
         maxBudgetUsd: 1,
@@ -225,7 +225,7 @@ describe('условия прогона в паспорте результата
     const result = buildResult({
       opts: {
         mode: { kind: 'stage', stage: 'chunk' }, model: 'm', task: 'oversize', slug: 'bench-x', controlOverrides: {},
-        stageTimeoutMs: 1, runTimeoutMs: 1, probeTimeoutMs: null, maxIterationsPerStage: 40, maxBudgetUsd: 1, attempts: 1, keepWorkspace: false,
+        stageTimeoutMs: 1, runTimeoutMs: 1, workWallclockScale: 1, probeTimeoutMs: null, maxIterationsPerStage: 40, maxBudgetUsd: 1, attempts: 1, keepWorkspace: false,
         dryRun: false, probe: false, preflightOnly: false, preflight: true, quiet: false, snapshotAfter: 'plan', makeSnapshot: null,
         fromSnapshot: null, repeat: 1, seed: null,
       },

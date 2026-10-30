@@ -47,6 +47,7 @@ import { layoutProblemFor } from '../../server/src/provider/layoutCheck.ts';
 import type { LayoutProblem } from '../../server/src/provider/layoutCheck.ts';
 import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
+import { contextVerdict, formatContextFinding, loadPacketProfile } from './contextPreflight.ts';
 import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
 import { spawnNode, spawnNodeTest } from './nodeTest.ts';
 import type { NodeTestOutput } from './nodeTest.ts';
@@ -57,6 +58,9 @@ import { SnapshotError, firstMeasuredFrom, readSnapshotMeta, startStageAfter } f
 import { fixtureColorOf, taskById, taskFilesProblem, taskPaths } from './tasks.ts';
 import { resolveTurnLimits } from './options.ts';
 import type { BenchOptions } from './options.ts';
+import { formatPassport, passportFromUsage } from './preflightPassport.ts';
+import type { ThroughputPassport } from './modelPassport.ts';
+import type { StageId, Usage } from '@sdlc-runner/shared';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -77,6 +81,8 @@ export interface PreflightReport {
   envBlocked: boolean;
   capabilities?: ModelCapabilities[];
   capabilityHash?: string;
+  /** Паспорт скорости со схемных JSON-проб guided (`preflightPassport.ts`); CLI пишет его в `bench/results/`. */
+  passport?: ThroughputPassport;
 }
 
 /** Единственное место, решающее код возврата преполёта — режим и автогейт делят его. */
@@ -102,12 +108,16 @@ export function formatPreflight(report: PreflightReport): string {
   return lines.join('\n');
 }
 
-export interface GuidedProbeResult { ok: boolean; env: boolean; detail: string }
+export interface GuidedProbeResult { ok: boolean; env: boolean; detail: string;
+  /** `Usage` ответа — из него преполёт собирает паспорт скорости; нет у отказов до ответа. */
+  usage?: Usage }
 
 /** Точка подмены для тестов: сеть, дочерние процессы и конфиг машины подменяются. */
 export interface PreflightDeps {
   probe: typeof probeModel;
   guidedProbe: (config: LoadedConfig, model: string) => Promise<GuidedProbeResult>;
+  /** Схемное JSON-решение с содержательной выдачей — замер скорости и доли reasoning, не гейт. */
+  throughputProbe: (config: LoadedConfig, model: string) => Promise<GuidedProbeResult>;
   capabilities: typeof capabilitiesFor;
   /** Прогрев движка одним дешёвым запросом (`engine.ts`) — до замеряемых проб. */
   warmup: typeof warmupEngine;
@@ -128,6 +138,7 @@ function defaultDeps(): PreflightDeps {
   return {
     probe: probeModel,
     guidedProbe: probeGuidedStructuredOutput,
+    throughputProbe: probeDecisionThroughput,
     capabilities: capabilitiesFor,
     warmup: warmupEngine,
     reloadEngine,
@@ -281,6 +292,40 @@ function checkPlanPromptFits(ctx: PreflightContext, opts: BenchOptions): Preflig
     return ok(name, true, `⚠ системная часть plan ≈${tokens} токенов — больше половины окна ${window}; со входными артефактами переполнение вероятно`, ms);
   }
   return ok(name, true, `системная часть plan ≈${tokens} токенов при окне ${window}`, ms);
+}
+
+/**
+ * Арифметика контекста по профилю пакетов задачи (`bench/corpus/packets/<task>.json`,
+ * собирается `contextPreflight.ts` из сырых обменов прошлых серий): минимальный пакет каждого
+ * решения измеряемых этапов против окна маршрута — та же формула, что в `DecisionEngine`.
+ * Красный — решение не стартует вовсе (`context-required`); это класс `preflight`, а не отказ
+ * модели. Полный ответ, не помещающийся в остаток, — предупреждение: обрезка вероятна, но
+ * лестница `max_tokens` ещё может вытянуть. Профиля нет — сказано словами, не зелено молча.
+ */
+function checkDecisionPacketsFit(deps: PreflightDeps, ctx: PreflightContext, opts: BenchOptions): PreflightCheck {
+  const started = Date.now();
+  const name = 'модель: пакеты решений против окна';
+  const profile = loadPacketProfile(deps.benchDir, opts.task);
+  if (profile === null) {
+    return ok(name, true, `профиль пакетов задачи ${opts.task} не собран (bench/corpus/packets) — арифметика контекста не проверена; соберите: node bench/src/contextPreflight.ts --series=<серия>`, Date.now() - started);
+  }
+  const measured = measuredStages(opts.mode);
+  const verdict = contextVerdict(profile, {
+    stages: measured,
+    windowFor: (stage) => (ctx.built.profile.routes as Partial<Record<string, { contextWindow?: number }>>)[stage]?.contextWindow,
+    reasoning: ctx.built.profile.routes[(measured[0] ?? 'plan') as StageId]?.reasoning,
+  });
+  const ms = Date.now() - started;
+  const unknown = verdict.unknownWindow.length === 0 ? '' : `; окно не задано для: ${verdict.unknownWindow.join(', ')}`;
+  const fails = verdict.findings.filter((finding) => finding.severity === 'fail');
+  if (fails.length > 0) {
+    return bad(name, false, `решение не стартует (context-required) — ${fails.map(formatContextFinding).join('; ')}${unknown}`, ms);
+  }
+  const tight = verdict.findings.filter((finding) => finding.severity === 'tight');
+  if (tight.length > 0) {
+    return ok(name, false, `⚠ полный ответ не помещается в остаток окна — обрезка вероятна: ${tight.map(formatContextFinding).join('; ')}${unknown}`, ms);
+  }
+  return ok(name, false, `${verdict.judged} пакетов ${measured.length} этапов помещаются в окно с полным ответом (профиль из ${profile.builtFrom.length} серий)${unknown}`, ms);
 }
 
 /**
@@ -608,15 +653,20 @@ async function checkLayout(deps: PreflightDeps, config: LoadedConfig, opts: Benc
   if (def.provider !== 'ollama') return null;
 
   const started = Date.now();
+  // hybrid — объявленный CPU-офлоад (матрица Devstral): порог >0% VRAM, не 99%.
+  const minGpuPercent = opts.placement === 'hybrid' ? 1 : undefined;
   const problem: LayoutProblem | null = await deps.layoutProblem(
     def.provider,
     def.model,
     providerDef.baseUrl,
     config.runner.limits.chatTimeoutMs,
+    minGpuPercent === undefined ? {} : { minGpuPercent },
   );
   const ms = Date.now() - started;
   return problem === null
-    ? ok(name, false, 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
+    ? ok(name, false, opts.placement === 'hybrid'
+      ? 'ollama ps: раскладка hybrid в порядке (ненулевая доля GPU) или сама проверка неприменима'
+      : 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
     : bad(name, true, problem.message, ms);
 }
 
@@ -785,12 +835,55 @@ async function probeGuidedStructuredOutput(config: LoadedConfig, model: string):
           schema: { type: 'object', properties: { ready: { type: 'boolean' } }, required: ['ready'], additionalProperties: false } } },
       },
     });
-    if (response.finishReason === 'max_tokens') return { ok: false, env: false, detail: 'structured-output ответ обрезан лимитом длины' };
+    if (response.finishReason === 'max_tokens') return { ok: false, env: false, detail: 'structured-output ответ обрезан лимитом длины', usage: response.usage };
     const parsed: unknown = JSON.parse(response.text);
     const ready = (parsed as { ready?: unknown }).ready;
     return ready === true
-      ? { ok: true, env: false, detail: 'реальный guided JSON-вызов разобран, ready=true' }
-      : { ok: false, env: false, detail: 'guided JSON разобран, но обязательное ready=true не получено' };
+      ? { ok: true, env: false, detail: 'реальный guided JSON-вызов разобран, ready=true', usage: response.usage }
+      : { ok: false, env: false, detail: 'guided JSON разобран, но обязательное ready=true не получено', usage: response.usage };
+  } catch (error) {
+    const env = signal.aborted ? false : error instanceof ProviderEnvError || error instanceof ProviderHttpError;
+    return { ok: false, env, detail: (error as Error).message.slice(0, 500) };
+  }
+}
+
+/**
+ * Проба скорости: схемное JSON-решение с выдачей в несколько десятков токенов — `ready=true`
+ * слишком короток, чтобы делить его на секунды. Содержание нейтральное (классификация
+ * предложений), от задачи стенда не зависит. Проверяется только то, что ответ разобран по
+ * схеме; скорость и доля reasoning считаются из `Usage` ответа.
+ */
+async function probeDecisionThroughput(config: LoadedConfig, model: string): Promise<GuidedProbeResult> {
+  const target = resolveProbeTarget(config.models, model);
+  if ('error' in target) return { ok: false, env: !target.error.includes('флоу'), detail: target.error };
+  const { def, providerDef } = target;
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs, undefined,
+    ...(def.reasoningFallback === undefined ? [] : [{ reasoningFallback: def.reasoningFallback }]));
+  const signal = AbortSignal.timeout(PROBE_CASE_TIMEOUT_MS);
+  const sentences = ['Отчёт сдан вчера.', 'Когда начнётся встреча?', 'Закрой окно перед уходом.', 'Сервер перезапущен в полночь.'];
+  try {
+    const response = await provider.chat({
+      model: def.model,
+      messages: [
+        { role: 'system', content: 'Проверка протокола. Классифицируй каждое предложение и верни только JSON по схеме.' },
+        { role: 'user', content: `Предложения:\n${sentences.map((s, i) => `${i + 1}. ${s}`).join('\n')}\nДля каждого укажи id (номер строкой) и kind: statement, question или command; в summary — одно предложение о наборе.` },
+      ],
+      tools: [], temperature: null, signal,
+      params: {
+        ...(def.params ?? {}), max_tokens: 2048,
+        response_format: { type: 'json_schema', json_schema: { name: 'preflight_throughput', strict: true,
+          schema: { type: 'object', additionalProperties: false, required: ['items', 'summary'], properties: {
+            summary: { type: 'string' },
+            items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'kind'], properties: {
+              id: { type: 'string' }, kind: { type: 'string', enum: ['statement', 'question', 'command'] } } } } } } } },
+      },
+    });
+    if (response.finishReason === 'max_tokens') return { ok: false, env: false, detail: 'ответ пробы скорости обрезан лимитом длины', usage: response.usage };
+    const parsed = JSON.parse(response.text) as { items?: unknown };
+    const items = Array.isArray(parsed.items) ? parsed.items.length : 0;
+    return items === sentences.length
+      ? { ok: true, env: false, detail: `схемное решение разобрано: ${items} классификаций`, usage: response.usage }
+      : { ok: false, env: false, detail: `схемное решение разобрано, но классификаций ${items} из ${sentences.length}`, usage: response.usage };
   } catch (error) {
     const env = signal.aborted ? false : error instanceof ProviderEnvError || error instanceof ProviderHttpError;
     return { ok: false, env, detail: (error as Error).message.slice(0, 500) };
@@ -814,10 +907,12 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
   const ctx = loaded.ctx;
   let capabilities: ModelCapabilities[] = [];
   let capabilityHash: string | undefined;
+  let passport: ThroughputPassport | null = null;
   if (ctx !== null && checks.every((c) => c.ok)) {
     checks.push(checkTurnLimit(ctx.config, opts));
     const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
+    checks.push(checkDecisionPacketsFit(d, ctx, opts));
     checks.push(...(await checkContextWindowsWithReload(d, ctx, opts)));
     if (checks.every((c) => c.ok)) {
       const admission = await checkCapabilities(d, ctx, opts);
@@ -845,6 +940,18 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
       checks.push(probed.ok
         ? ok('модель: guided structured output', probed.env, probed.detail, Date.now() - started)
         : bad('модель: guided structured output', probed.env, probed.detail, Date.now() - started));
+      if (probed.ok) {
+        // Паспорт скорости — наблюдение, не гейт: красным он преполёт не делает (кроме
+        // отказа среды), иначе каждая новая проба становилась бы ещё одним порогом допуска.
+        const throughputStarted = Date.now();
+        const throughput = await d.throughputProbe(ctx.config, opts.model);
+        passport = passportFromUsage([throughput.usage, probed.usage].filter((usage): usage is Usage => usage !== undefined));
+        const detail = passport === null ? `паспорт не снят: ${throughput.detail}`
+          : `${formatPassport(passport)}; ${throughput.ok ? throughput.detail : `проба скорости: ${throughput.detail}`}`;
+        checks.push(throughput.env && !throughput.ok
+          ? bad('модель: паспорт скорости', true, throughput.detail, Date.now() - throughputStarted)
+          : ok('модель: паспорт скорости', false, detail, Date.now() - throughputStarted));
+      }
     } else if (checks.every((c) => c.ok)) {
       checks.push(...(await checkModel(d, ctx.config, opts)));
     }
@@ -857,5 +964,6 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     passed: checks.every((c) => c.ok),
     envBlocked: checks.some((c) => !c.ok && c.env),
     ...(capabilityHash === undefined ? {} : { capabilities, capabilityHash }),
+    ...(passport === null ? {} : { passport }),
   };
 }

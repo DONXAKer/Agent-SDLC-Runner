@@ -50,7 +50,7 @@ function result(stagesOk: boolean) {
       slug: 'bench-test',
       controlOverrides: {},
       stageTimeoutMs: 1,
-      runTimeoutMs: 1,
+      runTimeoutMs: 1, workWallclockScale: 1,
       probeTimeoutMs: null,
       maxIterationsPerStage: 1,
       maxBudgetUsd: 1,

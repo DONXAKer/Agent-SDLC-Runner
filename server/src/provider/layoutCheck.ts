@@ -22,12 +22,16 @@ export async function layoutProblemFor(
   modelId: string,
   providerBaseUrl: string | undefined,
   timeoutMs?: number,
+  options: { minGpuPercent?: number } = {},
 ): Promise<LayoutProblem | null> {
   if (provider !== 'ollama') return null;
   const baseUrl = baseUrlFor(provider) ?? providerBaseUrl;
   if (baseUrl === undefined || baseUrl === '') return null;
 
-  const r = await checkOllamaLayout(baseUrl, modelId, timeoutMs === undefined ? {} : { timeoutMs });
+  const r = await checkOllamaLayout(baseUrl, modelId, {
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(options.minGpuPercent === undefined ? {} : { minGpuPercent: options.minGpuPercent }),
+  });
   // `skipped` — по адресу нет Ollama-шного `/api`, либо модель не числится загруженной
   // (`ollama ps` её не видит: прогрев не разбудил её или она успела выгрузиться) —
   // блокировать преполёт нечем, он работал бы и без этой проверки.

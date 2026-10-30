@@ -13,6 +13,8 @@ import type {BenchResult} from '../bench/src/result.ts';
 import type {PreflightReport} from '../bench/src/preflight.ts';
 import {checkPlacement,placementPolicy,qualifyModel,type Qualification} from '../bench/src/modelQualification.ts';
 import {throughputFromQualification,wallclockScale,type ThroughputPassport} from '../bench/src/modelPassport.ts';
+import {FAILURE_CLASSES,classifyFailure,compareFailureClasses,type FailureClass} from '../bench/src/failureClass.ts';
+import {guidedFunnel,renderGuidedFunnel} from '../bench/src/guidedFunnel.ts';
 import { acquireProcessLock, releaseProcessLock } from '../server/src/fs/processLock.ts';
 import { MatrixControl } from './matrixControl.ts';
 
@@ -26,13 +28,27 @@ const specSchema=z.object({modelConfig:z.string(),models:z.array(z.string()).min
  engine:z.object({host:z.string().url(),gpuFreeMiB:z.array(z.number()).length(2),gpuUtilMax:z.array(z.number()).length(2)})});
 type Spec=z.infer<typeof specSchema>;
 type Profile={id:string;provider:string;model:string;contextWindow?:number;params?:Record<string,unknown>;placement?:'gpu-only'|'hybrid'};
-type Cell={id:string;model:string;task:string;status:string;slug?:string;startedAt?:string;finishedAt?:string;pid?:number;elapsedMs?:number;outcome?:ReturnType<typeof assessGuidedValidation>;evidence?:ReturnType<typeof collectComparisonEvidence>;error?:string;layout?:unknown;invocationBudgetMs?:number;wallclockScale?:number;stageMinutes?:number};
-type Matrix={version:1;status:string;preparedAt:string;spec:Spec;specHash:string;acceptanceImage:string;profiles:Profile[];cells:Cell[];inputs:Record<string,string>;common:Record<string,string>;coordinatorHash:string;nodeVersion:string;modelDigests?:Record<string,string>;qualifications?:Record<string,Qualification>;passports?:Record<string,ThroughputPassport|null>;engineVersion?:unknown;startedAt?:string;finishedAt?:string;error?:string;active?:string};
-const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','tools/matrixControl.ts','server/src/fs/processLock.ts','server/src/fs/atomicJson.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','bench/src/modelPassport.ts','tools/guided-suite-success.ts']));
+type Cell={id:string;model:string;task:string;status:string;slug?:string;startedAt?:string;finishedAt?:string;pid?:number;elapsedMs?:number;outcome?:ReturnType<typeof assessGuidedValidation>;evidence?:ReturnType<typeof collectComparisonEvidence>;error?:string;layout?:unknown;invocationBudgetMs?:number;wallclockScale?:number;stageMinutes?:number;failureClass?:FailureClass};
+type Matrix={version:1;status:string;preparedAt:string;spec:Spec;specHash:string;acceptanceImage:string;profiles:Profile[];cells:Cell[];inputs:Record<string,string>;common:Record<string,string>;coordinatorHash:string;nodeVersion:string;modelDigests?:Record<string,string>;qualifications?:Record<string,Qualification>;passports?:Record<string,ThroughputPassport|null>;engineVersion?:unknown;startedAt?:string;finishedAt?:string;error?:string;active?:string;
+ /** Предыдущий прогон той же матрицы (`compare --previous`): классы отказов по ключу клетки — для колонки «Сдвиг». */
+ previous?:{dir:string;classes:Record<string,FailureClass>}};
+const coordinatorHash=()=>stableDigest(inventory(root,['tools/guided-matrix.ts','tools/matrixControl.ts','server/src/fs/processLock.ts','server/src/fs/atomicJson.ts','bench/src/harnessComparison.ts','bench/src/guidedValidation.ts','bench/src/modelPassport.ts','bench/src/failureClass.ts','bench/src/guidedFunnel.ts','tools/guided-suite-success.ts']));
+/** Ключ клетки, устойчивый к порядку моделей в спецификации: модель × задача × повтор. */
+export const cellKey=(c:Pick<Cell,'id'|'model'|'task'>)=>`${c.model}|${c.task}|${c.id.split('-')[2]??'1'}`;
+/** Класс отказа клетки: записанный стендом либо посчитанный по `result.json` прогона, записанного до появления поля. */
+export function cellFailureClass(dir:string,c:Cell):FailureClass|null{
+ if(c.failureClass)return c.failureClass;
+ if(!c.outcome||!c.slug)return null;
+ const resultPath=join(dir,'runs',c.id,c.slug,'result.json');
+ const result=existsSync(resultPath)?readJson<BenchResult>(resultPath):null;
+ return classifyFailure({success:c.outcome.success,status:c.outcome.status,environmentFailure:c.outcome.environmentFailure,coordinatorError:c.error??null,result});
+}
 function emit(dir:string,m:Matrix){
  saveJson(join(dir,'manifest.json'),m);
  const clean=(x:unknown)=>String(x??'неизвестно').replace(/\|/g,'\\|').replace(/[\r\n]+/g,' ');
- writeFileSync(join(dir,'summary.ru.md'),`# Полный guided-цикл с независимой приёмкой\n\nСтатус: **${m.status}**. Завершено: ${m.cells.filter(c=>c.status==='complete').length}/${m.cells.length}. Успех: ${m.cells.filter(c=>c.outcome?.success).length}.\n\n| Модель | Задача | Статус | Успех | Причина |\n|---|---|---|---|---|\n${m.cells.map(c=>`| ${c.model} | ${c.task} | ${c.status} | ${clean(c.outcome?.success)} | ${clean(c.error??c.outcome?.reason)} |`).join('\n')}\n\nПриёмочные тесты подготовлены до реализации и выполняются в Docker без сети. Скрытый оценщик выполняется отдельно. Решения оператора автоматизированы стендом. Один повтор; окна и параметры моделей сохранены в манифесте, различия конфигураций ограничивают сравнение. Остановка до Verify не считается проверкой Verify.\n${m.error?'\nОшибка: '+clean(m.error)+'\n':''}`);
+ const shift=(c:Cell)=>{if(!m.previous)return '';const from=m.previous.classes[cellKey(c)];const to=c.failureClass;return from===undefined||to===undefined?'—':from===to?`= ${to}`:`${from} → ${to}`;};
+ writeFileSync(join(dir,'summary.ru.md'),`# Полный guided-цикл с независимой приёмкой\n\nСтатус: **${m.status}**. Завершено: ${m.cells.filter(c=>c.status==='complete').length}/${m.cells.length}. Успех: ${m.cells.filter(c=>c.outcome?.success).length}.\n\n| Модель | Задача | Статус | Успех | Класс отказа |${m.previous?' Сдвиг |':''} Причина |\n|---|---|---|---|---|${m.previous?'---|':''}---|\n${m.cells.map(c=>`| ${c.model} | ${c.task} | ${c.status} | ${clean(c.outcome?.success)} | ${c.failureClass??'—'} |${m.previous?` ${shift(c)} |`:''} ${clean(c.error??c.outcome?.reason)} |`).join('\n')}\n\nПриёмочные тесты подготовлены до реализации и выполняются в Docker без сети. Скрытый оценщик выполняется отдельно. Решения оператора автоматизированы стендом. Один повтор; окна и параметры моделей сохранены в манифесте, различия конфигураций ограничивают сравнение. Остановка до Verify не считается проверкой Verify.\n\nКласс отказа — закрытый словарь \`bench/src/failureClass.ts\` по структурным полям результата (не по тексту причины): ${FAILURE_CLASSES.join(', ')}.${m.previous?` Сдвиг — относительно \`${m.previous.dir}\`.`:''}\n${m.error?'\nОшибка: '+clean(m.error)+'\n':''}`);
+ appendFileSync(join(dir,'summary.ru.md'),`\n${renderGuidedFunnel(guidedFunnel(m.cells))}\n`);
  appendFileSync(join(dir,'summary.ru.md'),`\n## Профили\n\n${m.profiles.map(p=>`- ${p.id}: ${p.placement??'gpu-only'}, context=${p.contextWindow??32768}`).join('\n')}\n\nВремя hybrid нельзя напрямую сравнивать с gpu-only.\n`);
  if(m.qualifications)appendFileSync(join(dir,'summary.ru.md'),`\n## Квалификация протокола\n\n${Object.entries(m.qualifications).map(([id,q])=>`- ${id}: ${q.passed?'PASS':'FAIL'}, ${q.cases.filter(c=>c.passed).length}/${q.cases.length}; ${q.cases.filter(c=>!c.passed).map(c=>clean(c.error)).join('; ')}`).join('\n')}\n`);
  if(m.passports)appendFileSync(join(dir,'summary.ru.md'),`\n## Паспорт скорости (по квалификации)\n\n${Object.entries(m.passports).map(([id,p])=>p?`- ${id}: ${p.secondsPerDecision} с/решение, ${p.tokensPerSecond} ток/с, reasoning ≈${p.reasoningShare} выдачи; стенные часы ×${wallclockScale(p,m.spec.limits.wallclock)}`:`- ${id}: паспорта нет (usage не получен) — лимиты без масштаба`).join('\n')}\n\n${m.spec.limits.wallclock?`Опора ${m.spec.limits.wallclock.referenceDecisionSeconds} с/решение, потолок ×${m.spec.limits.wallclock.maxScale}.`:'Масштаб стенных часов в спецификации не задан: лимиты одинаковы для всех профилей.'}\n`);
@@ -168,7 +184,7 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
        if(loaded.digest!==m.modelDigests![profile.id])throw Error('Loaded model digest changed');
        const log=readFileSync(engineLog,'utf8').slice(offset),gpus=new Set([...log.matchAll(/(CUDA\d+)\s+model buffer/g)].map(x=>x[1])).size;
        if(gpus<1||gpus>2)throw Error('No supported CUDA allocation');assertEngineLog(log,gpus);c.layout=layout;
-     }catch(error){if(cancelled)throw error;c.status='complete';c.error=`Engine layout failure: ${String(error)}`;c.finishedAt=new Date().toISOString();emit(dir,m);control.complete(c);control.assertMayStart();await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});continue;}
+     }catch(error){if(cancelled)throw error;c.status='complete';c.error=`Engine layout failure: ${String(error)}`;c.failureClass='env';c.finishedAt=new Date().toISOString();emit(dir,m);control.complete(c);control.assertMayStart();await request('/api/generate',{model:profile.model,keep_alive:0},30000).catch(()=>{});continue;}
      // Cancellation can arrive while awaiting model load/placement. Never spawn
      // another benchmark child after the stop was already acknowledged.
      if(cancelled)break;
@@ -179,10 +195,12 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
      const rawLogDir=join(dir,'raw');
      const runEnv={...cleanEnv,SDLC_CONFIG_DIR:join(common,'config'),SDLC_STATE_DIR:join(dir,'state',c.slug),SDLC_METHODOLOGY_DIR:join(common,'methodology'),SDLC_SKILLS_DIR:join(common,'skills'),SDLC_AGENTS_DIR:join(common,'agents'),SDLC_CONSTANTS_PATH:join(common,'methodology/sdlc-constants.json'),SDLC_REVIEW_MODEL:c.model,OLLAMA_BASE_URL:host+'/v1',SDLC_RAW_LOG_DIR:rawLogDir};
      // Лимиты стенных часов — по паспорту скорости профиля (1..maxScale), но не дольше остатка серии.
+     // Тем же коэффициентом — бюджет работы рантайма (`--work-wallclock-scale`): r7 показал,
+     // что без него клетка упирается в 50 мин бюджета конфига при лимите клетки в 209 мин.
      const scale=wallclockScale(m.passports?.[c.model]??null,m.spec.limits.wallclock);c.wallclockScale=scale;
      const stageMinutes=m.spec.limits.stageMinutes*scale;c.stageMinutes=stageMinutes;
      const minutes=Math.min(m.spec.limits.runMinutes*scale,(deadline-Date.now())/60000);c.invocationBudgetMs=minutes*60000;
-     child=start(process.execPath,['bench/src/cli.ts','--all','--model',c.model,'--task',c.task,'--execution-mode','guided','--guided-engine-version',String(m.spec.guidedEngineVersion??4),'--preparation-version','3','--strict-questions','--acceptance-image',m.acceptanceImage,'--attempts',String(m.spec.limits.attempts),'--stage-timeout',String(stageMinutes),'--run-timeout',String(minutes),'--probe-timeout','1','--slug',c.slug,'--keep-workspace'],snapshot,runEnv,join(runDir,'launcher.log'));
+     child=start(process.execPath,['bench/src/cli.ts','--all','--model',c.model,'--task',c.task,'--execution-mode','guided','--guided-engine-version',String(m.spec.guidedEngineVersion??4),'--preparation-version','3','--strict-questions','--acceptance-image',m.acceptanceImage,'--attempts',String(m.spec.limits.attempts),'--stage-timeout',String(stageMinutes),'--run-timeout',String(minutes),'--work-wallclock-scale',String(scale),'--probe-timeout','1','--placement',profile.placement??'gpu-only','--slug',c.slug,'--keep-workspace'],snapshot,runEnv,join(runDir,'launcher.log'));
      if(child.pid!==undefined)c.pid=child.pid;emit(dir,m);console.log(`START ${c.id} ${c.model} ${c.task}`);
      let timedOut=false;const timer=setTimeout(()=>{timedOut=true;if(child?.pid&&child.exitCode===null)try{killTree(child.pid);}catch{}},minutes*60000+30000);
      let code:number|null=null;try{code=await new Promise<number|null>((done,fail)=>{child!.once('error',fail);child!.once('close',done);});}finally{clearTimeout(timer);child=undefined;}
@@ -193,6 +211,7 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
      const expected={slug:c.slug,model:c.model,task:c.task,startedAt:c.startedAt,finishedAt:c.finishedAt,guidedEngineVersion:m.spec.guidedEngineVersion??4};c.outcome=assessGuidedValidation(result,expected,code,preflight);
      c.evidence=collectComparisonEvidence(currentGuidedResult(result,expected)?result:null,snapshot,{slug:c.slug,rawLogDir});
      if(timedOut)c.error='Coordinator wall-clock timeout';c.status=cancelled?'interrupted':'complete';
+     c.failureClass=classifyFailure({success:c.outcome.success,status:c.outcome.status,environmentFailure:c.outcome.environmentFailure,coordinatorError:c.error??null,result:currentGuidedResult(result,expected)?result:null});
      for(const [file,name]of [[resultPath,'result.json'],[preflightPath,'preflight.json'],[join(snapshot,'bench/traces',c.slug),'traces']] as const)if(existsSync(file))cpSync(file,join(runDir,name),{recursive:true});
      saveJson(join(runDir,'assessment.json'),c);emit(dir,m);console.log(`DONE ${c.id} ${c.outcome.status}`);
      control.complete(c);control.assertMayStart();
@@ -211,8 +230,29 @@ export async function runMatrix(dir:string,options:{stopOnFailure?:boolean;signa
    }
  }
 }
+/**
+ * Сдвиг классов отказа относительно предыдущего прогона той же матрицы. Пишет
+ * `compare.ru.md`; если прогон не идёт (нет `run.lock`), запоминает предыдущий прогон в
+ * манифесте и перерисовывает `summary.ru.md` с колонкой «Сдвиг». У идущего прогона манифест
+ * держит координатор в памяти — его файл не трогаем, иначе запись потерялась бы при следующем emit.
+ */
+export function compareMatrix(dir:string,previousDir:string):{rows:ReturnType<typeof compareFailureClasses>;persisted:boolean}{
+ const m=readJson<Matrix>(join(dir,'manifest.json')),prior=readJson<Matrix>(join(previousDir,'manifest.json'));
+ if(m.specHash!==prior.specHash)console.warn('Спецификации прогонов различаются: сдвиг классов сравнивает разные условия');
+ const classesOf=(root:string,cells:Cell[])=>cells.flatMap(c=>{const failureClass=cellFailureClass(root,c);return failureClass===null?[]:[{key:cellKey(c),failureClass}];});
+ const rows=compareFailureClasses(classesOf(dir,m.cells),classesOf(previousDir,prior.cells));
+ for(const c of m.cells){const failureClass=cellFailureClass(dir,c);if(failureClass!==null)c.failureClass=failureClass;}
+ const relPrevious=relative(dir,previousDir)||'.';
+ writeFileSync(join(dir,'compare.ru.md'),`# Сдвиг классов отказа\n\nТекущий: \`${relative(root,dir)}\`, предыдущий: \`${relative(root,previousDir)}\`.\n\n| Клетка | Было | Стало | Сдвиг |\n|---|---|---|---|\n${rows.map(r=>`| ${r.key} | ${r.from??'—'} | ${r.to} | ${r.changed?'да':r.from===null?'нет данных':'нет'} |`).join('\n')}\n\nКлассы: ${FAILURE_CLASSES.join(', ')}. Одинаковый класс на двух прогонах подряд — узкое место не сдвинулось; смена класса на том же этапе — фикс сработал, модель упёрлась дальше.\n`);
+ const persisted=!existsSync(join(dir,'run.lock'));
+ if(persisted){m.previous={dir:relPrevious,classes:Object.fromEntries(classesOf(previousDir,prior.cells).map(c=>[c.key,c.failureClass]))};emit(dir,m);}
+ return {rows,persisted};
+}
 async function main(){const [command,...args]=process.argv.slice(2);const value=(key:string)=>{const i=args.indexOf(key);return i<0?undefined:args[i+1];};
  const output=value('--output');if(!output)throw Error('--output required');const dir=resolve(root,output),rel=relative(root,dir);if(!rel||rel.startsWith('..')||rel.includes(':'))throw Error('Output must be inside workspace');
- if(command==='prepare')await prepareMatrix(dir,resolve(root,value('--spec')??'bench/experiments/guided-matrix-acceptance.json'),value('--reuse-dependencies'));else if(command==='run')await runMatrix(dir);else throw Error('Use prepare|run --output DIR');
+ if(command==='prepare')await prepareMatrix(dir,resolve(root,value('--spec')??'bench/experiments/guided-matrix-acceptance.json'),value('--reuse-dependencies'));
+ else if(command==='run')await runMatrix(dir);
+ else if(command==='compare'){const previous=value('--previous');if(!previous)throw Error('--previous DIR required');const {rows,persisted}=compareMatrix(dir,resolve(root,previous));for(const r of rows)console.log(`${r.key}: ${r.from??'—'} → ${r.to}${r.changed?' (сдвиг)':''}`);if(!persisted)console.log('Прогон идёт: записан только compare.ru.md');}
+ else throw Error('Use prepare|run|compare --output DIR [--previous DIR]');
 }
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url)main().catch(e=>{console.error(e);process.exitCode=1;});

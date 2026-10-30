@@ -48,6 +48,7 @@ import { createProvider } from '../../server/src/provider/registry.ts';
 import { REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts';
+import { capabilityPassportFileName, type CapabilityPassportRecord } from './preflightPassport.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
@@ -102,6 +103,7 @@ function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
   // Лимиты ходов — `resolveTurnLimits`: без `--max-turns` штатные из загруженного конфига,
   // с ним — значение ключа без поэтапных потолков. Та же функция пишет их в паспорт результата.
   const limits = resolveTurnLimits(base.runner.limits, opts);
+  const workBudget = base.runner.limits.workBudget;
   return {
     ...base,
     runner: {
@@ -113,6 +115,13 @@ function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
         ...base.runner.limits,
         maxIterationsPerStage: limits.maxTurns,
         maxIterationsByStage: limits.maxIterationsByStage,
+        // Стенные часы бюджета работы — по тому же коэффициенту, что лимиты стенда
+        // (`--work-wallclock-scale`); ходы/токены — как в конфиге.
+        ...(workBudget === undefined || opts.workWallclockScale === 1 ? {} : { workBudget: {
+          ...workBudget,
+          wallClockMs: Math.round(workBudget.wallClockMs * opts.workWallclockScale),
+          reserveWallClockMs: Math.round(workBudget.reserveWallClockMs * opts.workWallclockScale),
+        } }),
       },
     },
   };
@@ -887,6 +896,16 @@ async function preflightRun(opts: BenchOptions): Promise<number> {
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(join(RESULTS_DIR, `${opts.slug}.preflight.json`), JSON.stringify({ version: 1, slug: opts.slug,
     startedAt, finishedAt: new Date().toISOString(), ...report }, null, 2) + '\n', 'utf8');
+  // Паспорт скорости — один файл на модель, перезаписывается последним замером: это
+  // результирующее состояние для выбора `ModelDef.reasoning` и коэффициента часов, не журнал.
+  if (report.passport !== undefined) {
+    const target = resolveProbeTarget(loadConfig().models, opts.model);
+    const probe = report.checks.find((check) => check.name === 'модель: паспорт скорости');
+    const record: CapabilityPassportRecord = { version: 1, model: opts.model, task: opts.task, measuredAt: startedAt,
+      endpoint: 'error' in target ? null : target.providerDef.baseUrl ?? null, passport: report.passport,
+      probe: { name: probe?.name ?? 'модель: паспорт скорости', detail: probe?.detail ?? '' } };
+    writeFileSync(join(RESULTS_DIR, capabilityPassportFileName(opts.model)), JSON.stringify(record, null, 2) + '\n', 'utf8');
+  }
   console.log(formatPreflight(report));
   return preflightExitCode(report);
 }

@@ -1,0 +1,42 @@
+{
+  "modelConfig": "config/models.json",
+  "models": [
+    "ollama:qwen3:8b-ctx16k",
+    "ollama:gpt-oss-20b-agent-stepfill",
+    "ollama:granite4.2-8b-ctx32k",
+    "ollama:mellum2-12b-instruct-q6",
+    "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "ollama:devstral-small-2"
+  ],
+  "tasks": [
+    "add-validator",
+    "config-default",
+    "rename-field",
+    "idempotent-retry",
+    "vat-rounding"
+  ],
+  "acceptanceImage": "node:24-alpine",
+  "profileOverrides": {
+    "ollama:qwen3:8b-ctx16k": { "placement": "gpu-only" },
+    "ollama:gpt-oss-20b-agent-stepfill": { "placement": "gpu-only" },
+    "ollama:granite4.2-8b-ctx32k": { "placement": "gpu-only" },
+    "ollama:mellum2-12b-instruct-q6": { "placement": "gpu-only" },
+    "ollama:ministral3-14b-instruct-ctx32k-compactfill": { "placement": "gpu-only" },
+    "ollama:devstral-small-2": { "placement": "hybrid" }
+  },
+  "limits": {
+    "stageMinutes": 25,
+    "runMinutes": 75,
+    "attempts": 3,
+    "gpuWaitMinutes": 15,
+    "suiteHours": 30,
+    "wallclock": { "referenceDecisionSeconds": 3, "maxScale": 3 }
+  },
+  "engine": {
+    "host": "http://127.0.0.1:11435",
+    "gpuFreeMiB": [10500, 6500],
+    "gpuUtilMax": [100, 100]
+  },
+  "guidedEngineVersion": 5,
+  "repetitions": 1
+}

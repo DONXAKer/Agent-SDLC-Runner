@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
+import { emptyUsage } from '@sdlc-runner/shared';
 import { loadConfig } from '../../server/src/config/load.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
@@ -36,6 +37,8 @@ function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
   return {
     probe: greenProbe,
     guidedProbe: async () => ({ ok: true, env: false, detail: 'ready=true' }),
+    throughputProbe: async () => ({ ok: true, env: false, detail: 'схемное решение разобрано: 4 классификаций',
+      usage: { ...emptyUsage(), inputTokens: 300, outputTokens: 120, reasoningTokens: 60, durationMs: 4000 } }),
     capabilities: async (provider, model) => ({ provider, model, source: 'ollama-show', tools: 'supported', reasoning: 'supported', reasoningOptions: null, reasoningDefault: null, detail: 'supported' }),
     // Прогрев и перезагрузка — внешние вызовы (chat, lms); в герметичном тесте — заглушки.
     warmup: async () => {},
@@ -748,6 +751,27 @@ describe('runPreflight: guided capabilities', () => {
     strictEqual(toolProbeCalls, 0);
     strictEqual(report.capabilityHash?.length, 64);
     ok(formatPreflight(report).includes(report.capabilityHash!));
+    // Паспорт скорости: из `Usage` пробы скорости и структурной пробы; у заглушки guidedProbe usage нет.
+    strictEqual(report.passport?.decisions, 1);
+    strictEqual(report.passport?.secondsPerDecision, 4);
+    strictEqual(report.passport?.tokensPerSecond, 30);
+    strictEqual(report.passport?.reasoningShare, 0.5);
+    ok(report.checks.some((check) => check.name === 'модель: паспорт скорости' && check.ok && check.detail.includes('30 ток/с')));
+  });
+
+  it('паспорт скорости — наблюдение: отказ пробы по модели не делает преполёт красным, отказ среды — делает', async () => {
+    const modelRed = await runPreflight(
+      opts(['--model', MODEL, '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions']),
+      greenDeps({ throughputProbe: async () => ({ ok: false, env: false, detail: 'классификаций 2 из 4' }) }),
+    );
+    strictEqual(modelRed.passed, true);
+    strictEqual(modelRed.passport, undefined);
+    ok(modelRed.checks.some((check) => check.name === 'модель: паспорт скорости' && check.ok && check.detail.includes('паспорт не снят')));
+    const envRed = await runPreflight(
+      opts(['--model', MODEL, '--all', '--execution-mode', 'guided', '--preparation-version', '3', '--strict-questions']),
+      greenDeps({ throughputProbe: async () => ({ ok: false, env: true, detail: 'HTTP 502' }) }),
+    );
+    strictEqual(envRed.envBlocked, true);
   });
 
   it('явный reasoning при фактическом unsupported блокирует запуск до warmup', async () => {
