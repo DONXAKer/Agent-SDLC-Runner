@@ -85,3 +85,33 @@ export function reasoningShare(usage: { outputTokens: number; reasoningTokens?: 
   if (usage.reasoningTokens === undefined || usage.outputTokens <= 0) return null;
   return Math.min(1, usage.reasoningTokens / usage.outputTokens);
 }
+
+/**
+ * Обрезанный ответ уже крутит один и тот же фрагмент: поднимать `max_tokens` бесполезно —
+ * модель допишет ещё копии той же петли (пилот qwen27b 2026-10-30: typed IR сотни раз
+ * повторял один `type_alias` до 15k токенов и сжигал стенные 25 мин на лестнице
+ * 8192→16384). Признак — хвост текста состоит из ≥4 одинаковых периодов; обычный
+ * длинный неповторяющийся текст не ловится. Чистая функция; имён моделей и задач нет.
+ */
+export function runawayRepetition(text: string, options?: { minPeriod?: number; maxPeriod?: number; minRepeats?: number }): boolean {
+  const minPeriod = options?.minPeriod ?? 48;
+  // Typed IR declaration ≈200–300 символов; шаг 1, иначе период 226 (пилот qwen27b) проскакивал 224→240.
+  const maxPeriod = options?.maxPeriod ?? 320;
+  const minRepeats = options?.minRepeats ?? 4;
+  if (text.length < minPeriod * minRepeats) return false;
+  // Сверка только по хвосту: полные периоды в конце — признак генераторной петли.
+  const tail = text.slice(-Math.min(text.length, maxPeriod * (minRepeats + 4)));
+  for (let period = minPeriod; period <= maxPeriod; period++) {
+    if (tail.length < period * minRepeats) continue;
+    const unit = tail.slice(-period);
+    let matched = 1;
+    for (let back = 2; back <= minRepeats + 4; back++) {
+      const start = tail.length - period * back;
+      if (start < 0) break;
+      if (tail.slice(start, start + period) !== unit) break;
+      matched++;
+    }
+    if (matched >= minRepeats) return true;
+  }
+  return false;
+}

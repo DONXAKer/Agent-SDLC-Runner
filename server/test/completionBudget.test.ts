@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COMPLETION_CEILING, completionLadder, reasoningShare } from '../src/exec/completionBudget.ts';
+import { COMPLETION_CEILING, completionLadder, reasoningShare, runawayRepetition } from '../src/exec/completionBudget.ts';
 
 const climb = (ladder: ReturnType<typeof completionLadder>): number[] => {
   const steps = [ladder.start];
@@ -41,4 +41,16 @@ test('reasoning share distinguishes a missing reasoning channel from zero', () =
   assert.equal(reasoningShare({ outputTokens: 4096, reasoningTokens: 4096 }), 1);
   assert.equal(reasoningShare({ outputTokens: 1000, reasoningTokens: 250 }), 0.25);
   assert.equal(reasoningShare({ outputTokens: 0, reasoningTokens: 10 }), null);
+});
+
+test('runawayRepetition catches a truncated loop without flagging ordinary long text', () => {
+  const block = '{"kind":"type_alias_declaration","name":"Customer","type":{"kind":"type","text":"import(\'./customer.ts\').Customer"}},';
+  assert.equal(runawayRepetition(block.repeat(8)), true);
+  // Период ≈226 — как в обрезанном typed IR пилота qwen27b (шаг ≠ 16; был пропуск 224→240).
+  const ir = '            {\n              "kind": "type_alias_declaration",\n              "name": "Customer",\n              "type": {\n                "kind": "type",\n                "text": "import(\'./customer.ts\').Customer"\n              }\n            },\n';
+  assert.ok(ir.length > 200 && ir.length < 280, `expected ~226-char IR block, got ${ir.length}`);
+  assert.equal(runawayRepetition(ir.repeat(6)), true);
+  assert.equal(runawayRepetition('short'), false);
+  // Прогрессивный текст: суффикс уникален, петли нет.
+  assert.equal(runawayRepetition(Array.from({ length: 200 }, (_, i) => `line-${i}-distinct-padding-xxxxxxxx`).join('\n')), false);
 });

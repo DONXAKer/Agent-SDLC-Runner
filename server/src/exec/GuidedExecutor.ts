@@ -13,7 +13,7 @@ import type { ChatMessage, ChatProvider, ChatTurn } from '../provider/ChatProvid
 import { ProviderEnvError, ProviderRequestTimeoutError } from '../provider/ChatProvider.ts';
 import { digest, readGuided, saveGuided, type GuidedState, type Snapshot } from '../run/guidedState.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
-import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
+import { completionLadder, runawayRepetition, type ReasoningProfile } from './completionBudget.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson } from './guidedJson.ts';
 import { ReadReceipts, RepeatedReadError } from './readReceipts.ts';
@@ -673,8 +673,12 @@ export class GuidedExecutor implements StageExecutor {
     let calls = 0;
     const responseEffort = this.o.params?.['reasoning_effort'];
     // Лестница `max_tokens` общая с остальными решениями (`completionBudget.ts`); остаток
-    // окна клипуется отдельно на каждом запросе. База chunk — 8192: typed IR длиннее полей.
-    const tokenLadder = completionLadder({ contextWindow: this.o.contextWindow, promptTokens: 0, reserve: 0, reasoning: this.o.reasoning, requested: 8192 });
+    // окна клипуется отдельно на каждом запросе. База chunk — 4096, не 8192: пилот qwen27b
+    // r2/r3 на 8192 зацикливал typed IR и сжигал весь stageMinutes на ПЕРВОМ запросе, так
+    // что `runawayRepetition` после ответа уже не успевал сработать. Длинный валидный IR
+    // по-прежнему поднимается лестницей 4096→8192→16384; петля стопится после короткого
+    // первого обрыва.
+    const tokenLadder = completionLadder({ contextWindow: this.o.contextWindow, promptTokens: 0, reserve: 0, reasoning: this.o.reasoning, requested: 4096 });
     let tokenCap = tokenLadder.start;
     let tokenRaises = 0;
     let applied = 0;
@@ -991,12 +995,18 @@ export class GuidedExecutor implements StageExecutor {
               throw error;
             }), { inputRevision: revision, files: currentFiles, failedCheck: priorFailure || null });
           if (answer.finishReason === 'max_tokens') {
-            const raised = tokenLadder.next(tokenCap, tokenRaises);
-            if (raised !== null && this.o.contextWindow - tokens - 1024 > tokenCap) {
-              tokenCap = raised; tokenRaises++;
-              hooks.onWarn(`JSON Chunk не получен: ответ обрезан лимитом${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
+            // Зацикленный обрезок: лестница только дописывает ту же петлю (пилот qwen27b).
+            if (runawayRepetition(answer.text)) {
+              hooks.onFriction('truncated');
+              hooks.onWarn('JSON Chunk не получен: ответ обрезан и повторяет один фрагмент — max_tokens не поднимаю');
             } else {
-              hooks.onFriction('truncated'); hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом max_tokens, лимит поднимать некуда');
+              const raised = tokenLadder.next(tokenCap, tokenRaises);
+              if (raised !== null && this.o.contextWindow - tokens - 1024 > tokenCap) {
+                tokenCap = raised; tokenRaises++;
+                hooks.onWarn(`JSON Chunk не получен: ответ обрезан лимитом${answer.usage.reasoningTokens === undefined ? '' : ` (reasoning ${answer.usage.reasoningTokens} токенов)`}; повтор с max_tokens=${tokenCap} при том же reasoning effort`);
+              } else {
+                hooks.onFriction('truncated'); hooks.onWarn('JSON Chunk не получен: ответ обрезан лимитом max_tokens, лимит поднимать некуда');
+              }
             }
           }
           usage = addUsage(usage, answer.usage); calls++;
@@ -1032,11 +1042,16 @@ export class GuidedExecutor implements StageExecutor {
             // операций, — «schema» с путём поля и сообщением. Слово «не полный JSON» про
             // верно разобранный ответ заставляло модель повторять его без изменений до стопа.
             const formatFailure = answer.finishReason === 'max_tokens' || answer.toolCalls.length > 0 || error instanceof SyntaxError;
-            const diagnostics = formatFailure ? 'Нужен завершённый JSON действия' : summarizeReplyError(error);
+            const looped = formatFailure && answer.finishReason === 'max_tokens' && runawayRepetition(answer.text);
+            const diagnostics = looped
+              ? 'Ответ обрезан и повторяет один фрагмент — нужен компактный JSON без петель'
+              : formatFailure ? 'Нужен завершённый JSON действия' : summarizeReplyError(error);
             formatRepairPending = true;
             hooks.onHarnessEvent?.({ kind: 'failure', reason: formatFailure ? 'format' : 'schema' });
             observe(item, 'format', formatFailure ? 'Невалидный JSON-ответ' : `Ответ отклонён схемой действия: ${diagnostics}`);
             hooks.onQuestionValidated?.({ questionId: `chunk:${item.id}:${calls}`, accepted: false, reason: diagnostics });
+            // Повтор зацикленного обрезанного ответа снова сожжёт стенные часы — стоп сразу.
+            if (looped) throw new Error(diagnostics);
             if (req.progress) {
               const dependencies = { input: revision, code: progressHash(fileCards.map(file => [file.path, file.hash])) };
               const action = req.progress.reject(req.progress.begin(recoveryKey('format'), 'chunk', dependencies), formatFailure ? 'format' : 'schema', diagnostics);

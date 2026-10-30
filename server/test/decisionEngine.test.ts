@@ -98,6 +98,26 @@ test('empty truncated content raises the default completion ceiling without an e
  assert.equal(result.attempts,2);assert.deepEqual(limits,[4096,8192]);
 });
 
+test('a truncated runaway loop does not climb the completion ladder', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'decision-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const limits: number[] = [];
+  const loop = '{"kind":"type_alias_declaration","name":"Customer","type":{"kind":"type","text":"import(\'./customer.ts\').Customer"}},'.repeat(8);
+  const provider: ChatProvider = {
+    name: 'memoryless',
+    async chat(req) {
+      limits.push(Number(req.params?.max_tokens));
+      return { ...turn(loop), finishReason: 'max_tokens' };
+    },
+  };
+  const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
+  await assert.rejects(
+    engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
+    (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /repeats the same fragment/.test(error.message),
+  );
+  assert.deepEqual(limits, [4096]);
+});
+
 test('empty truncated content may raise twice toward the 16k default ceiling',async t=>{
  const directory=mkdtempSync(join(tmpdir(),'decision-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
  const limits:number[]=[];

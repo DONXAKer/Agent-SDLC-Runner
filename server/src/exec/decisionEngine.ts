@@ -8,7 +8,7 @@ import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { atomicJson } from '../fs/atomicJson.ts';
 import { progressHash } from '../run/guidedProgress.ts';
 import { estimateMessageTokens, MIN_MAX_TOKENS } from './contextBudget.ts';
-import { completionLadder, type ReasoningProfile } from './completionBudget.ts';
+import { completionLadder, runawayRepetition, type ReasoningProfile } from './completionBudget.ts';
 import { WorkBudgetExhausted } from './workBudget.ts';
 
 export type DecisionFailure = 'invalid-response' | 'invalid-field' | 'invalid-evidence' | 'stale' | 'context-required' | 'human-required' | 'unsupported' | 'environment' | 'runtime' | 'budget';
@@ -212,6 +212,13 @@ export class DecisionEngine {
       assertCurrent(true);
       const emptyContent = turn.text.trim() === '';
       if (turn.finishReason === 'max_tokens' || emptyContent) {
+        // Зацикленный обрезок: лестница только сжигает стенные часы (пилот qwen27b chunk).
+        if (!emptyContent && runawayRepetition(turn.text)) {
+          const reason = `Truncated response repeats the same fragment at max_tokens=${maxTokens}; raising the limit will not complete the JSON`;
+          this.options.onValidation?.({ questionId: input.questionId, accepted: false, reason });
+          record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway: true });
+          throw new DecisionError('invalid-response', reason, id, usage);
+        }
         const raised = ladder.next(maxTokens, truncationRaises);
         if (raised !== null) {
           const reasoningNote = turn.usage.reasoningTokens === undefined ? '' : ` (reasoning tokens=${turn.usage.reasoningTokens})`;
@@ -228,7 +235,9 @@ export class DecisionEngine {
       }
       let rejectedValue: unknown = null, hasRejectedValue = false;
       try {
-        if (turn.finishReason === 'max_tokens' || emptyContent) throw new Error('A complete JSON decision is required; the response reached max_tokens');
+        if (turn.finishReason === 'max_tokens' || emptyContent) throw new Error(runawayRepetition(turn.text)
+          ? 'A complete JSON decision is required; the truncated response repeats the same fragment'
+          : 'A complete JSON decision is required; the response reached max_tokens');
         if (turn.toolCalls.length) throw new Error('A JSON decision without tool calls is required');
         const parsed = JSON.parse(turn.text);
         rejectedValue = parsed; hasRejectedValue = true;
