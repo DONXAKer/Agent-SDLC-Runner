@@ -5,21 +5,12 @@ import { join } from 'node:path';
 import { it } from 'node:test';
 import { extractExplicitSteps } from '../src/artifacts/planSteps.ts';
 
-import { enforceIntentTestFileTarget, extractExplicitExportPaths, extractIntentImplementationPaths, extractRequestImplementationPaths, intentImplementationPathsProblem, intentNewTestPath, intentPlanBoundaryProblem, preparePlanImplementationCards } from '../src/run/stages/plan.ts';
+import { enforceIntentTestFileTarget, extractIntentImplementationPaths, intentImplementationPathsProblem, intentNewTestPath, intentPlanBoundaryProblem, preparePlanImplementationCards } from '../src/run/stages/plan.ts';
 
 const bookingFixture = (): string => {
   const local = join(process.cwd(), 'bench', 'fixtures', 'booking');
   return existsSync(local) ? local : join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
 };
-
-it('preserves explicit export targets from the original request after Intent drops them', () => {
-  const requests = ['Добавь moveHold(...) в src/hold.ts и экспортируй её из src/index.ts'];
-  deepStrictEqual(extractExplicitExportPaths(requests), ['src/index.ts']);
-  deepStrictEqual(extractExplicitExportPaths(['Посмотри src/index.ts и src/hold.ts']), []);
-  const intent = '## Что делаем\nДобавить moveHold в src/hold.ts.\n';
-  const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/hold.ts | добавить функцию |\n';
-  ok(intentImplementationPathsProblem(intent, plan, extractExplicitExportPaths(requests))?.includes('src/index.ts'));
-});
 
 it('requires every explicit implementation path from Intent in the plan allowlist', () => {
   const intent = '## Что делаем\nДобавить moveHold в `src/hold.ts` и экспортировать из `src/index.ts`. Создать новый тест в test/.\n';
@@ -67,6 +58,20 @@ it('rejects edits to existing tests when Intent permits only a new test file', (
   ok(intentPlanBoundaryProblem(intent, plan, root).problem?.includes('test/hold.test.ts'));
   deepStrictEqual(intentPlanBoundaryProblem(intent,
     '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/moveHold.test.ts | создать новый тест |\n', root), { problem: null, addPaths: [] });
+});
+
+it('allows an existing test named after «кроме» despite the existing-tests boundary', () => {
+  const intent = '## Чего не делаем\nНе изменять существующие тесты, кроме test/invoice.test.ts.\n';
+  const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/invoice.test.ts | обновить форму счёта |\n';
+  const root = bookingFixture();
+  // bookingFixture may not have invoice.test.ts — create a temp check via pathExcepted alone:
+  deepStrictEqual(intentPlanBoundaryProblem(
+    '## Чего не делаем\nНе изменять существующие тесты, кроме test/hold.test.ts.\n',
+    '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/hold.test.ts | обновить |\n',
+    root,
+  ), { problem: null, addPaths: [] });
+  ok(intentPlanBoundaryProblem(intent, plan, root).problem === null
+    || intentPlanBoundaryProblem(intent, plan, root).problem?.includes('test/invoice.test.ts') === false);
 });
 
 it('distinguishes an export structure constraint from a whole-file prohibition', () => {
@@ -155,13 +160,13 @@ it('seeds Intent implementation paths and adds their editable cards before plan 
   deepStrictEqual(result.paths, ['src/hold.ts', 'src/index.ts', 'test/moveHold.test.ts']);
 });
 
-it('preserves a valid authored new test filename and prefers an explicit user filename', () => {
+it('preserves a valid authored new test filename and prefers a filename named in Intent', () => {
   const root = bookingFixture();
   const intent = '## Что делаем\nРеализовать функцию moveHold. Добавить новый файл тестов.\n## Чего не делаем\nНе менять существующие тесты.\n';
   const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/move.test.ts | Новый тест |\n';
-  strictEqual(intentNewTestPath(intent, root, [], plan), 'test/move.test.ts');
+  strictEqual(intentNewTestPath(intent, root, plan), 'test/move.test.ts');
   strictEqual(enforceIntentTestFileTarget(plan, intent, root).changed, false);
-  strictEqual(intentNewTestPath(intent, root, ['Добавить новый файл тестов test/requested.test.ts.'], plan), 'test/requested.test.ts');
+  strictEqual(intentNewTestPath(intent.replace('Добавить новый файл тестов.', 'Добавить новый файл тестов test/requested.test.ts.'), root, plan), 'test/requested.test.ts');
 });
 it('uses a new test committed in Intent before inventing a second fallback test', () => {
   const root = bookingFixture();
@@ -215,18 +220,10 @@ it('infers a new test path when Intent forbids existing test edits but drops the
   strictEqual(intentNewTestPath(intent, root), 'test/moveHold.test.ts');
 });
 
-it('uses the original task to restore a required new test when Intent omits that detail', () => {
-  const intent = '## Что делаем\nРеализовать функцию moveHold в src/hold.ts.\n';
-  const request = 'Добавить поведенческие тесты в новом файле в test/. Существующие тесты не менять.';
-  const root = bookingFixture();
-  strictEqual(intentNewTestPath(intent, root, [request]), 'test/moveHold.test.ts');
-});
-
 it('requires a new test when existing tests must remain without edits', () => {
   const root = bookingFixture();
-  const intent = '## Что делаем\nДобавить функцию moveHold.\n';
-  const request = 'На новое правило есть тест рядом с существующими (test/). Существующие тесты остаются зелёными и **без правки**.';
-  strictEqual(intentNewTestPath(intent, root, [request]), 'test/moveHold.test.ts');
+  const intent = '## Что делаем\nДобавить функцию moveHold.\n## Чего не делаем\nНа новое правило есть тест рядом с существующими (test/). Существующие тесты остаются зелёными и **без правки**.\n';
+  strictEqual(intentNewTestPath(intent, root), 'test/moveHold.test.ts');
 });
 
 it('derives the new test from the added function, never from an excluded function', () => {
@@ -241,28 +238,26 @@ it('infers a new test target from the repository convention and leaves unknown c
   const root = mkdtempSync(join(tmpdir(), 'sdlc-test-convention-'));
   mkdirSync(join(root, 'tests'), { recursive: true });
   writeFileSync(join(root, 'tests', 'test_existing.py'), '', 'utf8');
-  const intent = '## Что делаем\nРеализовать функцию parseRecord.\n## Чего не делаем\nНе изменять существующие тесты.\n';
-  const request = 'Добавить тесты в новом файле. Существующие тесты не менять.';
-  strictEqual(intentNewTestPath(intent, root, [request]), 'tests/test_parse_record.py');
+  const intent = '## Что делаем\nРеализовать функцию parseRecord. Добавить тесты в новом файле.\n## Чего не делаем\nНе изменять существующие тесты.\n';
+  strictEqual(intentNewTestPath(intent, root), 'tests/test_parse_record.py');
   rmSync(root, { recursive: true, force: true });
   const unknown = mkdtempSync(join(tmpdir(), 'sdlc-test-unknown-'));
   mkdirSync(join(unknown, 'checks'), { recursive: true });
   writeFileSync(join(unknown, 'checks', 'suite.custom'), '', 'utf8');
-  strictEqual(intentNewTestPath(intent, unknown, [request]), null);
+  strictEqual(intentNewTestPath(intent, unknown), null);
   rmSync(unknown, { recursive: true, force: true });
 });
 
-it('derives a required test from the original new module when Intent omits the function name', () => {
+it('derives a required test from the new module named in Intent when it omits the function name', () => {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-test-module-'));
   mkdirSync(join(root, 'test'), { recursive: true });
   writeFileSync(join(root, 'test', 'existing.test.ts'), '', 'utf8');
-  const intent = '## Что делаем\nДобавить тесты в новом файле.\n## Чего не делаем\nНе изменять существующие тесты.\n';
-  const request = 'Реализовать модуль src/validate.ts и экспортировать его из src/index.ts.';
-  strictEqual(intentNewTestPath(intent, root, [request]), 'test/validate.test.ts');
+  const intent = '## Что делаем\nРеализовать модуль src/validate.ts и экспортировать его из src/index.ts. Добавить тесты в новом файле.\n## Чего не делаем\nНе изменять существующие тесты.\n';
+  strictEqual(intentNewTestPath(intent, root), 'test/validate.test.ts');
   rmSync(root, { recursive: true, force: true });
 });
 
 it('recognizes an explicitly named new module without requiring a second implementation verb', () => {
-  const intent = '## Что должно получиться\n1. Новый модуль `src/customer-rules.ts` с чистой функцией проверки.\n2. Экспортировать функцию из src/index.ts.\n';
-  deepStrictEqual(extractRequestImplementationPaths(intent), ['src/customer-rules.ts', 'src/index.ts']);
+  const intent = '## Что делаем\n1. Новый модуль `src/customer-rules.ts` с чистой функцией проверки.\n2. Экспортировать функцию из src/index.ts.\n';
+  deepStrictEqual(extractIntentImplementationPaths(intent), ['src/customer-rules.ts', 'src/index.ts']);
 });

@@ -44,14 +44,16 @@ test('guided v5 executor consumes narrow operations and records the typed PlanIr
     calls++;
     const schemaName = req.params.response_format.json_schema.name;
     if (schemaName === 'guided_plan_outline') return turn({
-      approach: 'Use the inspected existing function in src/feature.ts', excluded: [], changes: 'No requirement changes', callers: [],
-      axes: AXES.map(name => ({ affected: name === 'Совместимость и данные',
-        reason: name === 'Совместимость и данные' ? 'The required public export changes the API' : 'No related impact',
-        outcome: name === 'Совместимость и данные' ? 'claim-1' : 'н/п — no related impact' })),
       steps: [{ file: 'src/feature.ts', claims: ['claim-1'], dependsOn: [] }],
     });
     if (schemaName === 'guided_plan_card') return turn({
       symbol: 'missing', action: 'Adjust the requested behavior', check: 'Call existing', expected: 'The requested result', contract: 'Preserve the existing signature',
+    });
+    if (schemaName === 'guided_plan_remainder') return turn({
+      approach: 'Use the inspected existing function in src/feature.ts', excluded: [], changes: 'No requirement changes', callers: [],
+      axes: AXES.map(name => ({ affected: name === 'Совместимость и данные',
+        reason: name === 'Совместимость и данные' ? 'The required public export changes the API' : 'No related impact',
+        outcome: name === 'Совместимость и данные' ? 'claim-1' : 'н/п — no related impact' })),
     });
     assert.equal(schemaName, 'guided_plan_repair_operations');
     const data = JSON.parse(req.messages[1].content);
@@ -74,7 +76,7 @@ test('guided v5 executor consumes narrow operations and records the typed PlanIr
   const result = await new GuidedPlanExecutor({ provider, paths, contextWindow: 16000, slug: 'typed-plan', params: null,
     proposalOnly: true, onProposal: (_candidate, text) => { rendered = text; } }).run(request, hooks);
   assert.equal(result.ok, true, `${result.note}\n${JSON.stringify(repairContexts)}`);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4);
   const saved = preparation(paths);
   assert.equal(saved?.ir?.plan?.version, 1);
   assert.equal(saved?.ir?.plan?.plan.steps[0]?.symbol, 'existing');

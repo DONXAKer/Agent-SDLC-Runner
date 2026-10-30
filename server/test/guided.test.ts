@@ -14,7 +14,7 @@ import { GuidedExecutor, guidedActionResponseFormat, parseGuidedReply, parseGuid
 import { GuidedOpError } from '../src/exec/symbolOps.ts';
 import { accountGuidedTime, appendGuidedJournalFacts, guidedInputRevision, guidedImplementationHashes, guidedReviewContext, guidedSourceHunks, initGuided, readGuided, saveGuided, workItems } from '../src/run/guidedState.ts';
 import { guidedRetryFiles, observedImplementationContext } from '../src/run/guidedExecutor.ts';
-import { guidedRequiredImplementationPaths, guidedPlanResponseFormat, parseGuidedPlan, renderGuidedPlan, validateGuidedPlanCoverage, applyGuidedPlanRepair, incorporateRuntimePlanCards, assignGuidedPlanFileState, renumberGuidedPlan, guidedPlanRepairTargets, guidedPlanRepairResponseFormat, guidedDuplicateMerge, guidedPlanKnownImpactProblem, guidedPlanPublicApiClaims, guidedPlanDependencyClaims, guidedPlanSecurityClaims, guidedPlanFieldsProblem, archiveReplacedGuidedPlan, GuidedPlanExecutor } from '../src/exec/GuidedPlanExecutor.ts';
+import { guidedRequiredImplementationPaths, guidedPlanResponseFormat, parseGuidedPlan, renderGuidedPlan, validateGuidedPlanCoverage, applyGuidedPlanRepair, incorporateRuntimePlanCards, assignGuidedPlanFileState, renumberGuidedPlan, guidedPlanRepairTargets, guidedPlanRepairResponseFormat, guidedDuplicateMerge, guidedPlanKnownImpactProblem, guidedPlanPublicApiClaims, guidedPlanDependencyClaims, guidedPlanSecurityClaims, guidedPlanFieldsProblem, guidedPlanCardCompletenessProblem, ensureExcludedExplorationPaths, archiveReplacedGuidedPlan, GuidedPlanExecutor } from '../src/exec/GuidedPlanExecutor.ts';
 import { chunkScopeSignals } from '../src/run/stages/chunk/evidence.ts';
 import { canonicalStructuredClaimJson, parseGuidedDecisionJson, parseGuidedJson, salvageGuidedJson, unwrapStructuredClaimRows } from '../src/exec/guidedJson.ts';
 import { addRequirementsHash, readRequirementsHash, resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
@@ -26,7 +26,7 @@ import { writeArtifact } from '../src/artifacts/artifact.ts';
 import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
 import { initializePreparation, preparation, savePreparation, preparationPlanEvidenceProblem, recordPreparationRead, recordPreparationImplementation, sourceHash, planContentHash } from '../src/artifacts/preparation.ts';
 import { AXES } from '../src/artifacts/planAxes.ts';
-import { guidedPlanTargetProblem, guidedPlanCallersProblem, normalizeGuidedCallers, coerceTaskNamedSymbols, alignNewSymbolsToTaskNames } from '../src/exec/GuidedPlanExecutor.ts';
+import { guidedPlanTargetProblem, guidedPlanCallersProblem, normalizeGuidedCallers, fileSymbolsAt, fileSymbolSchema } from '../src/exec/GuidedPlanExecutor.ts';
 import { GuidedProgress } from '../src/run/guidedProgress.ts';
 import { extractExplicitSteps } from '../src/artifacts/planSteps.ts';
 
@@ -117,6 +117,38 @@ test('v4 stops identical rejected operations and does not buy another sample on 
   assert.match(result.note ?? '', /Повторено отклонённое/); assert.equal(calls, 3);
   assert.equal((await executor().run(req(), hooks())).ok, false); assert.equal(calls, 3);
   assert.equal(readFileSync(join(root, 'a.ts'), 'utf8'), 'export const n = 1;\n');
+});
+
+test('v4 same ops after repairFocus change are not sticky-stopped on the second attempt', async t => {
+  const { root, paths } = fixture(t, 4);
+  writeFileSync(join(root, 'shape.ts'), 'export interface Shape { old: string; }\n');
+  let calls = 0;
+  const instructions: string[] = [];
+  const model: ChatProvider = { name: 'focus-shift', async chat(req) {
+    calls++;
+    const data = JSON.parse(req.messages.find((message) => message.role === 'user')!.content as string);
+    instructions.push(String(data.instruction ?? ''));
+    // Первый отказ без focus, второй — с суженным focus; тот же JSON не должен стопать на #2.
+    return { text: JSON.stringify({
+      action: 'patch', prediction: 'wrong',
+      ops: [{ op: 'replace_body', body: 'export function other() { return 1; }' }],
+    }), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } };
+  const executor = new GuidedExecutor({
+    paths, provider: model, items: [item(['shape.ts'])], inputRevision: () => 'stable',
+    requirements: '', sources: '', contextWindow: 16384,
+    fileTasks: [{ file: 'shape.ts', symbol: 'Shape', action: 'rename a field', claims: ['claim-1'],
+      title: 'Update shape', check: null, expect: null, contractChange: null }],
+    check: async () => ({ passed: false, result: 'not done' }),
+  });
+  const result = await executor.run({ ...request(root), guidedEngineVersion: 4, progress: new GuidedProgress(paths) }, hooks());
+  assert.equal(result.ok, false);
+  assert.ok(calls >= 3, `expected ≥3 attempts after focus change, got ${calls}`);
+  assert.ok(
+    instructions.some((text) => /Адресный ремонт/u.test(text))
+      || instructions.some((text) => /схема ответа уже сужена/u.test(text)),
+    `expected narrowed instruction after reject; got calls=${calls} instructions=${JSON.stringify(instructions)} note=${result.note}`,
+  );
 });
 
 test('v4 repairs a repeated wrong declaration through one narrowed request without writing the rejected draft', async t => {
@@ -218,18 +250,22 @@ test('ensure_import merges with an existing import and insert_after anchors a ne
   assert.equal(readFileSync(join(root, 'src', 'commands.ts'), 'utf8'), before);
 });
 
-test('guided plan rejects unknown symbols and forbidden existing test cards before normalization', t => {
+test('guided plan rejects symbols missing from the file and forbidden existing test cards before normalization', t => {
   const { root } = fixture(t);
   mkdirSync(join(root, 'test'));
+  mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'test', 'store.test.ts'), '// existing test\n');
+  writeFileSync(join(root, 'src', 'store.ts'), 'export function parse() { return 1; }\n');
   const step = { id: 1, file: 'src/store.ts', isNew: false, symbol: 'serialize', action: 'change store',
     claims: ['claim-1'], check: 'roundtrip', expected: 'same data', contract: 'compatible', dependsOn: [] };
   const plan = { approach: 'Use inspected store', steps: [step], excluded: [],
     axes: AXES.map(name => ({ name, affected: false, reason: 'unchanged', outcome: 'н/п — unchanged' })), changes: 'none', callers: [] };
-  assert.equal(guidedPlanTargetProblem(plan, '', root), null, 'без списка известных символов проверка вхождения отключена');
-  assert.match(guidedPlanTargetProblem(plan, '', root, ['parse']) ?? '', /шаг 1.*не входит в список известных символов/u);
-  assert.equal(guidedPlanTargetProblem({ ...plan, steps: [{ ...step, symbol: 'новый: serializeV2' }] }, '', root, ['parse']), null);
-  assert.equal(guidedPlanTargetProblem(plan, '', root, ['serialize']), null);
+  // Единственное правило символа: объявлен в файле карточки либо помечен новым.
+  assert.match(guidedPlanTargetProblem(plan, '', root) ?? '', /шаг 1.*не найден в src\/store\.ts.*в файле: parse/u);
+  assert.equal(guidedPlanTargetProblem({ ...plan, steps: [{ ...step, symbol: 'новый: serializeV2' }] }, '', root), null);
+  assert.equal(guidedPlanTargetProblem({ ...plan, steps: [{ ...step, symbol: 'parse' }] }, '', root), null);
+  // Файла нет на диске — символ новый по построению, сверять не с чем.
+  assert.equal(guidedPlanTargetProblem({ ...plan, steps: [{ ...step, file: 'src/fresh.ts' }] }, '', root), null);
   const forbidden = { ...plan, steps: [{ ...step, file: 'test/store.test.ts' }] };
   const intent = '## Чего не делаем\nНе меняем существующие тесты.\n';
   assert.match(guidedPlanTargetProblem(forbidden, intent, root) ?? '', /шаг 1.*существующие тесты.*removeSteps/u);
@@ -253,6 +289,21 @@ test('action schema binds ops to file cards and their shown symbols', () => {
   assert.ok(byOp('create_file', 'b.ts'));
   assert.equal(variants.filter((v: any) => v.properties.file.const === 'b.ts').length, 1, 'для нового файла доступен только create_file');
   assert.equal(patch.properties.prediction.maxLength, 600);
+});
+
+test('create-only schema drops read/no_change and caps create ops at one', () => {
+  const fresh = guidedActionResponseFormat([{ path: 'src/validate.ts', hash: 'missing', symbols: [], isNew: true }]) as any;
+  const actions = fresh.json_schema.schema.oneOf.map((v: any) => v.properties.action.const);
+  assert.deepEqual(actions.sort(), ['patch', 'question'].sort());
+  const patch = fresh.json_schema.schema.oneOf.find((v: any) => v.properties.action.const === 'patch');
+  assert.equal(patch.properties.ops.maxItems, 1);
+  const repaired = guidedActionResponseFormat(
+    [{ path: 'src/validate.ts', hash: 'missing', symbols: [], isNew: true }],
+    false,
+    { file: 'src/validate.ts', ops: ['create_file'] },
+  ) as any;
+  assert.equal(repaired.json_schema.schema.oneOf.some((v: any) => v.properties.action.const === 'read'), false);
+  assert.equal(repaired.json_schema.schema.oneOf.some((v: any) => v.properties.action.const === 'no_change'), false);
 });
 
 test('action schema forbids replace_body on barrel files', () => {
@@ -348,24 +399,6 @@ test('caller map validation requires an addressed decision for every pre-filled 
     'новый символ не имеет вызывающих в индексе');
 });
 
-test('coerceTaskNamedSymbols promotes bare names from the request to isNew', () => {
-  const plan = { approach: 'a', steps: [{ id: 1, file: 'src/a.ts', isNew: false, symbol: 'emailPattern',
-    action: 'add', claims: ['claim-1'], check: 't', expected: 'ok', contract: 'н/п', dependsOn: [] }],
-    excluded: [], axes: [], changes: 'none', callers: [] };
-  const coerced = coerceTaskNamedSymbols(plan, [], ['Добавь emailPattern в конфиг'], '## Что делаем\n');
-  assert.equal(coerced.steps[0]?.symbol, 'новый: emailPattern');
-  const invented = coerceTaskNamedSymbols(plan, [], ['Без этого имени'], 'intent');
-  assert.equal(invented.steps[0]?.symbol, 'emailPattern');
-});
-
-test('alignNewSymbolsToTaskNames rewrites invented suffixes toward task identifiers', () => {
-  const plan = { approach: 'a', steps: [{ id: 1, file: 'src/index.ts', isNew: false, symbol: 'новый: validateCustomerFunc',
-    action: 'export', claims: ['claim-1'], check: 't', expected: 'ok', contract: 'add', dependsOn: [] }],
-    excluded: [], axes: [], changes: 'none', callers: [] };
-  const aligned = alignNewSymbolsToTaskNames(plan, ['Добавь validateCustomer и реэкспорт'], '## Что делаем\nvalidateCustomer');
-  assert.equal(aligned.steps[0]?.symbol, 'новый: validateCustomer');
-});
-
 test('a named export with a generic add-export action identifies the literal symbol', t => {
   const { root } = fixture(t);
   writeFileSync(join(root, 'a.ts'), 'export const other = 1;');
@@ -380,18 +413,13 @@ test('a named export with a generic add-export action identifies the literal sym
   writeFileSync(join(root, 'a.ts'), 'export { oldFeature } from "./old.ts";');
   assert.equal(assignGuidedPlanFileState({ ...plan, steps: [{ ...plan.steps[0]!, symbol: 'exports' }] }, root).steps[0]?.symbol, 'oldFeature');
 });
-test('mandatory implementation paths do not promote read-only exploration dependencies', t => {
+test('mandatory implementation paths come from the approved Intent only, not from read-only dependencies or the raw request', t => {
   const { root } = fixture(t);
-  const paths = guidedRequiredImplementationPaths('## Что делаем\nСоздать src/new.ts на основе анализа src/dependency.ts.\n', ['Re-export newRule from src/index.ts.'], root);
-  assert.deepEqual(paths,['src/new.ts','src/index.ts']);
-});
-
-test('mandatory implementation paths survive Intent omitting a module named in the original request', t => {
-  const { root } = fixture(t);
-  const paths = guidedRequiredImplementationPaths('## Что делаем\nРеализовать функцию validateCustomer и экспортировать её.\n', [
-    'Реализовать src/validate.ts и экспортировать validateCustomer из src/index.ts. Анализировать src/customer.ts.',
-  ], root);
-  assert.deepEqual(paths, ['src/validate.ts', 'src/index.ts']);
+  const paths = guidedRequiredImplementationPaths('## Что делаем\nСоздать src/new.ts на основе анализа src/dependency.ts.\n', root);
+  assert.deepEqual(paths, ['src/new.ts']);
+  // Путь, названный только в сыром запросе («реэкспорт из src/index.ts»), карточкой рантайма не
+  // становится: его предлагает outline, решает модель (оракул, F12).
+  assert.deepEqual(guidedRequiredImplementationPaths('## Что делаем\nРеализовать функцию validateCustomer и экспортировать её.\n', root), []);
 });
 
 test('star re-export resolves only a uniquely planned new source declaration', t => {
@@ -491,6 +519,23 @@ test('empty proposals stop after three cycles without consuming the full model b
     provider: provider([{ action: 'patch', prediction: 'pass', ops: [{ op: 'replace_body', file: 'a.ts', symbol: 'n', body: 'export const n = 1;' }] }]),
     inputRevision: () => 'r', requirements: '', sources: '', contextWindow: 16000, check: async () => ({ passed: true, result: 'pass' }) }).run(request(root), hooks());
   assert.equal(result.ok, false); assert.match(result.note!, /Три предложения/); assert.equal(result.modelRequests, 3);
+});
+
+test('an actual earlier mutation goes to Verify when a later group stops without progress', async t => {
+  const { root, paths } = fixture(t);
+  const result = await new GuidedExecutor({ paths,
+    items: [item(['a.ts']), { ...item(['b.ts']), id: 'work-2' }],
+    provider: provider([
+      { action: 'patch', prediction: 'created', ops: [{ op: 'create_file', file: 'a.ts', body: 'export const n = 1;' }] },
+      { action: 'patch', prediction: 'invalid', ops: [{ op: 'delete', file: 'b.ts', symbol: 'absent' }] },
+      { action: 'patch', prediction: 'invalid', ops: [{ op: 'delete', file: 'b.ts', symbol: 'absent' }] },
+      { action: 'patch', prediction: 'invalid', ops: [{ op: 'delete', file: 'b.ts', symbol: 'absent' }] },
+    ]),
+    inputRevision: () => 'r', requirements: '', sources: '', contextWindow: 16000,
+    check: async () => ({ passed: true, result: 'pass' }) }).run(request(root), hooks());
+  assert.equal(result.ok, true, result.note);
+  assert.match(result.note!, /фактические правки сохранены.*verify/);
+  assert.equal(readFileSync(join(root, 'a.ts'), 'utf8'), 'export const n = 1;\n');
 });
 
 test('a failed check remains visible in every subsequent per-file draft', async t => {
@@ -798,6 +843,25 @@ test('no-change still runs checks and unavailable environment never passes', asy
     inputRevision: () => 'r', requirements: '', sources: '', contextWindow: 16384,
     check: async () => { checks++; return { passed: false, environment: true, result: 'test runner missing' }; } }).run(request(root), hooks());
   assert.equal(result.ok, false); assert.equal(checks, 1);
+});
+
+test('chunk question about requirements is soft-rejected and does not abort the group', async t => {
+  const { root, paths } = fixture(t);
+  let humanCalls = 0;
+  const h = hooks();
+  h.onAskHuman = async () => { humanCalls++; return { 'guided-rule': ['answer'] }; };
+  const result = await new GuidedExecutor({
+    paths, items: [item(['a.ts'])],
+    provider: provider([
+      { action: 'question', question: 'Какой формат email?', reason: 'неясно из плана' },
+      { action: 'patch', prediction: 'exports n', ops: [{ op: 'create_file', file: 'a.ts', body: 'export const n = 1;' }] },
+    ]),
+    inputRevision: () => 'r', requirements: '', sources: '', contextWindow: 16384,
+    check: async () => ({ passed: true, result: 'pass' }),
+  }).run(request(root), h);
+  assert.equal(result.ok, true);
+  assert.equal(humanCalls, 0);
+  assert.equal(existsSync(join(root, 'a.ts')), true);
 });
 
 test('schema rejects additional fields and never treats prose as executable commands', () => {
@@ -1265,6 +1329,8 @@ test('duplicate-card repair includes the retained owner and resolves a new ID on
   const targets = guidedPlanRepairTargets(plan, 'шаг 3: путь a.ts уже покрыт другой карточкой');
   assert.deepEqual(new Set(targets), new Set([1, 3]));
   assert.deepEqual(new Set(guidedPlanRepairTargets(plan, 'Plan Step\u202f3 must be merged')), new Set([1, 3]));
+  // Замечание ревью адресует карточку полем «Место плана»; «шаг» в контрпримере — не адрес.
+  assert.deepEqual(guidedPlanRepairTargets(plan, 'Пропуск: нет проверки — Место плана: Шаг 2 — Контрпример: шаг 1 печатает таблицу'), [2]);
   const repair = { steps: [{ ...step, id: 0, action: 'combine both changes' }], removeSteps: [3], approach: null, axes: null, excluded: null, changes: null };
   const result = applyGuidedPlanRepair(plan, repair, targets);
   assert.deepEqual(result.steps.map(card => card.id), [1, 2]);
@@ -1363,6 +1429,74 @@ test('runtime-added plan cards must pass the same field validation before approv
   assert.match(guidedPlanFieldsProblem({ ...plan, steps: [card] })!, /шаг 3: symbol/);
   assert.match(guidedPlanFieldsProblem({ ...plan, steps: [{ ...card, symbol: '‹символ›' }] })!, /плейсхолдер/);
   assert.equal(guidedPlanFieldsProblem({ ...plan, steps: [{ ...card, symbol: 'новый: tests' }] }), null);
+});
+
+test('card completeness rejects empty check/claims before workItems and addresses the step', () => {
+  const base = {
+    approach: 'implement', excluded: [] as string[],
+    axes: AXES.map((name) => ({ name, affected: false, reason: 'n/a', outcome: 'н/п — n/a' })),
+    changes: 'none', callers: [] as [],
+  };
+  const step = {
+    id: 1, file: 'src/a.ts', isNew: true, symbol: 'новый: run', action: 'add run',
+    claims: ['claim-1'], check: 'npm test', expected: 'pass', contract: 'н/п', dependsOn: [] as number[],
+  };
+  assert.equal(guidedPlanCardCompletenessProblem({ ...base, steps: [step] }), null);
+  assert.match(guidedPlanCardCompletenessProblem({ ...base, steps: [{ ...step, claims: ['не закрывает'] }] })!, /шаг 1:.*claim-N/u);
+  assert.match(guidedPlanFieldsProblem({ ...base, steps: [{ ...step, check: '‹проверка›', expected: '‹ожидание›' }] })!, /шаг 1:.*(проверк|плейсхолдер|check)/u);
+  assert.match(guidedPlanFieldsProblem({ ...base, steps: [{ ...step, check: 'x', expected: 'y', claims: [] }] })!, /шаг 1:.*claim-N/u);
+  assert.deepEqual(guidedPlanRepairTargets({ ...base, steps: [step] }, 'шаг 1: укажи проверку результата'), [1]);
+  assert.throws(
+    () => renderGuidedPlan({ ...base, steps: [{ ...step, claims: [] as string[] }] } as never, 'case',
+      [{ id: 'claim-1', behavior: 'b', procedure: 'p', expected: 'e' }]),
+    /claim|явн|проверк|min/iu,
+  );
+});
+
+test('card symbol schema is closed per file: enum of its declarations or a declared new symbol', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src', 'store.ts'), 'export function parse() { return 1; }\nexport class Store { save() {} }\n');
+  writeFileSync(join(root, 'README.md'), '# Проект\n');
+  const existing = fileSymbolsAt(root, 'src/store.ts');
+  assert.ok(existing !== null && existing.includes('parse') && existing.includes('Store') && existing.includes('Store.save'));
+  assert.equal(fileSymbolsAt(root, 'src/fresh.ts'), null, 'файла нет — объявлений нет');
+  assert.deepEqual(fileSymbolsAt(root, 'README.md'), [], 'файл без индексируемых объявлений');
+  const closed = fileSymbolSchema(existing) as { anyOf: [{ enum: string[] }, { properties: Record<string, unknown> }] };
+  assert.deepEqual(closed.anyOf[0].enum, [...existing!]);
+  assert.ok('isNew' in closed.anyOf[1].properties);
+  // Символ чужого файла (реплей-корпус r3: «Product» на карточке src/store.ts) не входит в enum.
+  assert.equal(closed.anyOf[0].enum.includes('Product'), false);
+  // Новому файлу и файлу без объявлений — только новый символ: модели нечего выбирать.
+  for (const symbols of [null, []]) {
+    const schema = fileSymbolSchema(symbols) as { anyOf?: unknown; properties?: Record<string, unknown> };
+    assert.equal(schema.anyOf, undefined);
+    assert.ok(schema.properties !== undefined && 'isNew' in schema.properties);
+  }
+});
+test('exploration paths without a step go to excluded, not files_to_touch', () => {
+  const plan = parseGuidedPlan({
+    approach: 'narrow',
+    steps: [{
+      id: 1, file: 'src/a.ts', isNew: false, symbol: 'a', action: 'change a', claims: ['claim-1'],
+      check: 't', expected: 'ok', contract: 'н/п', dependsOn: [],
+    }],
+    excluded: [],
+    axes: AXES.map((name) => ({ name, affected: false, reason: 'n', outcome: 'н/п — n' })),
+    changes: 'none',
+  });
+  const intent = [
+    '## Что придётся тронуть',
+    '- `src/a.ts` — правка',
+    '- `src/deps.ts` — опора',
+  ].join('\n');
+  const narrowed = ensureExcludedExplorationPaths(plan, intent);
+  assert.ok(narrowed.excluded.some((row) => row.includes('src/deps.ts')));
+  const rendered = renderGuidedPlan(narrowed, 'case',
+    [{ id: 'claim-1', behavior: 'b', procedure: 'p', expected: 'e' }], { deferCoverageUntilRuntimeCards: true });
+  assert.match(rendered, /src\/a\.ts/);
+  assert.doesNotMatch(rendered.split('## Из задачи исключено')[0] ?? '', /src\/deps\.ts/);
+  assert.match(rendered, /src\/deps\.ts.*опора разведки/u);
 });
 
 test('repair recovers repeated transport IDs by file without changing unrelated cards', () => {

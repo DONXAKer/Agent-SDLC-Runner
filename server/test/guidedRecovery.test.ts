@@ -146,7 +146,7 @@ test('target repair paths exclude forbidden files and existing tests, retaining 
   const { root } = fixture(t); mkdirSync(join(root, 'src')); mkdirSync(join(root, 'test'));
   for (const file of ['src/commands.ts', 'src/format.ts', 'test/old.test.ts']) writeFileSync(join(root, file), '// source');
   const intent = '## Чего не делаем\nНе меняем src/format.ts.\nНе меняем существующие тесты.\n';
-  const allowed = guidedPlanRepairPaths(intent, [], ['src/commands.ts', 'src/format.ts', 'test/old.test.ts'], root);
+  const allowed = guidedPlanRepairPaths(intent, ['src/commands.ts', 'src/format.ts', 'test/old.test.ts'], root);
   assert.deepEqual(allowed, ['src/commands.ts']);
 });
 
@@ -155,7 +155,7 @@ test('target repair paths retain plan step files missing from intent and read ev
   // разведкой, но адресный ремонт обязан уметь сохранить его как прежнюю цель шага.
   const { root } = fixture(t); mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'src/keys.ts'), '// source');
-  const allowed = guidedPlanRepairPaths('## Чего не делаем\nНе меняем существующие тесты.\n', [], [], root, ['src/keys.ts']);
+  const allowed = guidedPlanRepairPaths('## Чего не делаем\nНе меняем существующие тесты.\n', [], root, ['src/keys.ts']);
   assert.deepEqual(allowed, ['src/keys.ts']);
 });
 

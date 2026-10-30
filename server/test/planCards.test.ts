@@ -36,7 +36,7 @@ test('card generation binds target identities and fills only one card per respon
   assert.deepEqual((result as any).steps.map((step: any) => step.file), ['lib/beacon.ts', 'spec/beacon.test.ts']);
   assert.deepEqual((result as any).steps.map((step: any) => step.symbol), ['Beacon', 'новый: verifyBeacon']);
   assert.deepEqual((result as any).steps[1].dependsOn, [1]);
-  assert.equal((result as any).approach, remainder.approach);
+  assert.match((result as any).approach, /^Preserve the existing API while extending behavior\nВыбранный: lib\/beacon\.ts:Beacon; spec\/beacon\.test\.ts:verifyBeacon/);
 });
 
 test('a truncated outline cannot become an accepted partial plan', async () => {

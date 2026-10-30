@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { WitokPaths } from '../src/artifacts/paths.ts';
+import { savePreparation } from '../src/artifacts/preparation.ts';
 import { addRequirementsHash, resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { callersBlock, planMapProblem, planRequirementsProblem } from '../src/run/stages/plan.ts';
 import { renderGuidedPlan } from '../src/exec/GuidedPlanExecutor.ts';
@@ -62,7 +63,7 @@ describe('planMapProblem', () => {
     ok(problem?.includes('этап 4'));
   });
 
-  it('принимает явно новый символ, если имя требуется задачей', () => {
+  it('принимает явно новый символ, названный в задаче', () => {
     const ctx = setup('', STEP.replace('- символ: priceFor', '- символ: новый: moveHold'));
     const intentText = '# Intent\nClaim 1 requires moveHold';
     writeFileSync(ctx.paths.intent, intentText);
@@ -72,14 +73,20 @@ describe('planMapProblem', () => {
     strictEqual(planMapProblem(ctx), null);
   });
 
-  it('не принимает новый символ, которого нет в требованиях', () => {
-    const ctx = setup('', STEP.replace('- символ: priceFor', '- символ: новый: moveHold'));
-    const hash = resolvedRequirementsHash('# Intent\nClaim 1', '');
-    const planText = readFileSync(ctx.paths.plan, 'utf8').replace(/^- \*\*Требования \(SHA-256\):\*\*.*$/m, `- **Требования (SHA-256):** \`${hash}\``);
-    writeFileSync(ctx.paths.plan, planText);
-    ok(planMapProblem(ctx)?.includes('не подтверждён как новый требуемый символ'));
+  it('принимает явно новый символ без якоря в тексте задачи', () => {
+    // Имя вспомогательной функции или describe-блока в задаче не встречается по построению;
+    // префикс «новый:» и есть подтверждение, появление символа проверит verify по патчу.
+    const ctx = setup('', STEP.replace('- символ: priceFor', '- символ: новый: inventedHelper'));
+    strictEqual(planMapProblem(ctx), null);
   });
 
+  it('не принимает bare-символ, которого нет в файле, даже если он назван в запросе', () => {
+    const ctx = setup('export const other = 1;\n', STEP.replace('- символ: priceFor', '- символ: srcDir'));
+    savePreparation(ctx.paths, { version: 3, requests: ['Добавь srcDir в src/config.ts'], revisions: [] });
+    const problem = planMapProblem(ctx);
+    ok(problem?.includes('srcDir'));
+    ok(problem?.includes('новый: имя'));
+  });
   it('останавливает передачу, если задача изменилась после фиксации плана', () => {
     const ctx = setup('export function priceFor() {}', STEP);
     writeFileSync(ctx.paths.intent, '# Intent\nClaim 1 changed');
@@ -119,7 +126,13 @@ describe('planMapProblem', () => {
     writeFileSync(ctx.paths.plan, callerInScope);
     strictEqual(planMapProblem(ctx), null);
 
+    // Вызывающий в файле из files_to_touch учтён по построению: номер строки у него не сверяется —
+    // на повторном входе в chunk дерево уже изменено, и строки вызовов сдвинуты самой правкой.
     writeFileSync(ctx.paths.plan, callerInScope.replace('`src/consumer.ts:2`', '`src/consumer.ts:1`'));
+    strictEqual(planMapProblem(ctx), null);
+
+    // Вне files_to_touch строка обязана совпасть с живым деревом.
+    writeFileSync(ctx.paths.plan, planText.replace('`src/consumer.ts:2`', '`src/consumer.ts:1`'));
     ok(planMapProblem(ctx)?.includes('src/consumer.ts:2'));
   });
 

@@ -94,7 +94,13 @@ export class PlanSelectionExecutor implements StageExecutor {
         if (result.ok && proposal && !candidates.some(c => c.rendered === proposal!.rendered)) candidates.push(proposal);
         persist('generating');
       }
-      if (!candidates.length) return fail('Ни один кандидат не прошёл обязательные проверки плана');
+      if (!candidates.length) {
+        const reasons = records.flatMap(record => {
+          if (typeof record !== 'object' || record === null || !('kind' in record) || record.kind !== 'candidate' || !('note' in record)) return [];
+          return [String(record.note)];
+        });
+        return fail(`Ни один кандидат не прошёл обязательные проверки плана: ${reasons.join('; ')}`);
+      }
       const judgments: ReturnType<typeof parsePlanJudgment>[] = [];
       for (const order of [candidates, [...candidates].reverse()]) {
         checkBudget();

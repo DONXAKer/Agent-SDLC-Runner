@@ -18,9 +18,12 @@ import {
   addedBeyondPlanPaths,
   appendFilesToTouch,
   appendScopeExtension,
+  exceptedCodePaths,
   excludedFromPlanPaths,
   extractFilesToTouch,
   filesToTouchDirectories,
+  forbiddenCodePaths,
+  pathExceptedFromBoundary,
   seedFilesToTouch,
   touchListEntries,
 } from '../src/artifacts/planFiles.ts';
@@ -369,5 +372,18 @@ describe('appendFilesToTouch', () => {
     ]);
     strictEqual(result.appended, 1);
     deepStrictEqual(extractFilesToTouch(result.text), ['src/hold.ts', 'test/hold.test.ts']);
+  });
+});
+
+describe('forbiddenCodePaths / exceptedCodePaths', () => {
+  it('does not forbid paths named after «кроме» on the same constraint line', () => {
+    const boundaries = 'Не меняем другие файлы, кроме src/product.ts и src/store.ts.';
+    deepStrictEqual(forbiddenCodePaths(boundaries), []);
+    deepStrictEqual(exceptedCodePaths(boundaries).sort(), ['src/product.ts', 'src/store.ts'].sort());
+  });
+
+  it('still forbids the path before «кроме»', () => {
+    deepStrictEqual(forbiddenCodePaths('Не меняем src/index.ts кроме test/rule.test.ts.'), ['src/index.ts']);
+    ok(pathExceptedFromBoundary('test/rule.test.ts', exceptedCodePaths('Не меняем src/index.ts кроме test/rule.test.ts.')));
   });
 });

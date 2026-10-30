@@ -60,11 +60,15 @@ for (const scenario of ['select', 'order_bias', 'reject_all', 'unknown', 'invali
       const compact = { ...value, steps: value.steps.map(({ id: _id, isNew: _isNew, ...step }) => step),
         axes: value.axes.map(({ name: _name, ...axis }) => axis) };
       const schemaName = request.params?.response_format as any;
-      if (scenario === 'v4' && schemaName?.json_schema?.name === 'guided_plan_outline') return reply({ ...compact,
+      if (scenario === 'v4' && schemaName?.json_schema?.name === 'guided_plan_outline') return reply({
         steps: compact.steps.map(({ symbol: _symbol, action: _action, check: _check, expected: _expected, contract: _contract, ...step }) => step) });
       if (scenario === 'v4' && schemaName?.json_schema?.name === 'guided_plan_card') {
         const { file: _file, claims: _claims, dependsOn: _dependsOn, ...details } = compact.steps[0]!;
         return reply(details);
+      }
+      if (scenario === 'v4' && schemaName?.json_schema?.name === 'guided_plan_remainder') {
+        const { steps: _steps, ...remainder } = compact;
+        return reply(remainder);
       }
       return reply(scenario === 'no_valid' ? {} : scenario === 'v4' ? compact : value);
     } };
@@ -91,7 +95,7 @@ for (const scenario of ['select', 'order_bias', 'reject_all', 'unknown', 'invali
       maxBudgetUsd: scenario === 'budget' ? 1 : null, prompt: { system: '', user: '' } as ExecRequest['prompt'],
       allowedTools: ['Write'], readOnlyDirs: [], subagents: [], mcp: null, finishGuard: null, salvageFromText: null };
     if (scenario === 'v4') {
-      req.maxTurns = 12;
+      req.maxTurns = 15;
       req.guidedEngineVersion = 4;
       req.progress = new GuidedProgress(paths);
       const deps = contractDependencies(readFileSync(paths.intent, 'utf8'), [requestText]);

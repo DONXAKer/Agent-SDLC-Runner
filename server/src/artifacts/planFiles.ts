@@ -21,16 +21,55 @@ const NEXT_HEADING_RE = /^#{1,6}\s/m;
 /** Строка, с которой начинается перечисление исключённых путей. */
 const EXCLUDED_RE = /^.*Из задачи исключено/im;
 
+const PATH_IN_PROSE_RE = /(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu;
+/** «кроме / except / excluding» — хвост строки остаётся разрешённым, даже если до него запрет.
+ * `\b` по кириллице не работает (граница ASCII), поэтому якорим через не-букву. */
+const EXCEPTION_RE = /(?:^|[^\p{L}])(?:кроме|except|excluding)(?=$|[^\p{L}])/iu;
+
+/** Paths named after «кроме» / except — remain allowed despite a negative constraint. */
+export function exceptedCodePaths(boundaries: string): string[] {
+  const allowed = new Set<string>();
+  for (const line of boundaries.split(/\r?\n/u)) {
+    const exception = EXCEPTION_RE.exec(line);
+    if (exception === null) continue;
+    const tail = line.slice(exception.index + exception[0].length);
+    for (const match of tail.matchAll(PATH_IN_PROSE_RE)) allowed.add(match[0]);
+    // Basename-only exceptions («кроме invoice.test.ts») — when no full path already covers it.
+    for (const match of tail.matchAll(/(?<![\w./-])([\w.-]+\.[a-z0-9]{1,12})(?![\w./-])/giu)) {
+      const name = match[1]!;
+      if (name.includes('/')) continue;
+      if ([...allowed].some((path) => path === name || path.endsWith(`/${name}`))) continue;
+      allowed.add(name);
+    }
+  }
+  return [...allowed];
+}
+
+/** True when `path` is named in an exception list (full path or basename). */
+export function pathExceptedFromBoundary(path: string, excepted: readonly string[]): boolean {
+  const normalized = path.replace(/\\/gu, '/');
+  return excepted.some((entry) => {
+    const item = entry.replace(/\\/gu, '/');
+    return item === normalized || normalized.endsWith(`/${item}`) || normalized === item;
+  });
+}
+
 /** Whole-file no-touch rules; an API/behavior constraint leaves implementation edits available. */
 export function forbiddenCodePaths(boundaries: string): string[] {
   const forbidden = new Set<string>();
+  const excepted = new Set(exceptedCodePaths(boundaries));
   for (const line of boundaries.split(/\r?\n/u)) {
     const constraintLine = line.replace(/^\s*[-*]\s*не\s+трогаем\s+(?=не\s+)/iu, '');
     const negativeAction = /не\s+(?:измен\p{L}*|меня\p{L}*|модифицир\p{L}*|трога\p{L}*|перепис\p{L}*)/iu.exec(constraintLine);
     if (negativeAction === null) continue;
     const actionTail = constraintLine.slice(negativeAction.index + negativeAction[0].length);
     if (/^\s+(?:(?:публичн\p{L}*\s+)?(?:интерфейс\p{L}*|сигнатур\p{L}*|контракт\p{L}*|схем\p{L}*|структур\p{L}*|логик\p{L}*|поведен\p{L}*|формат\p{L}*|тип\p{L}*)(?=$|[\s:,(])|\p{L}+(?:\s+\p{L}+){0,2}\s+в\s+файл\s+(?=$|[«"'`\w]))/iu.test(actionTail)) continue;
-    for (const match of constraintLine.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)) forbidden.add(match[0]);
+    // Paths after «кроме» are exemptions, not additional forbids (series 2026-10-29 rename/config).
+    const exception = EXCEPTION_RE.exec(constraintLine);
+    const forbidRegion = exception === null ? constraintLine : constraintLine.slice(0, exception.index);
+    for (const match of forbidRegion.matchAll(PATH_IN_PROSE_RE)) {
+      if (!excepted.has(match[0]) && !pathExceptedFromBoundary(match[0], [...excepted])) forbidden.add(match[0]);
+    }
   }
   return [...forbidden];
 }
@@ -308,12 +347,13 @@ function pathsAfterLabel(planText: string, label: RegExp): string[] {
 
 /** Пути «Из задачи исключено» плана — уже объяснённые изъятия из `files_to_touch`. */
 export function excludedFromPlanPaths(planText: string): string[] {
-  return pathsAfterLabel(planText, /\*\*Из задачи исключено\*\*/);
+  // Guided рендерит `## Из задачи исключено`, шаблон — `- **Из задачи исключено**`.
+  return pathsAfterLabel(planText, /(?:^#{1,6}\s*|\*\*)Из задачи исключено/mu);
 }
 
 /** Пути «Добавлено сверх разведки» плана — уже объяснённые добавления сверх карты. */
 export function addedBeyondPlanPaths(planText: string): string[] {
-  return pathsAfterLabel(planText, /\*\*Добавлено сверх разведки:\*\*/);
+  return pathsAfterLabel(planText, /(?:^#{1,6}\s*|\*\*)Добавлено сверх разведки:?/mu);
 }
 
 export function extractFilesToTouch(planText: string): string[] {

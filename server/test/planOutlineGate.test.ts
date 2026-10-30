@@ -53,6 +53,35 @@ test('outline rejects cycles, forward references and unapproved targets before d
   }
 });
 
+// Реплей-корпус r1 (2026-10-29): 20 из 23 отказов allowlist outline — модель называла путь из
+// текста задачи (`src/vat.ts` — новый файл; `README.md` — другим регистром), а закрытый список
+// без ветки нового файла и с ключами в нижнем регистре отвечал «target is not allowed».
+test('outline accepts the canonical twin of an allowed path and a declared new file (replay corpus r1)', async () => {
+  const seen: string[] = [];
+  const raw = await generatePlanByCards([], guidedCompactPlanResponseFormat(['claim-1', 'claim-2']), async (_messages, format) => {
+    const name = (format as { json_schema?: { name?: string; schema?: { properties?: { steps?: { items?: { properties?: { file?: unknown } } } } } } }).json_schema;
+    if (name?.name === 'guided_plan_outline') {
+      const file = name.schema?.properties?.steps?.items?.properties?.file as { enum?: string[]; anyOf?: { enum?: string[] }[] };
+      const options = file.enum ?? file.anyOf?.find(branch => branch.enum)?.enum ?? [];
+      seen.push(...options);
+      return reply(topology([
+        { file: 'readme.md', claims: ['claim-1'], dependsOn: [] },
+        { file: { isNew: true, path: 'src/vat.ts' }, claims: ['claim-2'], dependsOn: [1] },
+      ]));
+    }
+    if (name?.name === 'guided_plan_card') return reply({ ...details, symbol: { isNew: true, name: 'vatAmount' } });
+    return reply(remainder);
+  }, { requiredClaims: ['claim-1', 'claim-2'], allowedTargets: ['README.md'], newTarget: path => path.startsWith('src/') ? null : 'вне каталога исходников' });
+  // enum несёт канонический путь, как он лежит на диске, а не ключ сравнения.
+  assert.deepEqual(seen, ['README.md']);
+  const plan = materializeCompactPlan(raw);
+  assert.deepEqual(plan.steps.map(step => step.file), ['README.md', 'src/vat.ts']);
+  // Объявленный новый файл, который рантайм не разрешает, отклоняется с причиной рантайма.
+  await assert.rejects(generatePlanByCards([], guidedCompactPlanResponseFormat(['claim-1']), async () => reply(topology([
+    { file: { isNew: true, path: 'docs/new.md' }, claims: ['claim-1'], dependsOn: [] },
+  ])), { requiredClaims: ['claim-1'], allowedTargets: ['README.md'], newTarget: () => 'вне каталога исходников' }), /new target docs\/new\.md is not allowed: вне каталога исходников/u);
+});
+
 test('outline semantic gates use the structured decision validator', async () => {
   let validator: ((value: unknown) => unknown) | undefined;
   const candidate = topology([{ file: 'src/a.ts', claims: ['claim-1'], dependsOn: [1] }]);

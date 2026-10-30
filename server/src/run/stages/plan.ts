@@ -7,7 +7,10 @@ import {
   preparation,
   requirementProblem,
   preparationReviewProblem,
+  preparationReviewOutcome,
   preparationPlanEvidenceProblem,
+  preparationRepairStalled,
+  markPreparationRepairStalled,
   sourceHash,
   section,
   syncCanonicalPreparation,
@@ -23,10 +26,12 @@ import { planAxisProblems, unansweredAxes } from '../../artifacts/planAxes.ts';
 import {
   addedBeyondPlanPaths,
   appendFilesToTouch,
+  exceptedCodePaths,
   excludedFromPlanPaths,
   extractFilesToTouch,
   forbiddenCodePaths,
   filesToTouchDirectories,
+  pathExceptedFromBoundary,
   seedFilesToTouch,
   removeFilesFromTouch,
   touchListEntries,
@@ -84,6 +89,9 @@ export function filesToTouchProblem(c: StageContext): string | null {
   );
 }
 
+const SAFE_IMPL_PATH = (path: string): boolean =>
+  path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..');
+
 /** Paths stated as implementation targets in Intent must survive into the executable plan. */
 export function extractIntentImplementationPaths(intentText: string): string[] {
   const implementation = section(intentText, 'Что делаем');
@@ -92,46 +100,34 @@ export function extractIntentImplementationPaths(intentText: string): string[] {
   // path mentioned in the prose; the approved plan still guards actual writes.
   const required = [...implementation.matchAll(/(?<![\p{L}_])(?:реализ\w*|реализац\w*|разраб\w*|созда\w*|добав\w*|измен\w*|экспорт\w*|обнов\w*|нов\w*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
     .map((match) => (match[1] ?? '').replace(/\\/gu, '/'));
-  return [...new Set(required.filter((path) =>
-    path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..'),
-  ))];
+  // «отдельным модулем src/vat.ts» / «файл src/foo.ts» — цель без глагола из узкого списка.
+  const modulePaths = [...implementation.matchAll(/(?:отдельн\w*\s+)?(?:модул\w*|файл\w*|module|file)[^\n.;]{0,100}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
+    .map((match) => (match[1] ?? '').replace(/\\/gu, '/'));
+  return [...new Set([...required, ...modulePaths].filter(SAFE_IMPL_PATH))];
 }
 
-export function extractRequestImplementationPaths(request: string): string[] {
-  const expected = section(request, 'Что должно получиться');
-  return extractIntentImplementationPaths(`## Что делаем\n${expected || request}`);
-}
-
-/** Explicit public-export paths in the original request are implementation targets too. */
-export function extractExplicitExportPaths(requests: readonly string[]): string[] {
-  const paths = requests.flatMap((request) =>
-    [...request.matchAll(/(?:export(?:ed)?|экспорт\p{L}*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
-      .map((match) => (match[1] ?? '').replace(/\\/gu, '/')),
-  );
-  return [...new Set(paths.filter((path) =>
-    path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..'),
-  ))];
-}
-
-export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = [], planText: string | readonly string[] = ''): string | null {
-  const requestText = originalRequests.join('\n');
+/**
+ * Обязательный новый файл тестов — из одобренного intent.md, не из сырого текста запроса.
+ * Сырой запрос здесь не читается намеренно: скрейпинг путей и фраз об экспорте из его прозы
+ * давал рантайму цели, которых в задаче не было (оракул, F12), а одобренный intent — тот
+ * единственный документ, по которому план и судится.
+ */
+export function intentNewTestPath(intentText: string, projectRoot: string, planText: string | readonly string[] = ''): string | null {
+  const boundaryProse = boundaryProseWithoutPaths(section(intentText, 'Чего не делаем'));
   const existingTestsForbidden = /(?:не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:существующ\p{L}*.{0,20})?(?:тест|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*))/iu
-    .test(section(intentText, 'Чего не делаем') + '\n' + requestText) ||
+    .test(boundaryProse) ||
     /существующ\p{L}*\s+тест\p{L}*[^\n.]{0,80}без\s+(?:правки|изменений)/iu
-      .test((section(intentText, 'Чего не делаем') + '\n' + requestText).replace(/[*`_]/gu, ''));
+      .test(boundaryProse.replace(/[*`_]/gu, ''));
   const requiresNewTestFile =
-    /нов\p{L}*\s+тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?файл|тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл|(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл.{0,80}тест/iu.test(intentText + '\n' + requestText) ||
+    /нов\p{L}*\s+тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?файл|тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл|(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл.{0,80}тест/iu.test(intentText) ||
     // If Intent forbids editing existing tests but names a test path or requires test
     // coverage, planning against an existing file would make the task impossible.
-    (existingTestsForbidden && /(?:test\/|тест\p{L}*)/iu.test(intentText + '\n' + requestText));
+    (existingTestsForbidden && /(?:test\/|тест\p{L}*)/iu.test(intentText));
   if (!requiresNewTestFile) return null;
   const testName = /(?:\.test\.[a-z0-9]+|_test\.go|(?:^|\/)test_[^/]+\.py)$/iu;
   const safeNewTest = (path: string): boolean => testName.test(path) && !path.startsWith('/') &&
     !/^[a-z]:/iu.test(path) && !path.split('/').includes('..') && !existsSync(join(projectRoot, path));
-  // A literal filename requested by the user takes precedence over project conventions.
-  const explicit = [...requestText.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]+/giu)]
-    .map(match => match[0]).find(safeNewTest);
-  if (explicit !== undefined) return explicit;
+  // Путь нового теста, названный в «Что делаем», побеждает соглашения проекта.
   const intentTest = extractIntentImplementationPaths(intentText).find(safeNewTest);
   if (intentTest !== undefined) return intentTest;
   const examples = readTree(projectRoot).files.filter((file) => file.kind === 'test').map((file) => file.path.replace(/\\/gu, '/'));
@@ -141,13 +137,10 @@ export function intentNewTestPath(intentText: string, projectRoot: string, origi
   if (planned !== undefined) return planned;
   const implementation = section(intentText, 'Что делаем');
   const functionName = /(?:функц(?:ия|ию|ии|ией|иею)|function)\s+[`']?([A-Za-z_$][\w$]*)/iu;
-  const implementationTargets = [...extractIntentImplementationPaths(intentText),
-    ...originalRequests.flatMap(extractRequestImplementationPaths)];
-  const moduleTarget = implementationTargets.find(path => !testName.test(path) && !/(?:^|\/)index\.[^/]+$/iu.test(path) && !existsSync(join(projectRoot, path)));
+  const moduleTarget = extractIntentImplementationPaths(intentText).find(path => !testName.test(path) && !/(?:^|\/)index\.[^/]+$/iu.test(path) && !existsSync(join(projectRoot, path)));
   const moduleSymbol = moduleTarget?.split('/').pop()?.replace(/\.[^.]+$/u, '');
   // Prefer the positive implementation scope. Excluded functions are not test targets.
   const symbol = functionName.exec(implementation)?.[1] ??
-    functionName.exec(requestText)?.[1] ??
     functionName.exec(section(intentText, 'Приёмочный лист'))?.[1] ?? moduleSymbol;
   if (symbol === undefined) return null;
   // Infer the new test target from this project's existing test naming pattern.
@@ -203,6 +196,17 @@ export interface IntentPlanBoundaryResult {
 }
 
 /**
+ * Проза границ без конкретных путей. Общий запрет «существующие тесты не правим» читается
+ * только из слов о тестах, а не из имени файла: «не меняем src/money.ts, test/money.test.ts»
+ * — запрет двух файлов (их читает `forbiddenCodePaths`), а не всех тестов проекта. Без
+ * этого закрытый список целей плана терял тест, который задача прямо велела обновить
+ * (оракул, config-default).
+ */
+export function boundaryProseWithoutPaths(text: string): string {
+  return text.replace(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu, ' ');
+}
+
+/**
  * Reject explicit no-touch boundaries. A step whose action names another Intent target is no
  * longer rejected: the missing path is collected in `addPaths` so the runtime can expand the
  * plan instead of burning a model turn on a boundary error.
@@ -219,9 +223,11 @@ export function intentPlanBoundaryProblem(intentText: string, planText: string, 
     };
   }
   const existingTestsForbidden = /(?:не\s+делаем|не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)).{0,80}(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)/iu
-    .test(section(intentText, 'Чего не делаем'));
+    .test(boundaryProseWithoutPaths(excluded));
   if (existingTestsForbidden && projectRoot !== undefined) {
-    const editedExistingTests = touched.filter((path) => /^test\//iu.test(path) && existsSync(join(projectRoot, path)));
+    const excepted = exceptedCodePaths(excluded);
+    const editedExistingTests = touched.filter((path) =>
+      /^test\//iu.test(path) && existsSync(join(projectRoot, path)) && !pathExceptedFromBoundary(path, excepted));
     if (editedExistingTests.length > 0) {
       return {
         problem: `files_to_touch включает существующие тесты, которые Intent запрещает менять: ${editedExistingTests.join(', ')}; оставь только новый файл тестов.`,
@@ -252,13 +258,12 @@ export function preparePlanImplementationCards(
   intentText: string,
   projectRoot: string,
   additionalRequiredPaths: readonly string[] = [],
-  originalRequests: readonly string[] = [],
 ): { text: string; paths: string[] } {
-  const implementation = `${section(intentText, 'Что делаем')}\n${originalRequests.join('\n')}`;
+  const implementation = section(intentText, 'Что делаем');
   const paths = extractIntentImplementationPaths(intentText);
   const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1];
   const checks = acceptanceChecksFromIntent(intentText);
-  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, planText);
+  const testPath = intentNewTestPath(intentText, projectRoot, planText);
   const testCandidates = testPath === null ? [] : [testPath];
   const mandatory = [...new Set([...paths, ...additionalRequiredPaths, ...(testPath === null ? [] : [testPath])])];
   const planned = new Set(extractFilesToTouch(planText).map((path) => path.replace(/\\/gu, '/')));
@@ -364,10 +369,9 @@ export function materializeGuidedPlanImplementation(
   intentText: string,
   projectRoot: string,
   additionalRequiredPaths: readonly string[] = [],
-  originalRequests: readonly string[] = [],
   acceptance?: readonly { id: string; behavior: string; procedure: string; expected: string }[],
 ): { plan: Plan; paths: string[]; testPath: string | null; changed: boolean } {
-  const implementation = `${section(intentText, 'Что делаем')}\n${originalRequests.join('\n')}`;
+  const implementation = section(intentText, 'Что делаем');
   const intentPaths = extractIntentImplementationPaths(intentText);
   const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1];
   const checks = acceptance ?? acceptanceChecksFromIntent(intentText);
@@ -375,9 +379,9 @@ export function materializeGuidedPlanImplementation(
     !/выбор.{0,35}(?:метод|способ)|зафиксир.{0,30}план/iu.test(`${check.behavior} ${check.procedure}`));
   const normalizePath = (path: string): string => path.replace(/\\/gu, '/');
   let steps = plan.steps.map(step => ({ ...step, claims: [...step.claims], dependsOn: [...step.dependsOn] }));
-  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, steps.map(step => step.file));
+  const testPath = intentNewTestPath(intentText, projectRoot, steps.map(step => step.file));
   const boundaries = section(intentText, 'Чего не делаем');
-  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaries);
+  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaryProseWithoutPaths(boundaries));
   const removed = new Set<number>();
   const removedClaims = new Set<string>();
   if (testPath !== null && existingTestsForbidden) {
@@ -469,13 +473,12 @@ export function enforceIntentTestFileTarget(
   planText: string,
   intentText: string,
   projectRoot: string,
-  originalRequests: readonly string[] = [],
 ): { text: string; path: string | null; changed: boolean } {
-  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, planText);
+  const testPath = intentNewTestPath(intentText, projectRoot, planText);
   if (testPath === null) return { text: planText, path: null, changed: false };
   let text = planText;
   const boundaries = section(intentText, 'Чего не делаем');
-  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaries);
+  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaryProseWithoutPaths(boundaries));
   if (existingTestsForbidden) {
     const conflicting = extractFilesToTouch(text).filter((path) =>
       path.startsWith('test/') && path !== testPath && existsSync(join(projectRoot, path)),
@@ -640,8 +643,6 @@ export function planMapProblem(c: StageContext): string | null {
   const steps = extractExplicitSteps(plan.text);
   if (steps.length === 0) return null;
   const files = new Set(extractFilesToTouch(plan.text));
-  const intentText = readArtifact(c.paths.intent).text;
-  const originalRequests = preparation(c.paths)?.requests ?? [];
   const index = readTree(c.paths.projectRoot);
   const issues: string[] = [];
   for (const step of steps) {
@@ -657,17 +658,13 @@ export function planMapProblem(c: StageContext): string | null {
       }
       continue; // неиндексируемые форматы не дают надёжной проверки символов
     }
+    // Новый символ существующего файла объявлен префиксом «новый:» — это и есть подтверждение;
+    // якорей по идентификаторам из текста задачи здесь нет намеренно (имя вспомогательной
+    // функции в задаче не встречается по построению, а стем-сопоставление пропускало что
+    // угодно). Что символ появился, проверит verify по патчу попытки.
+    if (step.isNewSymbol) continue;
     if (step.symbol !== null && !indexed.symbols.some((symbol) => symbol.name === step.symbol)) {
-      const namedByTask = originalRequests.some((request) => request.includes(step.symbol!));
-      const requiredInIntent = intentText.includes(step.symbol);
-      // Новый символ: достаточно точного имени в задаче/intent ИЛИ префикса известного
-      // идентификатора задачи (validateCustomer ⊂ validateCustomerFunc после выравнивания).
-      const taskStem = step.isNewSymbol && [...originalRequests, intentText].some((text) =>
-        [...text.matchAll(/\b[A-Za-z_$][\w$]{2,}\b/gu)].some((match) =>
-          step.symbol!.startsWith(match[0]!) || match[0]!.startsWith(step.symbol!)));
-      if (!(requiredInIntent && (step.isNewSymbol || namedByTask)) && !(step.isNewSymbol && (namedByTask || taskStem))) {
-        issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file} и не подтверждён как новый требуемый символ`);
-      }
+      issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file}; укажи объявление этого файла или отметь символ как новый («новый: имя»)`);
     }
   }
   const callersProblem = planCallersProblem(c, plan.text, index);
@@ -722,12 +719,17 @@ export function planCallersProblem(
     const callers = callersOf(index, step.symbol, step.file, index.files.length);
     const matchingRows = rows.filter((row) => row[0] === `${step.file}:${step.symbol}`);
     for (const caller of callers) {
+      // Вызов из файла самого плана учтён по построению: колонку «да» для него рантайм
+      // подставляет сам, решения человека/модели в такой строке нет. Требовать её по адресу
+      // `путь:строка` нельзя ещё и потому, что индекс читается с живого дерева: после первой
+      // попытки новые модули плана (`src/vat.ts`, новый тест) зовут изменённые символы, а
+      // строки в переписанных файлах сдвигаются — повтор chunk после verify спотыкался о
+      // вызовы, которых на этапе плана не существовало (оракул, vat-rounding).
+      if (filesToTouch.has(caller.path)) continue;
       const address = `${caller.path}:${caller.line}`;
       const addressed = matchingRows.some((row) =>
         (row[2] ?? '').split(/[;,]/).some((part) => part.trim().replace(/\s+\([^)]*\)$/, '') === address) &&
-        (filesToTouch.has(caller.path)
-          ? /^да(?:\s|$)/i.test(row[3] ?? '')
-          : /^нет\s*[—-]\s*\S/i.test(row[3] ?? '')),
+        /^нет\s*[—-]\s*\S/i.test(row[3] ?? ''),
       );
       if (!addressed) missing.push(`${step.file}:${step.symbol} ← ${address}`);
     }
@@ -945,8 +947,7 @@ function preparationReviewReady(host: StageHost): boolean {
   const plan = readArtifact(host.paths.plan);
   if (!plan.exists) return false;
   const ctx = host.ctx();
-  const requests = preparation(host.paths)?.requests ?? [];
-  const testTarget = enforceIntentTestFileTarget(plan.text, readArtifact(host.paths.intent).text, ctx.paths.projectRoot, requests);
+  const testTarget = enforceIntentTestFileTarget(plan.text, readArtifact(host.paths.intent).text, ctx.paths.projectRoot);
   return testTarget.text === plan.text &&
     filesToTouchProblem(ctx) === null &&
     planRequirementsProblem(ctx) === null &&
@@ -956,7 +957,7 @@ function preparationReviewReady(host: StageHost): boolean {
     planStepSampleTextProblem(ctx) === null &&
     planTouchDiscrepancyProblem(ctx) === null &&
     intentPlanBoundaryProblem(readArtifact(host.paths.intent).text, plan.text, ctx.paths.projectRoot).problem === null &&
-    intentImplementationPathsProblem(readArtifact(host.paths.intent).text, plan.text, extractExplicitExportPaths(requests)) === null &&
+    intentImplementationPathsProblem(readArtifact(host.paths.intent).text, plan.text) === null &&
     preparationPlanEvidenceProblem(host.paths, plan.text) === null &&
     axisProblems(host).length === 0;
 }
@@ -1082,6 +1083,9 @@ export const planModule: StageModule = {
   repairFeedback: (host) => {
     if (readGuided(host.paths) === null) return null;
     const review = preparation(host.paths)?.review;
+    // Ремонт, не тронувший адресованную карточку, второй круг не получает: тот же вход
+    // даст тот же план, а стенные часы уйдут на повторное ревью (r6 granite/mellum).
+    if (review?.stalled !== undefined) return null;
     const problem = preparationReviewProblem(host.paths);
     return problem && review?.completed && review.issues.length > 0
       ? `Независимое ревью вернуло план на ремонт: ${problem}` : null;
@@ -1100,8 +1104,6 @@ export const planModule: StageModule = {
           const head = await host.head();
           const intent = readArtifact(host.paths.intent);
           const clarification = readArtifact(host.paths.clarificationReport);
-          const originalRequests = preparation(host.paths)?.requests ?? [];
-          const explicitExports = extractExplicitExportPaths(originalRequests);
           const acceptanceChecks = intent.exists ? acceptanceChecksFromIntent(intent.text) : [];
           const autofilled = autofillPlan(t, {
             title: host.slug,
@@ -1124,8 +1126,6 @@ export const planModule: StageModule = {
                 seeded.text,
                 intent.text,
                 host.ctx().paths.projectRoot,
-                explicitExports,
-                originalRequests,
               )
             : { text: seeded.text, paths: [] as string[] };
           // All existing files_to_touch rows need an explicit execution card. Create those
@@ -1206,10 +1206,25 @@ export const planModule: StageModule = {
         syncCanonicalPreparation(host.paths);
       }
       if (!host.signal().aborted && preparationReviewReady(host)) {
-        await reviewPreparation(host, hooks);
+        // Повторное ревью заслуживает только план, в котором адресованные карточки изменились.
+        const stalled = preparationRepairStalled(host.paths);
+        if (stalled !== null) {
+          markPreparationRepairStalled(host.paths, stalled);
+          hooks.onWarn(stalled);
+        } else {
+          await reviewPreparation(host, hooks);
+        }
       }
     },
-    outcomeProblem: () => preparationReviewReady(host) ? preparationReviewProblem(host.paths) : null,
+    outcomeProblem: () => {
+      if (!preparationReviewReady(host)) return null;
+      const outcome = preparationReviewOutcome(host.paths);
+      if (outcome === null) return null;
+      // Исход ревью — структурный класс отказа: стенд различает «замечания не сняты»,
+      // «ревью не состоялось» и «ремонт не тронул карточку» без разбора текста заметки.
+      return outcome.reviewStatus === undefined ? outcome.note
+        : { note: outcome.note, failure: { kind: 'plan', origin: 'plan', retryStage: 'plan', reason: outcome.note, reviewStatus: outcome.reviewStatus } };
+    },
 
     // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
     // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
@@ -1252,7 +1267,6 @@ export const planModule: StageModule = {
           currentPlanForIntent.text,
           intentText,
           host.ctx().paths.projectRoot,
-          preparation(host.paths)?.requests ?? [],
         );
         if (enforcedTest.changed) {
           host.writeAutofilled(host.paths.plan, enforcedTest.text, []);
@@ -1295,7 +1309,6 @@ export const planModule: StageModule = {
       const intentPathProblem = intentImplementationPathsProblem(
         intentText,
         readArtifact(host.paths.plan).text,
-        extractExplicitExportPaths(preparation(host.paths)?.requests ?? []),
       );
       if (intentPathProblem !== null) return intentPathProblem;
       const touchProblem = planTouchDiscrepancyProblem(host.ctx());

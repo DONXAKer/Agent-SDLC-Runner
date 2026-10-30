@@ -63,6 +63,16 @@ test('a repair cannot drop a required claim', () => {
   assert.throws(() => applyGuidedPlanRepairOperations(plan(), [{ op: 'setClaims', stepId: 3, claims: ['claim-1'] }], [3], { coverage }), /claim-2/);
 });
 
+test('setTarget treats path case folding as the same file on Windows-style allowlists', () => {
+  const before = plan();
+  const targetPaths = new Map<number, readonly string[]>([[1, ['src/First.ts']]]);
+  const after = applyGuidedPlanRepairOperations(before, [{
+    op: 'setTarget', stepId: 1, file: 'src/first.ts', symbol: 'renamed',
+  }], [1], { targetPaths });
+  assert.equal(after.steps[0]?.file, 'src/First.ts');
+  assert.equal(after.steps[0]?.symbol, 'renamed');
+});
+
 test('the operation repair schema contains no full-card repair or steps envelope', () => {
   const format = guidedPlanRepairOperationsResponseFormat(['claim-1'], [1, 2], undefined, [], 'steps') as any;
   const schema = format.json_schema.schema;
