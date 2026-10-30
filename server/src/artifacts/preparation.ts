@@ -218,13 +218,20 @@ export function preparationPlanEvidenceProblem(paths: WitokPaths, planText: stri
     if (!plannedPaths.has(normalizedPath(path)) || !implementationSourceMatches(paths, path, hash)) return `реализация ${path} изменилась после проверки guided; повтори проверку актуального кода`;
   }
   const literalCitations = preparationReferencedCodePaths(approach);
-  // Module specifiers in a cited export are relative to that source file, not
-  // to the project root. Resolve only an unambiguous, known project address.
-  const qualifiedApproach = approach.replace(/\bfrom\s+(['"])(\.\.?\/[^'"\r\n]+)\1/gu, (literal, _quote: string, specifier: string) => {
-    const candidates = new Set(literalCitations.filter(path => existsSync(resolve(paths.projectRoot, path))).map(path =>
+  // Относительный спецификатор модуля («./new-rule.ts», «../src/index.ts») — адрес от файла,
+  // из которого импортируют, а не от корня проекта: от корня «../» ведёт наружу и проектным
+  // путём быть не может. Разрешается относительно каждого названного в «Подход» файла —
+  // существующего или планируемого (новый тест тоже импортирует «из '../src/…'»), — и в
+  // любой обвязке, не только после `from`: пилот qwen27b 3/3 писал «импортируя функцию из
+  // '../src/index.ts'», и страж считал это непереданным исходником. Однозначный результат
+  // подставляется; неоднозначный или не разрешившийся остаётся литералом и судится как есть.
+  const anchors = literalCitations.filter(path => !path.startsWith('../') &&
+    (plannedPaths.has(path) || existsSync(resolve(paths.projectRoot, path))));
+  const qualifiedApproach = approach.replace(/(?<![A-Za-z0-9_./-])(\.\.?\/[A-Za-z0-9_./-]+)/gu, (literal, specifier: string) => {
+    const candidates = new Set(anchors.map(path =>
       normalizedPath(relative(paths.projectRoot, resolve(paths.projectRoot, dirname(path), specifier))))
       .filter(path => !path.startsWith('../') && (plannedPaths.has(path) || existsSync(resolve(paths.projectRoot, path)))));
-    return candidates.size === 1 ? `from '${[...candidates][0]}'` : literal;
+    return candidates.size === 1 ? [...candidates][0]! : literal;
   });
   const allCited = preparationReferencedCodePaths(qualifiedApproach);
   if (allCited.length === 0) return 'в «Подход» укажи файлы и символы, по которым выбрано решение';

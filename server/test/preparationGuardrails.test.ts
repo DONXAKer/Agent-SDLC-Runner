@@ -84,6 +84,20 @@ describe('preparation source evidence guard', () => {
     recordPreparationRead(paths, 'explore', 'src/new-rule.ts', 'source');
     strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
   });
+
+  it('resolves a module specifier of a planned new test in any wording, not only after `from`', () => {
+    // Пилот qwen27b 2026-10-30, 3/3: «импортируя функцию из '../src/index.ts'» — адрес от нового
+    // теста, а не от корня; страж считал ../src/index.ts непереданным исходником.
+    const { root, paths } = fixture('Добавь validateCustomer в src/validate.ts и реэкспорт из src/index.ts.');
+    source(root, 'src/index.ts');
+    source(root, 'test/lines.test.ts');
+    recordPreparationRead(paths, 'explore', 'src/index.ts', 'source');
+    recordPreparationRead(paths, 'explore', 'test/lines.test.ts', 'test');
+    const plan = "## Подход\nРеализовать src/validate.ts:validateCustomer, добавить реэкспорт в src/index.ts. Написать тесты в test/validateCustomer.test.ts, импортируя функцию из '../src/index.ts', как в test/lines.test.ts.\n## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/validate.ts | new |\n| src/index.ts | export |\n| test/validateCustomer.test.ts | tests |";
+    strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
+    // Спецификатор, который ни от одного названного файла не ведёт в проект, остаётся литералом и судится как есть.
+    ok(preparationPlanEvidenceProblem(paths, plan.replace("'../src/index.ts'", "'../../outside/x.ts'"))?.includes('outside/x.ts'));
+  });
 });
 
 describe('preparation claim coverage', () => {
