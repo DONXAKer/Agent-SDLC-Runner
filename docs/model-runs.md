@@ -8082,3 +8082,19 @@ WSL/bpf недоступны; ~76 exited-контейнеров и давлен�
 **Доработка.** Один компактный повтор и на runaway (усечённый `rejectedProposal`, тот же
 `max_tokens`); второй runaway — стоп. Замер — `…-r9`.
 
+
+## Пилот guided v5 r9 — compact retry на runaway, 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r9`, коммит `34db0b8`. Квалификация 12/12.
+Итог **0/3**. Воронка Intent/Ask/Plan **3/3**, chunk на всех, правка 0.
+
+На chunk — три одинаковых обрезанных ответа (~18k символов): `interface_declaration
+Customer` ×25 + `type` ×75, **не** точный период для `runawayRepetition`. Компактный
+retry вызывался, ответ не менялся (deterministic). Лимит не поднимался.
+
+**Помогло ли.** Нет по пилот-гейту. Подтверждено: typed IR для create_file_ir на этой
+модели/задаче систематически не умещается в 4096 и не чинится повторным запросом.
+
+**Следующая ручка.** Профиль `ollama:qwen3.8-27b-iq4-gpumax-wf` (`editRepresentation:
+whole-file`) + стоп на неизменном truncate. Замер — `…-r10`.
+

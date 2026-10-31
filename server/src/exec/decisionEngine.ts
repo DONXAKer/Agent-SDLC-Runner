@@ -158,6 +158,8 @@ export class DecisionEngine {
     let truncationRaises = 0;
     /** Один компактный повтор на точную петлю (пилот r8: Customer×62 @4096) — без подъёма лимита. */
     let runawayCompactRetryUsed = false;
+    /** Пилот r9: три одинаковых неполных JSON подряд — sampling не меняется, дальнейшие попытки пусты. */
+    let lastTruncationHash: string | null = null;
     const rejections = new Map<string, number>();
     const recoveryProposal = (text: string, runaway: boolean): string => {
       if (runaway) return `${text.slice(0, 600)}\n…[truncated runaway loop omitted; length=${text.length}]`;
@@ -235,10 +237,16 @@ export class DecisionEngine {
             : `Response reached max_tokens=${maxTokens} with non-empty content; raising the limit is disabled for structured decisions — return a compact complete JSON`;
           this.options.onValidation?.({ questionId: input.questionId, accepted: false, reason });
           record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway });
+          const truncationHash = progressHash(turn.text);
+          const unchangedTruncate = lastTruncationHash !== null && lastTruncationHash === truncationHash;
           const stopRunaway = runaway && (runawayCompactRetryUsed || attempt >= maxAttempts);
-          if (stopRunaway || (!runaway && attempt >= maxAttempts)) {
-            throw new DecisionError('invalid-response', reason, id, usage);
+          if (unchangedTruncate || stopRunaway || (!runaway && attempt >= maxAttempts)) {
+            const stopReason = unchangedTruncate
+              ? `Truncated response repeated unchanged at max_tokens=${maxTokens}; compact retry did not change the output`
+              : reason;
+            throw new DecisionError('invalid-response', stopReason, id, usage);
           }
+          lastTruncationHash = truncationHash;
           if (runaway) runawayCompactRetryUsed = true;
           feedback = {
             rejectedProposal: recoveryProposal(turn.text, runaway),

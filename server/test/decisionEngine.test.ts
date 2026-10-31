@@ -116,7 +116,7 @@ test('a truncated runaway loop does not climb the completion ladder', async t =>
   const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
   await assert.rejects(
     engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
-    (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /repeats the same fragment/.test(error.message),
+    (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /repeated unchanged|repeats the same fragment/.test(error.message),
   );
   assert.deepEqual(limits, [4096, 4096]);
   const recovery = packets[1]?.recovery as { rejectedProposal?: string; instruction?: string } | undefined;
@@ -167,9 +167,13 @@ test('non-empty truncation without an exact period also refuses to climb', async
   const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
   await assert.rejects(
     engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
-    (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /non-empty content/.test(error.message),
+    (error: unknown) => {
+      if (!(error instanceof DecisionError) || error.category !== 'invalid-response') return false;
+      return error.message.includes('repeated unchanged') || error.message.includes('non-empty content');
+    },
   );
-  assert.deepEqual(limits, [4096, 4096, 4096]);
+  // Пилот r9: одинаковый обрезок на compact-retry — стоп на второй попытке, без третьей.
+  assert.deepEqual(limits, [4096, 4096]);
   assert.match(String((packets[1]?.recovery as { instruction?: string } | undefined)?.instruction), /compact JSON/i);
 });
 
