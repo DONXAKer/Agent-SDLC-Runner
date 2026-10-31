@@ -8133,3 +8133,20 @@ barrel `index.ts`; capabilities barrel — только `ensure_reexport`, а к
 **Доработка.** Компилятор whole-file синтезирует `ensure_reexport`/`ensure_import`; для них
 сверка допускает схлопывание пустых строк. Замер — `…-r12`.
 
+
+## Пилот guided v5 r12 — ensure_reexport в whole-file, 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r12`, коммит `4ac7223`, модель
+`ollama:qwen3.8-27b-iq4-gpumax-wf`. Квалификация 12/12. Итог **3/3**.
+
+Воронка: Intent/Ask/Plan/правка/Verify/приёмка — **3/3**. Все клетки дошли до handoff.
+Класс отказа: none. Пилот-гейт (≥1/3) **открыт**.
+
+**Помогло ли.** Да: компиляция barrel-reexport в `ensure_reexport` + допуск пустых строк
+сняли schema-стоп r11; create EOL (r10) и whole-file вместо typed IR (r8–r9 петли) —
+необходимые предшественники. На typed IR эта модель на add-validator пилот не открывала.
+
+**Дальше.** Матрица `guided-v5-six-models-five-tasks` с `--pilot` на этот каталог; для
+qwen27b в матрице нужна та же ручка `editRepresentation: whole-file` (профиль `-wf`),
+иначе клетки снова упрутся в typed-IR truncate.
+
