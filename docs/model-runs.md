@@ -8050,3 +8050,16 @@ reasoning, r6). Цель — чтобы клетки 2–3 тоже стопил
 попытки: до `maxAttempts` идут компактные повторы на **том же** `max_tokens` (лестница
 не растёт). Точная петля по-прежнему стоп сразу. Замер — `…-r7`.
 
+
+## Пилот guided v5 r7 — compact-retry, 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r7`, коммит `25dd693`. Квалификация 12/12.
+Итог **0/3**, класс `unknown`/`exception` — **не отказ модели**.
+
+После успешного plan все три клетки упали на `registerAcceptance`: «Исходный прогон
+приёмки не выполнен». Docker Desktop не поднимал shim (`resource temporarily unavailable`),
+WSL/bpf недоступны; ~76 exited-контейнеров и давление на PID. Chunk не стартовал.
+
+**Помогло ли.** Не измерено: среда. После `docker container prune` smoke `node:22-alpine`
+снова зелёный. Повтор — `…-r8`.
+
