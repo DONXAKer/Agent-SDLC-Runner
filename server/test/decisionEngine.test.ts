@@ -99,14 +99,17 @@ test('empty truncated content raises the default completion ceiling without an e
 });
 
 test('a truncated runaway loop does not climb the completion ladder', async t => {
+  // Пилот r8: один компактный повтор на том же бюджете; второй runaway — стоп, лимит не растёт.
   const directory = mkdtempSync(join(tmpdir(), 'decision-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const limits: number[] = [];
+  const packets: Array<Record<string, unknown>> = [];
   const loop = '{"kind":"type_alias_declaration","name":"Customer","type":{"kind":"type","text":"import(\'./customer.ts\').Customer"}},'.repeat(8);
   const provider: ChatProvider = {
     name: 'memoryless',
     async chat(req) {
       limits.push(Number(req.params?.max_tokens));
+      packets.push(JSON.parse(req.messages[1]!.content) as Record<string, unknown>);
       return { ...turn(loop), finishReason: 'max_tokens' };
     },
   };
@@ -115,7 +118,33 @@ test('a truncated runaway loop does not climb the completion ladder', async t =>
     engine.decide({ questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(), schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal }),
     (error: unknown) => error instanceof DecisionError && error.category === 'invalid-response' && /repeats the same fragment/.test(error.message),
   );
-  assert.deepEqual(limits, [4096]);
+  assert.deepEqual(limits, [4096, 4096]);
+  const recovery = packets[1]?.recovery as { rejectedProposal?: string; instruction?: string } | undefined;
+  assert.match(String(recovery?.instruction), /repeating fragment/i);
+  assert.match(String(recovery?.rejectedProposal), /runaway loop omitted/i);
+  assert.ok(String(recovery?.rejectedProposal).length < loop.length);
+});
+
+test('a truncated runaway loop can recover on the compact retry', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'decision-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const limits: number[] = [];
+  const loop = '{"kind":"type_alias_declaration","name":"Customer","type":{"kind":"type","text":"import(\'./customer.ts\').Customer"}},'.repeat(8);
+  const provider: ChatProvider = {
+    name: 'memoryless',
+    async chat(req) {
+      limits.push(Number(req.params?.max_tokens));
+      if (limits.length === 1) return { ...turn(loop), finishReason: 'max_tokens' };
+      return turn('{"decision":"keep"}');
+    },
+  };
+  const engine = new DecisionEngine({ provider, directory, capture: context, contextWindow: 20000 });
+  const result = await engine.decide({
+    questionId: 'counter', question: { source: 'counter=1' }, instructions: 'Decide', context: context(),
+    schema, params: { max_tokens: 4096 }, model: 'fixture', signal: new AbortController().signal,
+  });
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(limits, [4096, 4096]);
 });
 
 test('non-empty truncation without an exact period also refuses to climb', async t => {

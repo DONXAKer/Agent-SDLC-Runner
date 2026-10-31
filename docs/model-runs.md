@@ -8063,3 +8063,22 @@ WSL/bpf недоступны; ~76 exited-контейнеров и давлен�
 **Помогло ли.** Не измерено: среда. После `docker container prune` smoke `node:22-alpine`
 снова зелёный. Повтор — `…-r8`.
 
+
+## Пилот guided v5 r8 — remeasure compact-retry (Docker ок), 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r8`, коммит `25dd693` (код) + Docker prune.
+Квалификация 12/12. Итог **0/3**. Воронка Intent/Ask/Plan **3/3**, chunk стартовал на
+всех трёх, правка 0.
+
+| Клетка | Класс | Что случилось |
+|---|---|---|
+| 1–3 | semantic | точная петля @4096: typed IR крутит `type_alias_declaration Customer` (~60×),
+  `runawayRepetition` стопит сразу; компактный retry для *непериодической* инфляции не
+  вызывался |
+
+**Помогло ли.** Среда: да (r7 exception снят). Компактный retry r7: не измерен на этом
+профиле отказа — доминирует runaway. Пилот-гейт не открыт.
+
+**Доработка.** Один компактный повтор и на runaway (усечённый `rejectedProposal`, тот же
+`max_tokens`); второй runaway — стоп. Замер — `…-r9`.
+

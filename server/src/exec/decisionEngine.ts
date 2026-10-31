@@ -156,7 +156,14 @@ export class DecisionEngine {
       requested: typeof decodingParams.max_tokens === 'number' ? decodingParams.max_tokens : undefined });
     let maxTokens = ladder.start;
     let truncationRaises = 0;
+    /** Один компактный повтор на точную петлю (пилот r8: Customer×62 @4096) — без подъёма лимита. */
+    let runawayCompactRetryUsed = false;
     const rejections = new Map<string, number>();
+    const recoveryProposal = (text: string, runaway: boolean): string => {
+      if (runaway) return `${text.slice(0, 600)}\n…[truncated runaway loop omitted; length=${text.length}]`;
+      if (text.length <= 4000) return text;
+      return `${text.slice(0, 2000)}\n…[truncated incomplete JSON; length=${text.length}]\n${text.slice(-500)}`;
+    };
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       input.signal.throwIfAborted();
       assertCurrent();
@@ -217,10 +224,10 @@ export class DecisionEngine {
         // 4096→8192→16384 сжигает stageMinutes. Пустой content — другой класс (reasoning
         // съел бюджет): его по-прежнему поднимаем.
         //
-        // Пилот r6: мгновенный throw на непустом обрезе обходил и компактный retry DecisionEngine,
-        // и format-repair GuidedExecutor (DecisionError пробрасывается наружу). Точная петля
-        // редко чинится новым запросом — стоп сразу. Инфляция без периода — тот же бюджет,
-        // новая инструкция «компактный полный JSON», без подъёма max_tokens.
+        // Пилот r6: мгновенный throw на непустом обрезе обходил компактный retry. r8: точная
+        // петля (Customer×N в typed IR) доминирует — один компактный повтор на том же бюджете
+        // с усечённым rejectedProposal (полный хвост петли раздувает пакет и провоцирует
+        // продолжение). Второй runaway — стоп. Инфляция без периода — до maxAttempts.
         if (!emptyContent) {
           const runaway = runawayRepetition(turn.text);
           const reason = runaway
@@ -228,15 +235,21 @@ export class DecisionEngine {
             : `Response reached max_tokens=${maxTokens} with non-empty content; raising the limit is disabled for structured decisions — return a compact complete JSON`;
           this.options.onValidation?.({ questionId: input.questionId, accepted: false, reason });
           record('truncated', { rejectedProposal: turn.text, diagnostics: reason, runaway });
-          if (runaway) throw new DecisionError('invalid-response', reason, id, usage);
-          if (attempt >= maxAttempts) throw new DecisionError('invalid-response', reason, id, usage);
+          const stopRunaway = runaway && (runawayCompactRetryUsed || attempt >= maxAttempts);
+          if (stopRunaway || (!runaway && attempt >= maxAttempts)) {
+            throw new DecisionError('invalid-response', reason, id, usage);
+          }
+          if (runaway) runawayCompactRetryUsed = true;
           feedback = {
-            rejectedProposal: turn.text,
+            rejectedProposal: recoveryProposal(turn.text, runaway),
             diagnostics: reason,
-            instruction:
-              'Previous response reached max_tokens with incomplete JSON. Do not continue or repeat that text. '
-              + 'Return one complete compact JSON decision now: smallest valid ops, one file when possible, '
-              + 'short bodies, tables for cases. Preserve all constraints.',
+            instruction: runaway
+              ? 'Previous response truncated into a repeating fragment. Do not continue or repeat that text. '
+                + 'Return one complete compact JSON decision now. Each declaration/name at most once. '
+                + 'Prefer the smallest valid ops; use tables for cases. Preserve all constraints.'
+              : 'Previous response reached max_tokens with incomplete JSON. Do not continue or repeat that text. '
+                + 'Return one complete compact JSON decision now: smallest valid ops, one file when possible, '
+                + 'short bodies, tables for cases. Preserve all constraints.',
           };
           continue;
         }
