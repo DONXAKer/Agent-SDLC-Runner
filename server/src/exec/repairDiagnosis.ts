@@ -14,7 +14,15 @@ export interface ObservedTestFailure { name: string; actual: string | null; expe
 export function evidenceRepairTargets(output: string, allowed: readonly string[]): string[] {
   const implementation = allowed.filter(file => !isTestPath(file));
   const clean = output.replace(/\u001b\[[0-9;]*m/gu, '').replace(/\\/gu, '/');
-  const diagnostics = [...clean.matchAll(/^(.+?)\((\d+),(\d+)\):\s*error TS\d+:/gmu)].map(match => match[1]!.trim());
+  // Пути из вывода компиляторов, а не из догадок модели: tsc (`file(line,col): error
+  // TS…`), rustc/cargo check (` --> src/foo.rs:12:5`), go vet/build
+  // (`./foo.go:10:2: …`, с префиксом `vet: ` при враппере). Форматы разные, инвариант
+  // один — файл назван самой проверкой, с номером строки.
+  const diagnostics = [
+    ...[...clean.matchAll(/^(.+?)\((\d+),(\d+)\):\s*error TS\d+:/gmu)].map(match => match[1]!.trim()),
+    ...[...clean.matchAll(/^\s*-->\s+(.+?):\d+:\d+\s*$/gmu)].map(match => match[1]!.trim()),
+    ...[...clean.matchAll(/^(?:vet:\s*)?(\.?\/[^\s:]+\.go):\d+:\d+:/gmu)].map(match => match[1]!.trim().replace(/^\.\//, '')),
+  ];
   if (diagnostics.length) {
     // Never infer an editable file from a basename or a diagnostic outside the scope.
     if (diagnostics.some(path => !implementation.includes(path))) return [];

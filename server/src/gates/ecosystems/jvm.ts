@@ -14,6 +14,10 @@ export const gradleWrapper: Ecosystem = {
     depsDir: null,
   }),
   codeExt: ['.java', '.kt', '.kts', '.scala', '.groovy'],
+  // Линт-пресета намеренно нет: checkstyle/spotbugs/ktlint подключаются в билд-файле
+  // проекта, и угаданная команда запустит либо не ту конфигурацию, либо несуществующую
+  // задачу. Проект задаёт свою команду через `lint` в профиле модуля. Типчекер без
+  // сборки тоже не выдумываем: типы JVM-языков проверяет сама компиляция (`build`).
   disableMarkers: ['@Disabled', '@Ignore'],
   testDecl: ['@Test'],
 };

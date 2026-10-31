@@ -7,15 +7,21 @@
  * мест было проще, чем заметить это.
  */
 
+import { dart } from './dart.ts';
 import { dotnet } from './dotnet.ts';
+import { elixir } from './elixir.ts';
 import { go } from './go.ts';
+import { cabal, stack } from './haskell.ts';
 import { gradle, gradleWrapper, maven } from './jvm.ts';
 import { node, typescriptOnly } from './node.ts';
+import { perl } from './perl.ts';
 import { php } from './php.ts';
 import { python } from './python.ts';
 import { ruby } from './ruby.ts';
 import { cargo } from './rust.ts';
+import { shell } from './shell.ts';
 import { swift } from './swift.ts';
+import { zig } from './zig.ts';
 import type { BuildSystem, Ecosystem, EcosystemEnv } from './types.ts';
 
 export type { BuildSystem, Ecosystem, EcosystemEnv } from './types.ts';
@@ -25,8 +31,9 @@ export type { BuildSystem, Ecosystem, EcosystemEnv } from './types.ts';
  *
  * `gradlew` перед `gradle`: обёртка фиксирует версию сборщика в репозитории. `package.json`
  * перед `tsconfig.json`: собственный build-скрипт — то, чем проект реально собирается.
- * Python идёт последним из-за широкого набора манифестов (`setup.cfg` встречается и в
- * репозиториях, собираемых не питоном).
+ * `stack` перед `cabal` — тем же принципом, что обёртка gradle: `stack.yaml` фиксирует
+ * резолвер и версию компилятора. Python идёт последним из-за широкого набора манифестов
+ * (`setup.cfg` встречается и в репозиториях, собираемых не питоном).
  */
 export const ORDER: readonly Ecosystem[] = [
   gradleWrapper,
@@ -40,6 +47,13 @@ export const ORDER: readonly Ecosystem[] = [
   dotnet,
   ruby,
   swift,
+  dart,
+  elixir,
+  stack,
+  cabal,
+  zig,
+  perl,
+  shell,
   python,
 ];
 

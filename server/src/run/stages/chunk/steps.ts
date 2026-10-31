@@ -41,6 +41,8 @@ import { runNamedGate } from './evidence.ts';
  * только на этапе 6) — но НЕ безусловно: строка берётся, только если сам целевой проект
  * завёл и включил её в своём `.sdlc/gates.md`. Раннер не навязывает языковую проверку всем
  * целевым проектам по умолчанию — см. тело функции и `gates/builtin/imports.ts`.
+ * Тем же opt-in приёмом подключаются «Типы» (быстрая компилируемость без сборки — первая
+ * в ряду, см. тело функции) и «Линт экосистемы» (последняя).
  *
  * Сигнатура больше не принимает имя файла шага: после отказа от `TEST_FILE`-сужения строки
  * набора выбираются только по `.sdlc/gates.md`, файл шага ни на что не влияет — параметр
@@ -107,6 +109,13 @@ export function plannedTestFollowup(
 
 export function gatesForStep(gates: GatesFile | null): GateRow[] {
   const rows: GateRow[] = [];
+  // «Типы» — opt-in, как «Импорты» ниже: только если проект сам завёл строку. Идёт
+  // ПЕРВОЙ: `tsc --noEmit`/`cargo check`/`go vet` дешевле полной сборки на порядок, и
+  // ловят класс «шаг сломал компилируемость» сразу после шага, а не на этапе 6, когда
+  // все шаги уже наложены друг на друга и чинить поздно. Текст ошибок компилятора —
+  // готовый вход ремонтного раунда StepExecutor.
+  const types = gates?.rows.find((r) => gateKey(r.name) === gateKey('Типы') && r.enabled);
+  if (types !== undefined) rows.push(types);
   const build = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
   if (build !== undefined) rows.push(build);
   const tests = gates?.rows.find((r) => gateKey(r.name) === gateKey('Тесты') && r.enabled);
@@ -119,6 +128,12 @@ export function gatesForStep(gates: GatesFile | null): GateRow[] {
   // уже нечем на следующем шаге» (docs/model-runs.md, 2026-09-10: gates/builtin/imports.ts).
   const imports = gates?.rows.find((r) => gateKey(r.name) === gateKey('Импорты') && r.enabled);
   if (imports !== undefined) rows.push(imports);
+  // «Линт экосистемы» — тем же opt-in приёмом, что «Импорты»: находка класса «шаг
+  // добавил неиспользуемый импорт/мертвую переменную» относится к файлу шага и чинится
+  // немедленным ремонтом, пока у ремонта есть права на этот файл. Линт идёт последним:
+  // при конфликте времени шага сборка и тесты важнее идиоматичности.
+  const lint = gates?.rows.find((r) => gateKey(r.name) === gateKey('Линт экосистемы') && r.enabled);
+  if (lint !== undefined) rows.push(lint);
   return rows;
 }
 

@@ -35,6 +35,11 @@ const GATE_CAUSE = new Map<string, RedCauseKind>([
   [gateKey('Scope: нетракованные файлы'), 'scope'],
   [gateKey('Сборка'), 'gate'],
   [gateKey('Тесты'), 'gate'],
+  // Явно, хотя дефолт и так 'gate': строка читается как перечень известных причин и не
+  // зависит от того, что станет с дефолтом при следующей правке.
+  [gateKey('Типы'), 'gate'],
+  [gateKey('Линт экосистемы'), 'gate'],
+  [gateKey('Форматы'), 'gate'],
   [gateKey('Анти-обход тест-гейта'), 'gate'],
   [gateKey('Секреты в diff'), 'gate'],
   [gateKey('Проверка предусловий публикации'), 'gate'],

@@ -43,6 +43,13 @@ export const node: Ecosystem = {
   // проверки синтаксиса у нас нет, и притворяться, что есть, значит красить исправный код.
   syntaxCheckExt: ['.js', '.mjs', '.cjs'],
   lint: (files) => ({ cmd: 'npx', args: ['--no-install', 'eslint', ...files], scope: 'files' }),
+  // Типы проверяет tsc, а не сборщик: vite/esbuild стирают аннотации, не читая их,
+  // и «сборка зелёная» у такого проекта ничего не говорит о типах. Без tsconfig
+  // запускать tsc нечего — `null`, а не угаданная команда.
+  typecheck: (env) =>
+    env.files.has('tsconfig.json')
+      ? { cmd: 'npx', args: ['--no-install', 'tsc', '--noEmit'] }
+      : null,
   funcDecl: [/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$]\w*)/, /^\s*(?:export\s+)?const\s+([A-Za-z_$]\w*)\s*=\s*(?:async\s*)?\(/],
   disableMarkers: [
     'it.skip(',

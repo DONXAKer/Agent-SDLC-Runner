@@ -73,10 +73,81 @@ describe('реестр экосистем', () => {
     strictEqual(new Set(ids).size, ids.length);
   });
 
+  it('типчекер либо настоящий, либо честно отсутствует', () => {
+    for (const eco of ORDER) {
+      if (eco.typecheck === undefined) continue;
+      const spec = eco.typecheck({ files: set(eco.manifests[0] ?? ''), packageJson: null });
+      // `null` — легальный ответ «инструмент есть, но этому каталогу не подходит».
+      if (spec === null) continue;
+      ok(spec.cmd.trim() !== '', `${eco.id}: пустая команда типчекера`);
+      ok(
+        spec.args.every((a) => a.trim() !== ''),
+        `${eco.id}: пустой аргумент типчекера`,
+      );
+    }
+  });
+
+  it('типчекер node — tsc, и только при наличии tsconfig', () => {
+    const node = ORDER.find((e) => e.id === 'node');
+    ok(node?.typecheck !== undefined);
+    const env = { files: set('package.json', 'tsconfig.json'), packageJson: null };
+    strictEqual(node.typecheck(env)?.cmd, 'npx');
+    ok(node.typecheck(env)?.args.includes('--noEmit'));
+    // Без tsconfig запускать tsc нечего: `null`, а не угаданная команда — гейт скажет
+    // «неприменим» вместо красного по несуществующей ошибке.
+    strictEqual(node.typecheck({ files: set('package.json'), packageJson: '{}' }), null);
+  });
+
+  it('ruby и swift получили линт-пресеты, jvm и dotnet — осознанно нет', () => {
+    strictEqual(ORDER.find((e) => e.id === 'ruby')?.lint?.(['app/a.rb'])?.scope, 'files');
+    strictEqual(ORDER.find((e) => e.id === 'swift')?.lint?.(['Sources/a.swift'])?.scope, 'files');
+    // Общепринятого инструмента вне билд-файла проекта у этих стеков нет: угаданная
+    // команда проверяла бы не ту конфигурацию. Проект называет свою через ModuleProfile.
+    for (const id of ['gradle-wrapper', 'gradle', 'maven', 'dotnet']) {
+      const eco = ORDER.find((e) => e.id === id);
+      strictEqual(eco?.lint, undefined, `${id}: линтер выдуман`);
+      strictEqual(eco?.typecheck, undefined, `${id}: типчекер выдуман`);
+    }
+  });
+
   it('обёртка gradlew выигрывает у обычного gradle', () => {
     const s = detectBuildSystem(set('gradlew', 'build.gradle'), null);
     ok(s !== null);
     ok(s.build?.includes('./gradlew'));
+  });
+
+  it('dart, elixir, haskell, zig, perl и shell опознаются по своим манифестам', () => {
+    strictEqual(detectEcosystem(set('pubspec.yaml'))?.id, 'dart');
+    strictEqual(detectEcosystem(set('mix.exs'))?.id, 'elixir');
+    strictEqual(detectEcosystem(set('stack.yaml'))?.id, 'stack');
+    strictEqual(detectEcosystem(set('cabal.project'))?.id, 'cabal');
+    strictEqual(detectEcosystem(set('build.zig'))?.id, 'zig');
+    strictEqual(detectEcosystem(set('cpanfile'))?.id, 'perl');
+    strictEqual(detectEcosystem(set('Makefile.PL'))?.id, 'perl');
+    strictEqual(detectEcosystem(set('.shellcheckrc'))?.id, 'shell');
+  });
+
+  it('stack выигрывает у cabal: резолвер зафиксирован в репозитории', () => {
+    // Тот же принцип, что у gradlew перед gradle.
+    strictEqual(detectEcosystem(set('stack.yaml', 'cabal.project'))?.id, 'stack');
+  });
+
+  it('дешёвые проверки синтаксиса новых стеков находятся по расширению', () => {
+    strictEqual(syntaxCheckerFor('lib/a.pl')?.id, 'perl');
+    strictEqual(syntaxCheckerFor('src/a.zig')?.id, 'zig');
+    strictEqual(syntaxCheckerFor('bin/a.sh')?.id, 'shell');
+    strictEqual(syntaxCheckerFor('lib/a.dart')?.id, 'dart');
+    // У elixir и haskell дешёвой пофайловой проверки нет — и притворяться нельзя.
+    strictEqual(syntaxCheckerFor('lib/a.ex'), null);
+    strictEqual(syntaxCheckerFor('src/A.hs'), null);
+  });
+
+  it('dart не угадывает раннер тестов: dart и flutter различимы лишь по тексту pubspec', () => {
+    // Реестр читает только имена файлов; угаданный `dart test` на Flutter-проекте падал
+    // бы по чужой причине. Раннер задаётся конфигом проекта.
+    const d = detectBuildSystem(set('pubspec.yaml'), null);
+    strictEqual(d?.build, null);
+    strictEqual(d?.test, null);
   });
 
   it('package.json выигрывает у tsconfig.json', () => {

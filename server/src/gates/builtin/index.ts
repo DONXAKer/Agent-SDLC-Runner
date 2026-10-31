@@ -19,6 +19,7 @@ import {
   detectEcosystem,
   syntaxCheckerFor,
 } from '../ecosystems/index.ts';
+import { fileLinterFor, type FileLinter } from '../ecosystems/formats.ts';
 import { foldPathCase, normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
 import { baseCheckGate } from './baseCheck.ts';
@@ -1248,6 +1249,296 @@ const lintGate: BuiltinGate = async (ctx) => {
   });
 };
 
+/**
+ * Типы/компилируемость без сборки артефактов: быстрый ответ «код компилируется?».
+ *
+ * Отдельный гейт от «Сборки», потому что вопрос другой: сборка производит артефакты и
+ * стоит дорого, а пошаговый цикл имплементации после каждого шага хочет лишь знать, не
+ * сломаны ли типы, — `tsc --noEmit`, `cargo check`, `go vet` отвечают за секунды там,
+ * где `npm run build` занял бы минуту и пересобрал полрепозитория. Быстрота нужна и для
+ * самого вопроса: vite/esbuild стирают типы, не читая их, и зелёная «Сборка» такого
+ * проекта не говорит о типах ничего.
+ *
+ * Та же честная тройка исходов, что у линта: инструмента нет на машине или у экосистемы
+ * нет типчекера вовсе → `⏭` со словами «типы НЕ проверялись», а не поддельный ✅;
+ * ненулевой код → ❌ с хвостом вывода — текст ошибок компилятора и есть главный вход
+ * ремонтного раунда следующей попытки. Проверка модульная: типчекеры работают на модуль
+ * целиком, и сужать их до изменённых файлов значило бы ловить «неиспользуемый экспорт»
+ * как ошибку.
+ */
+const typecheckGate: BuiltinGate = async (ctx) => {
+  const mods = resolveModules(ctx);
+  if (mods.length === 0) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'модуль не определён — типы НЕ проверялись',
+    };
+  }
+
+  const parts = await forEachModule(ctx, mods, async (mod) => {
+    const declaredId = declaredModule(ctx, mod.dir)?.ecosystem;
+    const eco =
+      declaredId === undefined
+        ? detectEcosystem(mod.files)
+        : (ORDER.find((e) => e.id === declaredId) ?? null);
+
+    // Переопределение из конфига проекта сильнее пресета — тот же приоритет, что у сборки.
+    const override = declaredModule(ctx, mod.dir)?.typecheck;
+    if (override === undefined && eco?.typecheck === undefined) {
+      return {
+        status: '⏭' as const,
+        command: null,
+        exitCode: null,
+        lastLine: `для ${mod.dir} типчекера нет — компилируемость без сборки НЕ проверялась`,
+      };
+    }
+
+    const cwd = join(ctx.projectRoot, mod.dir);
+
+    // Команда из конфига — через шелл, ровно как `build`/`lint` того же конфига.
+    if (override !== undefined) {
+      const r = await runShell(override, {
+        cwd,
+        timeoutMs: ctx.timeoutMs,
+        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+      });
+      if (r.denied !== null) {
+        return { status: '⏭' as const, command: override, exitCode: null, lastLine: r.lastLine };
+      }
+      return {
+        status: r.exitCode === 0 ? ('✅' as const) : ('❌' as const),
+        command: override,
+        exitCode: r.exitCode,
+        lastLine: r.timedOut
+          ? `проверка типов не уложилась в ${ctx.timeoutMs} мс — типы НЕ проверялись`
+          : `${mod.dir}: ${r.lastLine}`,
+        outputTail: outputTailOf(r.stdout, r.stderr),
+        output: fullOutputOf(r.stdout, r.stderr),
+      };
+    }
+
+    const spec = eco?.typecheck?.({
+      files: mod.files,
+      packageJson: readIfExists(join(ctx.projectRoot, mod.dir, 'package.json')),
+    });
+    // `null` от пресета — «инструмент есть, но этому каталогу не подходит» (node-проект
+    // без tsconfig): это утверждение о каталоге, а не об экосистеме, и честнее ⏭ с этим
+    // объяснением, чем запуск tsc наугад.
+    if (spec === undefined || spec === null) {
+      return {
+        status: '⏭' as const,
+        command: null,
+        exitCode: null,
+        lastLine: `для ${mod.dir} типчекер неприменим — типы НЕ проверялись`,
+      };
+    }
+
+    const r = await runSyntaxCheck(spec.cmd, spec.args, {
+      ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+      cwd,
+      // Потолок этапа, а не дешёвого пофайлового чека: `tsc --noEmit` и `go vet ./...`
+      // читают модуль целиком и в десятисекундный лимит синтаксической проверки не
+      // укладываются — краснели бы как «не успел».
+      timeoutMs: ctx.timeoutMs,
+    });
+    const shown = `${spec.cmd} ${spec.args.join(' ')}`.trim();
+    if (r.noTool) {
+      return {
+        status: '⏭' as const,
+        command: shown,
+        exitCode: null,
+        lastLine: `типчекер ${spec.cmd} не найден на машине — типы НЕ проверялись`,
+        missingTool: spec.cmd,
+      };
+    }
+    // Отмена и таймаут — отсутствие проверки, а не нарушение: красный по ним обвинял бы
+    // код в том, чего никто не читал.
+    if (r.aborted || r.timedOut) {
+      return {
+        status: '⏭' as const,
+        command: shown,
+        exitCode: null,
+        lastLine: r.aborted
+          ? `проверка типов прервана отменой — типы НЕ проверялись`
+          : `проверка типов не уложилась в ${ctx.timeoutMs} мс — типы НЕ проверялись`,
+      };
+    }
+    const tail = r.output
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== '')
+      .slice(-3)
+      .join(' ');
+    return {
+      status: r.code === 0 ? ('✅' as const) : ('❌' as const),
+      command: shown,
+      exitCode: r.code,
+      lastLine:
+        r.code === 0
+          ? 'ошибок типов нет'
+          : tail === ''
+            ? 'типчекер сообщил об ошибках, вывод пуст'
+            : tail,
+      // Полный вывод компилятора — в улику: по нему следующая попытка чинит типы не
+      // вслепую, как с тестами до появления outputTail.
+      outputTail: outputTailOf(r.output, ''),
+      output: fullOutputOf(r.output, ''),
+    };
+  });
+
+  return aggregate(parts, {
+    status: '⏭',
+    command: null,
+    exitCode: null,
+    lastLine: 'типчекер не нужен ни одному модулю',
+  });
+};
+
+/**
+ * Потолок файлов в одном прогоне форматного линтера: без него виток с сотней изменённых
+ * конфигов порождал бы argv длиной в сотню путей — пределы командной строки конечны.
+ */
+const FORMAT_LINT_BATCH = 200;
+
+/**
+ * Форматы конфигов и документации: yamllint, hadolint, markdownlint — ПОФАЙЛОВО.
+ *
+ * Отдельный гейт от «Линт экосистемы», потому что адресат другой: экосистемный линт
+ * проверяет код модуля и фильтруется по `codeExt`, а `.md`/`.yaml` не входят ни в один
+ * `codeExt`, а у `Dockerfile` нет расширения вовсе — через модульный линт они не
+ * проходят по построению. Здесь файлы группируются по линтеру формата
+ * (`fileLinterFor` ищет по имени/расширению, без модулей и манифестов).
+ *
+ * Та же честная тройка исходов: линтера нет на машине → ⏭ «формат НЕ проверялся», а не
+ * ❌ и не выдуманный ✅; ненулевой код → ❌ с хвостом вывода в улику; чисто → ✅.
+ * Форматных файлов в изменениях нет → ⏭: зелёный без единого проверенного файла был бы
+ * ложным зелёным.
+ */
+const formatsGate: BuiltinGate = async (ctx) => {
+  const changed = await changedPaths(ctx.projectRoot, ctx.signal);
+  const groups = new Map<FileLinter, string[]>();
+  for (const f of changed) {
+    const linter = fileLinterFor(f);
+    if (linter === null) continue;
+    const group = groups.get(linter) ?? [];
+    group.push(f);
+    groups.set(linter, group);
+  }
+  if (groups.size === 0) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'форматных файлов в изменениях нет — форматы НЕ проверялись',
+    };
+  }
+
+  const parts: { dir: string; outcome: BuiltinOutcome }[] = [];
+  for (const [linter, files] of groups) {
+    // Нативная проверка (валидность JSON): инструмент не нужен, исхода «⏭ инструмент
+    // не найден» нет по построению — каждый изменённый файл действительно разобран.
+    if (linter.parse !== undefined) {
+      const parse = linter.parse;
+      const broken: string[] = [];
+      for (const f of files) {
+        const text = readIfExists(join(ctx.projectRoot, f));
+        // Файл удалён в этом же diff — проверять нечего, это не поломка.
+        if (text === null) continue;
+        const err = parse(text);
+        if (err !== null) broken.push(`${f}: ${err}`);
+      }
+      parts.push({
+        dir: linter.label,
+        outcome:
+          broken.length === 0
+            ? {
+                status: '✅',
+                command: 'нативный разбор рантаймом',
+                exitCode: 0,
+                lastLine: `${linter.label}: все файлы парсятся (файлов: ${files.length})`,
+              }
+            : {
+                status: '❌',
+                command: 'нативный разбор рантаймом',
+                exitCode: 1,
+                lastLine: broken.slice(0, 3).join(' '),
+                outputTail: broken.join('\n'),
+                output: broken.join('\n'),
+              },
+      });
+      continue;
+    }
+    const cmd = linter.cmd;
+    // Записи без `cmd` и без `parse` не бывает — это зафиксировано в типе реестра.
+    if (cmd === undefined) continue;
+    const runs = await inBatches(files, FORMAT_LINT_BATCH, (batch) =>
+      runSyntaxCheck(cmd, [...(linter.args ?? []), ...batch], {
+        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+        cwd: ctx.projectRoot,
+        timeoutMs: ctx.timeoutMs,
+      }),
+    );
+    const shown = `${cmd} ${[...(linter.args ?? []), `(${files.length} файл(ов))`].join(' ')}`.trim();
+    if (runs.some((r) => r.noTool)) {
+      parts.push({
+        dir: linter.label,
+        outcome: {
+          status: '⏭',
+          command: shown,
+          exitCode: null,
+          lastLine: `${cmd} не найден на машине — ${linter.label} НЕ проверялся`,
+          missingTool: cmd,
+        },
+      });
+      continue;
+    }
+    // Отмена и таймаут — отсутствие проверки, а не нарушение.
+    if (runs.some((r) => r.aborted || r.timedOut)) {
+      parts.push({
+        dir: linter.label,
+        outcome: {
+          status: '⏭',
+          command: shown,
+          exitCode: null,
+          lastLine: `проверка ${linter.label} прервана или не уложилась в ${ctx.timeoutMs} мс — формат НЕ проверялся`,
+        },
+      });
+      continue;
+    }
+    const output = runs.map((r) => r.output).join('');
+    const failed = runs.filter((r) => r.code !== 0);
+    const tail = output
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== '')
+      .slice(-3)
+      .join(' ');
+    parts.push({
+      dir: linter.label,
+      outcome: {
+        status: failed.length === 0 ? '✅' : '❌',
+        command: shown,
+        exitCode: failed[0]?.code ?? 0,
+        lastLine:
+          failed.length === 0
+            ? `${linter.label}: нарушений нет (файлов: ${files.length})`
+            : tail === ''
+              ? `${linter.label}: линтер сообщил о нарушениях, вывод пуст`
+              : tail,
+        outputTail: outputTailOf(output, ''),
+        output: fullOutputOf(output, ''),
+      },
+    });
+  }
+
+  return aggregate(parts, {
+    status: '⏭',
+    command: null,
+    exitCode: null,
+    lastLine: 'форматных файлов в изменениях нет',
+  });
+};
+
 /** Потолки гейта дублей: он эвристический, и минуты на критическом пути не стоит. */
 const DUPLICATE_NAME_LIMIT = 30;
 const DUPLICATE_SCAN_LIMIT = 2000;
@@ -2019,6 +2310,8 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
   ['линт экосистемы', lintGate],
+  ['типы', typecheckGate],
+  ['форматы', formatsGate],
   ['ответы человека в коде', humanAnswersGate],
   ['дубли хелперов', duplicatesGate],
   ['проверка предусловий публикации', publishGate],

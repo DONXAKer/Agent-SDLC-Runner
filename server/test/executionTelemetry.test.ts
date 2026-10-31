@@ -83,3 +83,14 @@ test('evidence repair accepts anchored diagnostics, protects tests and refuses u
   assert.deepEqual(evidenceRepairTargets('service unreachable',allowed),[]);
   assert.deepEqual(evidenceRepairTargets('not ok 1 - value\n actual: 1\n expected: 2',allowed),['lib/value.ts','other/value.ts']);
 });
+
+test('evidence repair anchors rustc and go vet diagnostics to their files', () => {
+  // Форматы вывода `cargo check` (` --> file:line:col`) и `go vet`/`go build`
+  // (`./file.go:line:col: …`, с префиксом `vet: ` при враппере) — тот же инвариант, что у
+  // tsc: файл назван самой проверкой, а не догадкой модели.
+  assert.deepEqual(evidenceRepairTargets('error[E0308]: mismatched types\n  --> src/value.rs:2:12\n', ['src/value.rs']), ['src/value.rs']);
+  assert.deepEqual(evidenceRepairTargets('./src/value.go:2:2: undefined: X\n', ['src/value.go']), ['src/value.go']);
+  assert.deepEqual(evidenceRepairTargets('vet: ./src/value.go:2:2: unreachable code\n', ['src/value.go']), ['src/value.go']);
+  // Диагностика вне scope — отказ, как у tsc: файл ремонта не выводится из чужого пути.
+  assert.deepEqual(evidenceRepairTargets('  --> other/value.rs:2:12\n', ['src/value.rs']), []);
+});

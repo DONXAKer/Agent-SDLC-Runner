@@ -14,6 +14,11 @@ export const ruby: Ecosystem = {
   }),
   codeExt: ['.rb'],
   syntaxCheck: (file) => ({ cmd: 'ruby', args: ['-c', file] }),
+  // Голый `rubocop`, а не `bundle exec rubocop`: у `lint` нет доступа к составу
+  // каталога, и на проекте без rubocop в Gemfile обёртка упала бы с ненулевым кодом —
+  // то есть красным гейтом там, где правильный ответ «инструмента нет». ENOENT по
+  // `rubocop` гейт честно переводит в ⏭.
+  lint: (files) => ({ cmd: 'rubocop', args: [...files], scope: 'files' }),
   funcDecl: [/^\s*def\s+([A-Za-z_]\w*)/],
   disableMarkers: ['xit ', 'xdescribe ', 'skip '],
   testDecl: ['it ', 'def test_'],
