@@ -97,8 +97,43 @@ export function compileWholeFileOperation(snapshot: Snapshot, allowedOps: readon
           expectedHash: digest(before), targetId: declarationId(before, original), body: snapshot.after.slice(item.bodyStart, item.bodyEnd) });
     }
   }
-  const valid = candidates.filter(op => { try { return applySymbolOp(before, op, before) === snapshot.after; } catch { return false; } });
-  if (valid.length === 0 || new Set(valid.map(op => 'symbol' in op ? op.symbol : '')).size !== 1)
+  // Пилот r11: barrel index.ts с одним новым `export { name } from '…'` — capabilities
+  // дают только ensure_reexport, а компилятор whole-file раньше смотрел лишь replace_*.
+  if (allowedOps.includes('ensure_reexport')) {
+    const reexportRe = /^[ \t]*export\s+\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?[ \t]*$/gmu;
+    for (const match of snapshot.after.matchAll(reexportRe)) {
+      const names = match[1]!.split(',').map(name => name.trim()).filter(Boolean);
+      if (names.length === 0) continue;
+      candidates.push({ op: 'ensure_reexport', file: snapshot.path, from: match[2]!, names });
+    }
+  }
+  if (allowedOps.includes('ensure_import')) {
+    const importRe = /^[ \t]*import\s+\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?[ \t]*$/gmu;
+    for (const match of snapshot.after.matchAll(importRe)) {
+      const names = match[1]!.split(',').map(name => name.trim()).filter(Boolean);
+      if (names.length === 0) continue;
+      candidates.push({ op: 'ensure_import', file: snapshot.path, from: match[2]!, names });
+    }
+  }
+  const collapseBlankRuns = (text: string): string =>
+    text.replace(/\r\n/gu, '\n').replace(/[ \t]+$/gmu, '').replace(/\n{2,}/gu, '\n').trimEnd() + '\n';
+  const valid = candidates.filter(op => {
+    try {
+      const applied = applySymbolOp(before, op, before);
+      if (applied === snapshot.after) return true;
+      // ensure_*: модель часто вставляет пустую строку вокруг экспорта — канон ensure*
+      // без неё; по смыслу это тот же реэкспорт (r11 index.ts + validateCustomer).
+      if (op.op === 'ensure_reexport' || op.op === 'ensure_import')
+        return collapseBlankRuns(applied) === collapseBlankRuns(snapshot.after);
+      return false;
+    } catch { return false; }
+  });
+  if (valid.length === 0)
     throw new Error('Whole-file change cannot be represented by one unambiguous authorized operation');
+  const keys = new Set(valid.map(op => {
+    if (op.op === 'ensure_reexport' || op.op === 'ensure_import') return `${op.op}:${op.from}:${op.names.join(',')}`;
+    return 'symbol' in op ? op.symbol : op.op;
+  }));
+  if (keys.size !== 1) throw new Error('Whole-file change cannot be represented by one unambiguous authorized operation');
   return valid[0]!;
 }

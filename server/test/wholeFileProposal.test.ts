@@ -53,3 +53,28 @@ test('compiles create_file even when EOL canonicalization would change proposed 
   assert.equal(compileWholeFileOperation(bare, ['create_file']).op, 'create_file');
   assert.throws(() => compileWholeFileOperation(crlf, ['replace_declaration']), /creation is not authorized/i);
 });
+test('compiles barrel whole-file reexport via ensure_reexport', () => {
+  // Пилот r11: capabilities barrel = ensure_reexport; модель добавила одну строку export.
+  const before = [
+    "export { buildInvoice } from './invoice.ts';",
+    "export type { Invoice } from './invoice.ts';",
+    '',
+    "import { buildInvoice } from './invoice.ts';",
+    '',
+  ].join('\n');
+  const after = [
+    "export { buildInvoice } from './invoice.ts';",
+    "export type { Invoice } from './invoice.ts';",
+    '',
+    "export { validateCustomer } from './validate.ts';",
+    '',
+    "import { buildInvoice } from './invoice.ts';",
+    '',
+  ].join('\n');
+  const op = compileWholeFileOperation({ path: 'src/index.ts', before, after }, ['ensure_reexport']);
+  assert.equal(op.op, 'ensure_reexport');
+  if (op.op === 'ensure_reexport') {
+    assert.equal(op.from, './validate.ts');
+    assert.deepEqual(op.names, ['validateCustomer']);
+  }
+});

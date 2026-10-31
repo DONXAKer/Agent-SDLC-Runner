@@ -8117,3 +8117,19 @@ whole-file доходят до схемы. Отказы:
 
 **Доработка.** Убрана ложная сверка байтов на create (EOL-канон ожидаем). Замер — `…-r11`.
 
+
+## Пилот guided v5 r11 — create EOL ok, 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r11`, коммит `e3eb9b9`. Квалификация 12/12.
+Итог **0/3**, все `schema`: `Whole-file change cannot be represented by one unambiguous
+authorized operation`. «Creation would alter proposed bytes» снят.
+
+Разбор: модель верно дописывает `export { validateCustomer } from './validate.ts'` в
+barrel `index.ts`; capabilities barrel — только `ensure_reexport`, а компилятор whole-file
+пробовал лишь `replace_*`. Плюс лишняя пустая строка вокруг экспорта ломала `apply===after`.
+
+**Помогло ли.** Create-путь разблокирован, но пилот всё ещё 0/3 на barrel.
+
+**Доработка.** Компилятор whole-file синтезирует `ensure_reexport`/`ensure_import`; для них
+сверка допускает схлопывание пустых строк. Замер — `…-r12`.
+
