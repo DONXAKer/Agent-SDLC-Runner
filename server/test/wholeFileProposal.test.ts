@@ -44,3 +44,12 @@ test('compiles only an authorized exact symbol change', () => {
   assert.throws(() => compileWholeFileOperation(snapshot, ['replace_declaration'], 'other'), /authorized/);
   assert.throws(() => compileWholeFileOperation({ ...snapshot, after: after.replace('other = 3', 'other = 4') }, ['replace_declaration']), /authorized/);
 });
+test('compiles create_file even when EOL canonicalization would change proposed bytes', () => {
+  // Пилот r10 клетки 2–3: модель отдавала CRLF / без финального \\n — applySymbolOp
+  // канонизирует, старая сверка apply===after роняла создание.
+  const crlf = { path: 'src/new.ts', before: null, after: 'export const value = 1;\r\n' };
+  const bare = { path: 'src/new.ts', before: null, after: 'export const value = 1;' };
+  assert.equal(compileWholeFileOperation(crlf, ['create_file']).op, 'create_file');
+  assert.equal(compileWholeFileOperation(bare, ['create_file']).op, 'create_file');
+  assert.throws(() => compileWholeFileOperation(crlf, ['replace_declaration']), /creation is not authorized/i);
+});

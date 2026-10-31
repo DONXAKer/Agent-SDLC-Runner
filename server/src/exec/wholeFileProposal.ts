@@ -75,8 +75,12 @@ export function prepareWholeFileGroup(entries: readonly {
 export function compileWholeFileOperation(snapshot: Snapshot, allowedOps: readonly string[], symbol?: string): SymbolOp {
   if (snapshot.before === null) {
     if (!allowedOps.includes('create_file')) throw new Error('File creation is not authorized');
+    // create_file канонизирует EOL (`\r\n`→`\n`, trimEnd + `\n`). Пилот r10: сверка
+    // `apply === after` роняла каждое создание с CRLF или без завершающего перевода строки
+    // («Creation would alter proposed bytes»), хотя на диске ушёл бы канонический вид.
+    // Принимаем предложение; запись идёт через applySymbolOp и получает тот же канон.
     const op: SymbolOp = { op: 'create_file', file: snapshot.path, body: snapshot.after };
-    if (applySymbolOp(null, op) !== snapshot.after) throw new Error('Creation would alter proposed bytes');
+    applySymbolOp(null, op); // проверка контракта create_file (не пустое / не существующий файл)
     return op;
   }
   const before = snapshot.before;

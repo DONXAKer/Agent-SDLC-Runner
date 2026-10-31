@@ -8098,3 +8098,22 @@ retry вызывался, ответ не менялся (deterministic). Лим
 **Следующая ручка.** Профиль `ollama:qwen3.8-27b-iq4-gpumax-wf` (`editRepresentation:
 whole-file`) + стоп на неизменном truncate. Замер — `…-r10`.
 
+
+## Пилот guided v5 r10 — whole-file, 2026-10-31
+
+`bench/results/guided-v5-pilot-qwen27b-20261030-r10`, коммит `d7ea9db`, модель
+`ollama:qwen3.8-27b-iq4-gpumax-wf`. Квалификация 12/12. Итог **0/3**.
+
+Воронка Intent/Ask/Plan **3/3**, chunk стартовал; **truncate/IR-петли сняты** — ответы
+whole-file доходят до схемы. Отказы:
+
+| Клетка | Класс | Причина |
+|---|---|---|
+| 1 | schema | `Whole-file change cannot be represented by one unambiguous authorized operation` (правка существующего) |
+| 2–3 | schema | `Creation would alter proposed bytes` — create_file канонизирует EOL, сверка `apply===after` ложная |
+
+**Помогло ли.** Частично: класс отказа сдвинулся с semantic/truncate на schema; правка 0.
+Пилот-гейт не открыт.
+
+**Доработка.** Убрана ложная сверка байтов на create (EOL-канон ожидаем). Замер — `…-r11`.
+
